@@ -37,7 +37,9 @@ by FORMAT, generically: "PNEZD CSV consumed by robotic-total-station field
 tablets", "XLSX + DXF consumed by grid layout tablets", "layer conventions
 familiar from leading CAD/BIM authoring tools". This extends invariant #7.
 
-## This round (in flight): Fieldstitch + the 60,000% visual pass
+## Last completed round: Fieldstitch + the visual pass (SHIPPED)
+
+All items below are BUILT, tested (19 suites green) and pushed:
 
 1. **`rfi_stamper/fieldstitch.py`** (engine, GUI-free, tested):
    - `PointLayer(name, color, visible, locked, category)`;

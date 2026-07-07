@@ -196,7 +196,7 @@ def parse_fields(chunk: str, fname: str) -> RFIRecord:
     if m:
         rec.question = _section_after(chunk, m.end())
 
-    # answer: best candidate among all Answer:/Response: blocks.  Procore-style
+    # answer: best candidate among all Answer:/Response: blocks.  Some
     # printouts restate the question after a blank Answer:, so any candidate
     # that opens with a verbatim(ish) copy of the question is rejected.
     best = ""

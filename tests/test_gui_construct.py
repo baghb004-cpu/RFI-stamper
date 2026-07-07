@@ -163,6 +163,66 @@ def main():
     app.truth.refresh()
     root.update()
 
+    # ---- Fieldstitch studio: place, number, layer, world coords, export
+    app.goto("plans")
+    fst = app.plans.fieldstitch
+    app.plans.nb.select(fst)
+    root.update()
+    fst.open_pdf(pdf)
+    root.update()
+    fst.prefix_var.set("CP-")
+    fst.num_var.set("7")
+
+    class _Ev:
+        x, y, state = 120, 140, 0
+    fst.set_tool("place")
+    fst.on_press(_Ev())
+    root.update()
+    assert len(fst.job.points) == 1
+    p0 = fst.job.points[0]
+    assert fst.job.composed(p0) == "CP-007", fst.job.composed(p0)
+    assert fst.job.next_num == 8
+    # world coordinates after scale + basepoint
+    fst.set_scale('1/8" = 1\'-0"', 8.0 / 72.0, "ft")
+    fst.job.base_page_xy = (p0.x, p0.y)
+    fst.job.base_world = (5000.0, 2000.0)
+    n, e, _z = fst.job.to_world(p0)
+    assert abs(n - 5000.0) < 1e-6 and abs(e - 2000.0) < 1e-6
+    # strata: toggling visibility hides the marker
+    fst.redraw_points()
+    root.update()
+    assert fst.viewer.canvas.find_withtag("pt")
+    fst.job.layers[0].visible = False
+    fst.redraw_points()
+    root.update()
+    assert not fst.viewer.canvas.find_withtag("pt")
+    fst.job.layers[0].visible = True
+    # export a full spool kit and check the files exist
+    import rfi_stamper.fieldstitch as fs
+    kitdir = os.path.join(tmp, "kit")
+    os.makedirs(kitdir, exist_ok=True)
+    res = fs.export_kit(fst.job, kitdir, "fullspool")
+    assert res["points"] == 1
+    exts = sorted(os.path.splitext(f)[1] for f in res["files"])
+    assert exts == [".csv", ".dxf", ".json", ".xlsx"], exts
+
+    # ---- 3D: pins land in the viewer and Horizon Slice culls geometry
+    fst.push_pins()
+    root.update()
+    assert app.plans.bim.pins, "pins should reach the BIM viewer"
+    import rfi_stamper.bim as bim2
+    app.plans.bim.set_model(bim2.demo_building())
+    root.update()
+    full_items = len(app.plans.bim.canvas.find_all())
+    app.plans.bim.slice_var.set(30.0)
+    app.plans.bim._on_slice()
+    root.update()
+    sliced_items = len(app.plans.bim.canvas.find_all())
+    assert sliced_items < full_items, (sliced_items, full_items)
+    assert app.plans.bim.canvas.find_withtag("cut"), "cut plane drawn"
+    app.plans.bim.slice_var.set(100.0)
+    app.plans.bim._on_slice()
+
     # CLI --help unswallowed (regression)
     import subprocess
     r = subprocess.run([sys.executable, "-m", "rfi_stamper", "--help"],

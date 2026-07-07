@@ -153,6 +153,88 @@ class App:
         if last and os.path.exists(last):
             self._load_project(last)
 
+        if fx.quality() != "off":
+            self.root.after(50, self._warp_up)
+
+    # ------------------------------------------------------------ warp-up
+    def _warp_up(self):
+        """Boot splash: loom warp threads rise, the wordmark resolves, a
+        weft shuttle sweeps under it, then the curtain lifts.  Click skips.
+        Runs entirely on fx's scheduler; never shown when quality is off."""
+        from .theme import mix
+        c = self.theme.colors
+        cv = tk.Canvas(self.root, highlightthickness=0, bg=c["bg"])
+        cv.place(x=0, y=0, relwidth=1.0, relheight=1.0)
+        cv.bind("<Button-1>", lambda e: _finish(True))
+        self.root.update_idletasks()
+        w = max(cv.winfo_width(), 400)
+        h = max(cv.winfo_height(), 300)
+        cx, cy = w / 2, h / 2 - 20
+        n_threads = 26
+        span = min(w * 0.55, 720)
+        xs = [cx - span / 2 + span * i / (n_threads - 1)
+              for i in range(n_threads)]
+        thread_col = mix(c["accent"], c["bg"], 0.55)
+
+        def draw_threads(t):
+            if not cv.winfo_exists():
+                return
+            cv.delete("warp")
+            for i, x in enumerate(xs):
+                # threads rise outward-in with a slight per-thread delay
+                d = abs(i - (n_threads - 1) / 2) / (n_threads / 2)
+                tt = max(0.0, min(1.0, (t - d * 0.35) / 0.65))
+                if tt <= 0:
+                    continue
+                y0 = cy + 90
+                y1 = y0 - (170 * tt)
+                cv.create_line(x, y0, x, y1, fill=thread_col, width=1,
+                               tags="warp")
+
+        def draw_mark(t):
+            if not cv.winfo_exists():
+                return
+            cv.delete("mark")
+            fg = mix(c["bg"], c["fg"], t)
+            ac = mix(c["bg"], c["accent"], t)
+            t1 = cv.create_text(cx, cy, text="PLAN", anchor="e", fill=fg,
+                                font=("Segoe UI", 34, "bold"), tags="mark")
+            cv.create_text(cv.bbox(t1)[2] + 2, cy, text="LOOM", anchor="w",
+                           fill=ac, font=("Segoe UI", 34, "bold"),
+                           tags="mark")
+            cv.create_text(cx, cy + 44, tags="mark",
+                           text="weaves the answers into the sheets",
+                           fill=mix(c["bg"], c["muted"], t),
+                           font=("Segoe UI", 11))
+            # weft shuttle sweeping under the wordmark
+            sx = cx - span / 2 + span * t
+            cv.create_line(cx - span / 2, cy + 66, sx, cy + 66,
+                           fill=ac, width=2, tags="mark")
+            cv.create_oval(sx - 4, cy + 62, sx + 4, cy + 70, fill=ac,
+                           outline="", tags="mark")
+
+        def lift(t):
+            if cv.winfo_exists():
+                cv.place_configure(y=-int(h * t))
+
+        def _finish(skip=False):
+            fx.cancel(cv)
+            if cv.winfo_exists():
+                if skip:
+                    cv.destroy()
+                else:
+                    fx.animate(cv, "lift", 0.0, 1.0, 340, lift,
+                               easing="ease_in_out_cubic",
+                               on_done=lambda: cv.winfo_exists()
+                               and cv.destroy())
+
+        fx.animate(cv, "warp", 0.0, 1.0, 620, draw_threads,
+                   easing="ease_out_quad",
+                   on_done=lambda: fx.animate(
+                       cv, "mark", 0.0, 1.0, 520, draw_mark,
+                       easing="ease_out_quad",
+                       on_done=lambda: self.root.after(320, _finish)))
+
     # ------------------------------------------------------------- routing
     def goto(self, key):
         self.nav.select(key)

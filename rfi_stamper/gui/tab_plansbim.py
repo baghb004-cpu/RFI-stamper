@@ -8,6 +8,7 @@ from tkinter import ttk
 from . import fx
 from .bim3d import Bim3DViewer
 from .tab_compare import CompareTab
+from .tab_fieldstitch import FieldstitchTab
 from .tab_markup import MarkupTab
 from .theme import mix, section_color
 
@@ -52,6 +53,10 @@ class PlansSection(ttk.Frame):
         self.markup = MarkupTab(nb, theme, status, author=author)
         nb.add(self.markup, text="  Plan Viewing  ")
 
+        self.fieldstitch = FieldstitchTab(nb, theme, status, root,
+                                          on_pins=self._pins_to_3d)
+        nb.add(self.fieldstitch, text="  Fieldstitch Layout  ")
+
         self.asbuilt = AsBuiltPanel(nb, theme, status,
                                     lambda: nb.select(self.markup))
         nb.add(self.asbuilt, text="  As-Built Drawings  ")
@@ -63,6 +68,14 @@ class PlansSection(ttk.Frame):
         ttk.Button(bar, text="Place open plan's sheets in 3D",
                    command=self._place_sheets).pack(side="left")
         bar.place(relx=1.0, y=4, anchor="ne", x=-8)
+
+    def _pins_to_3d(self, pins):
+        """Fieldstitch points arrive as world-coordinate 3D pins."""
+        import rfi_stamper.bim as bim
+        if self.bim.model is None:
+            self.bim.set_model(bim.demo_building())
+        self.bim.set_pins(pins)
+        self.nb.select(self.bim)
 
     def _open_sheet(self, page_no, label):
         """2D ↔ 3D link: clicking a sheet plane in the model opens that sheet
@@ -95,4 +108,5 @@ class PlansSection(ttk.Frame):
         return ([("Open BIM demo model", "Plans",
                   lambda: self.nb.select(self.bim)),
                  ("Place plan sheets in 3D", "Plans", self._place_sheets)]
+                + self.fieldstitch.commands()
                 + self.markup.commands() + self.asbuilt.compare.commands())

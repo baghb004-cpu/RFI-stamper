@@ -42,6 +42,8 @@ class Bim3DViewer(ttk.Frame):
         self._moved = 0.0
         self._cfg_after = None
         self._restore_after = None
+        self._slice_frac = 1.0      # Horizon Slice: fraction of height shown
+        self.pins = []              # layout pins: (x, y, z, label, color)
 
         bar = ttk.Frame(self)
         bar.pack(fill="x")
@@ -59,6 +61,13 @@ class Bim3DViewer(ttk.Frame):
         self.legend.pack(side="left", padx=12)
         self.hint = ttk.Label(bar, text=HINT, style="Muted.TLabel")
         self.hint.pack(side="right", padx=4)
+        # Horizon Slice: live elevation section cut
+        self.slice_var = tk.DoubleVar(value=100.0)
+        sl = ttk.Scale(bar, from_=8.0, to=100.0, variable=self.slice_var,
+                       length=130, command=self._on_slice)
+        sl.pack(side="right", padx=(4, 10))
+        ttk.Label(bar, text="Horizon Slice", style="Muted.TLabel"
+                  ).pack(side="right")
 
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
@@ -85,7 +94,38 @@ class Bim3DViewer(ttk.Frame):
         self._lod = 1.0
         self._build_legend()
         self._fit_instant()
+        self._fly_in()
+
+    def set_pins(self, pins) -> None:
+        """Layout pins in world coords: [(x, y, z, label, color), ...]."""
+        self.pins = list(pins)
         self._render()
+
+    def _on_slice(self, _v=None):
+        self._slice_frac = float(self.slice_var.get()) / 100.0
+        self._render()
+
+    def _fly_in(self):
+        """Cinematic approach on load: swing in from high and far."""
+        try:
+            from . import fx
+            if fx.quality() == "off":
+                self._render()
+                return
+            cam = self.cam
+            yaw1, pitch1, dist1 = cam.yaw, cam.pitch, cam.dist
+            cam.yaw, cam.pitch, cam.dist = yaw1 - 70.0, 58.0, dist1 * 2.8
+
+            def step(t):
+                cam.yaw = (yaw1 - 70.0) + 70.0 * t
+                cam.pitch = 58.0 + (pitch1 - 58.0) * t
+                cam.dist = dist1 * (2.8 - 1.8 * t)
+                self._render()
+
+            fx.animate(self, "flyin", 0.0, 1.0, 900, step,
+                       easing="ease_in_out_cubic")
+        except Exception:                       # noqa: BLE001 -- no fx
+            self._render()
 
     def add_sheet(self, label: str, page_no: int, elevation: float) -> None:
         if self.model is None:
@@ -130,7 +170,9 @@ class Bim3DViewer(ttk.Frame):
                 cam.dist = d0 + (dist1 - d0) * t
                 cam.target = tuple(t0 + (t1 - t0) * t)
                 self._render()
-            fx.animate(self, step, ms=260)
+
+            fx.animate(self, "fit", 0.0, 1.0, 320, step,
+                       easing="ease_in_out_cubic")
         except Exception:                       # noqa: BLE001 -- no fx module
             self._fit_instant()
             self._render()
@@ -296,16 +338,35 @@ class Bim3DViewer(ttk.Frame):
 
         self._draw_grid(w, h, c)
 
+        # Horizon Slice: cut everything above z_cut (live section cut)
+        (mnx, mny, mnz), (mxx, mxy, mxz) = m.bounds()
+        z_cut = None
+        if self._slice_frac < 0.999:
+            z_cut = mnz + (mxz - mnz) * self._slice_frac
+
         # decimate when the last frame was slow
         segs = m.segments
+        if z_cut is not None:
+            segs = [s for s in segs
+                    if (s.a[2] + s.b[2]) * 0.5 <= z_cut]
         if self._lod < 0.999 and len(segs) > 60:
             step = max(1, round(1.0 / self._lod))
             segs = segs[::step]
+        planes = m.planes
+        vis_planes = [(j, pl) for j, pl in enumerate(planes)
+                      if z_cut is None
+                      or sum(cnr[2] for cnr in pl.corners) / 4.0 <= z_cut]
+        pins = [p for p in self.pins if z_cut is None or p[2] <= z_cut]
 
-        # one projection call for every endpoint + plane corner
+        # one projection call for every endpoint + plane corner + pin
+        span = max(mxx - mnx, mxy - mny, mxz - mnz, 1.0)
+        pin_h = span * 0.05
         pts = [p for s in segs for p in (s.a, s.b)]
-        for pl in m.planes:
+        for _j, pl in vis_planes:
             pts.extend(pl.corners)
+        for px, py, pz, _lbl, _col in pins:
+            pts.append((px, py, pz))
+            pts.append((px, py, pz + pin_h))
         scr = bim.project_points(pts, cam, w, h)
 
         items = []                              # (depth, draw_fn) painter list
@@ -320,8 +381,8 @@ class Bim3DViewer(ttk.Frame):
                                   s.color, width)))
         chips = []
         base = 2 * len(segs)
-        for j, pl in enumerate(m.planes):
-            quad = scr[base + 4 * j: base + 4 * j + 4]
+        for k, (j, pl) in enumerate(vis_planes):
+            quad = scr[base + 4 * k: base + 4 * k + 4]
             if np.any(quad[:, 2] <= 1e-6):
                 continue
             depth = float(quad[:, 2].mean())
@@ -331,16 +392,52 @@ class Bim3DViewer(ttk.Frame):
             cy = float(quad[:, 1].mean())
             chips.append((cx, cy, j, pl))
 
+        # layout pins: stem + glowing head + label, depth-sorted with the rest
+        pbase = base + 4 * len(vis_planes)
+        for i, (_px, _py, _pz, lbl, col) in enumerate(pins):
+            a = scr[pbase + 2 * i]              # base of the stem
+            b = scr[pbase + 2 * i + 1]          # head
+            if a[2] <= 1e-6 or b[2] <= 1e-6:
+                continue
+            depth = float(b[2])
+            prox = max(0.7, min(2.6, cam.dist / max(depth, 1e-6)))
+            items.append((depth, ("pin", (a[0], a[1], b[0], b[1]),
+                                  col, lbl, 4.0 * prox)))
+
         items.sort(key=lambda it: -it[0])       # far first
         for _, it in items:
             if it[0] == "line":
                 _, xy, color, width = it
                 cv.create_line(*xy, fill=color, width=width, tags="seg")
+            elif it[0] == "pin":
+                _, (ax, ay, bx, by), col, lbl, r = it
+                cv.create_line(ax, ay, bx, by, fill=col, width=2.0,
+                               tags="pin")
+                cv.create_oval(bx - r - 2, by - r - 2, bx + r + 2,
+                               by + r + 2, outline=col, width=1.0,
+                               tags="pin")                       # halo
+                cv.create_oval(bx - r, by - r, bx + r, by + r, fill=col,
+                               outline="", tags="pin")
+                if lbl:
+                    cv.create_text(bx + r + 4, by, text=lbl, anchor="w",
+                                   fill=col, font=(FAMILY, 8, "bold"),
+                                   tags="pin")
             else:
                 _, coords, color, j = it
                 cv.create_polygon(*coords, fill=color, stipple="gray25",
                                   outline=color, width=1.4,
                                   tags=("plane", f"sheet:{j}"))
+
+        # glowing cut plane where the Horizon Slice bites
+        if z_cut is not None and mxz > mnz:
+            quad = bim.project_points(
+                [(mnx, mny, z_cut), (mxx, mny, z_cut),
+                 (mxx, mxy, z_cut), (mnx, mxy, z_cut)], cam, w, h)
+            if not np.any(quad[:, 2] <= 1e-6):
+                coords = [v for p in quad for v in (p[0], p[1])]
+                cv.create_polygon(*coords, fill=c["accent"],
+                                  stipple="gray12", outline=c["accent"],
+                                  width=2.0, tags="cut")
 
         # label chips on top of everything
         for cx, cy, j, pl in chips:
