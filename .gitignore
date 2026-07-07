@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+.venv/
+venv/
+*.markups.json
+*.scale.json
+*_RFI_overlay.pdf
+*_report.txt
