@@ -18,7 +18,8 @@ import argparse
 import os
 import sys
 
-SUBCOMMANDS = {"stamp", "merge", "split", "compare", "gui"}
+SUBCOMMANDS = {"stamp", "merge", "split", "compare", "doctor", "ocr",
+               "hyperlink", "log", "batch", "submittal", "gui"}
 
 
 def build_stamp(sub):
@@ -68,16 +69,82 @@ def build_compare(sub):
                     help="translation-only alignment (faster)")
 
 
+def build_doctor(sub):
+    ap = sub.add_parser("doctor", help="diagnose/repair/optimize a PDF")
+    ap.add_argument("file", help="input PDF")
+    ap.add_argument("-o", "--out", help="output PDF (default: <file>_<action>.pdf)")
+    ap.add_argument("--action", default="auto",
+                    choices=["auto", "diagnose", "unlock", "repair", "compress",
+                             "rasterize", "upscale", "linearize", "strip-metadata",
+                             "remove-js", "remove-files", "normalize-rotation",
+                             "flatten"],
+                    help="what to do (default: auto — unlock+repair+strip metadata)")
+    ap.add_argument("--password", default="", help="password for a locked PDF")
+    ap.add_argument("--compress", action="store_true",
+                    help="also compress during --action auto")
+    ap.add_argument("--dpi", type=int, help="dpi for rasterize/upscale/compress")
+
+
+def build_ocr(sub):
+    ap = sub.add_parser("ocr", help="add a searchable text layer (offline Tesseract)")
+    ap.add_argument("file", help="input PDF")
+    ap.add_argument("-o", "--out", help="output PDF (default: <file>_searchable.pdf)")
+    ap.add_argument("--dpi", type=int, default=300, help="render DPI (default 300)")
+    ap.add_argument("--lang", default="eng", help="Tesseract language (default eng)")
+    ap.add_argument("--all-pages", action="store_true",
+                    help="OCR every page, even ones that already have text")
+
+
+def build_hyperlink(sub):
+    ap = sub.add_parser("hyperlink",
+                        help="auto-link sheet references across a plan set")
+    ap.add_argument("file", help="input plan-set PDF")
+    ap.add_argument("-o", "--out", help="output PDF (default: <file>_linked.pdf)")
+    ap.add_argument("--no-outline", action="store_true",
+                    help="don't build the sheet-index bookmarks")
+
+
+def build_log(sub):
+    ap = sub.add_parser("log", help="write an RFI log PDF from a plan set + RFIs")
+    ap.add_argument("-p", "--plans", required=True, help="plan set PDF")
+    ap.add_argument("-r", "--rfis", nargs="+", required=True,
+                    help="RFI files and/or folders")
+    ap.add_argument("-o", "--out", default="RFI_log.pdf", help="output PDF")
+    ap.add_argument("--title", default="RFI LOG")
+
+
+def build_batch(sub):
+    ap = sub.add_parser("batch", help="stamp many plan sets against one RFI pile")
+    ap.add_argument("-p", "--plans", nargs="+", required=True, help="plan set PDFs")
+    ap.add_argument("-r", "--rfis", nargs="+", required=True,
+                    help="RFI files and/or folders")
+    ap.add_argument("-d", "--dir", help="output folder (default: beside each plan)")
+
+
+def build_submittal(sub):
+    ap = sub.add_parser("submittal", help="parse a submittal register into a log PDF")
+    ap.add_argument("files", nargs="+", help="submittal register files/folders")
+    ap.add_argument("-o", "--out", default="submittal_log.pdf", help="output PDF")
+    ap.add_argument("--title", default="SUBMITTAL LOG")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(
         prog="rfi-stamper",
         description="Offline plan toolkit: stamp RFI notes, combine/split PDFs, "
-                    "compare revisions. No network access, ever.")
+                    "compare revisions, repair/OCR/hyperlink PDFs. No network "
+                    "access, ever.")
     sub = ap.add_subparsers(dest="cmd")
     build_stamp(sub)
     build_merge(sub)
     build_split(sub)
     build_compare(sub)
+    build_doctor(sub)
+    build_ocr(sub)
+    build_hyperlink(sub)
+    build_log(sub)
+    build_batch(sub)
+    build_submittal(sub)
     sub.add_parser("gui", help="launch the desktop app (default with no args)")
     return ap
 
@@ -139,6 +206,98 @@ def cmd_compare(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    from . import pdfdoctor
+    if args.action == "diagnose":
+        for iss in pdfdoctor.diagnose(args.file):
+            print(f"[{iss.severity:6}] {iss.title}: {iss.detail}"
+                  + (f"  (fix: {iss.fix})" if iss.fixable else ""))
+        return 0
+    suffix = {"strip-metadata": "clean", "remove-js": "nojs",
+              "remove-files": "noattach", "normalize-rotation": "unrotated"}.get(
+                  args.action, args.action)
+    out = args.out or os.path.splitext(args.file)[0] + f"_{suffix}.pdf"
+    d = pdfdoctor
+    if args.action == "auto":
+        r = d.auto_fix(args.file, out, do_compress=args.compress)
+        print("auto-fix:", ", ".join(r.get("actions", []) or ["nothing needed"]),
+              "->", out)
+    elif args.action == "unlock":
+        ok = d.unlock(args.file, out, password=args.password)
+        print(("unlocked -> " + out) if ok else "could not unlock")
+        return 0 if ok else 1
+    elif args.action == "compress":
+        r = d.compress(args.file, out, **({"image_dpi": args.dpi} if args.dpi else {}))
+        print(f"compressed {r['before']//1024} KB -> {r['after']//1024} KB -> {out}")
+    elif args.action in ("rasterize", "upscale"):
+        fn = d.rasterize if args.action == "rasterize" else d.upscale
+        fn(args.file, out, **({"dpi": args.dpi} if args.dpi else {}))
+        print(f"{args.action} -> {out}")
+    else:
+        fn = {"repair": d.repair, "linearize": d.linearize,
+              "strip-metadata": d.strip_metadata, "remove-js": d.remove_javascript,
+              "remove-files": d.remove_embedded_files,
+              "normalize-rotation": d.normalize_rotation,
+              "flatten": d.flatten_annotations}[args.action]
+        fn(args.file, out)
+        print(f"{args.action} -> {out}")
+    return 0
+
+
+def cmd_ocr(args) -> int:
+    from . import ocr
+    if not ocr.tesseract_available():
+        print("!! Tesseract OCR not found — install it to use this command "
+              "(the app stays fully offline).")
+        return 2
+    out = args.out or os.path.splitext(args.file)[0] + "_searchable.pdf"
+    r = ocr.ocr_pdf(args.file, out, dpi=args.dpi, language=args.lang,
+                    skip_text_pages=not args.all_pages)
+    print(f"OCR: {r['pages_ocred']}/{r['pages_total']} page(s) -> {out}")
+    return 0
+
+
+def cmd_hyperlink(args) -> int:
+    from . import hyperlink
+    out = args.out or os.path.splitext(args.file)[0] + "_linked.pdf"
+    stats = hyperlink.auto_link(args.file, out, add_outline=not args.no_outline)
+    print(f"linked {stats.links_added} reference(s) across {stats.pages_touched} "
+          f"page(s); {stats.sheets_indexed} sheets indexed -> {out}")
+    return 0
+
+
+def cmd_log(args) -> int:
+    from . import pipeline, transmittal
+    from .summarize import OfflineSummarizer
+    index, rows = pipeline.scan(args.plans, args.rfis)
+    rep = pipeline.run(args.plans, rows=rows, index=index,
+                       summarizer=OfflineSummarizer(),
+                       out_path=os.path.splitext(args.plans)[0] + "_RFI_overlay.pdf")
+    r = transmittal.rfi_log_pdf(rep, args.out, title=args.title)
+    print(f"RFI log: {r['rows']} rows, {r['pages']} pages -> {args.out}")
+    return 0
+
+
+def cmd_batch(args) -> int:
+    from . import batch
+    items = batch.batch_stamp(args.plans, args.rfis, out_dir=args.dir)
+    s = batch.batch_summary(items)
+    for it in items:
+        print(("OK   " if it.verify_ok else "FAIL ")
+              + os.path.basename(it.plan_path)
+              + (f" -> {it.out_path}" if it.verify_ok else f"  {it.error}"))
+    print(f"batch: {s['verified']}/{s['total']} verified, {s['failed']} failed")
+    return 0 if s["failed"] == 0 else 1
+
+
+def cmd_submittal(args) -> int:
+    from . import submittal
+    recs = submittal.parse_submittals(args.files)
+    submittal.submittal_log_pdf(recs, args.out, title=args.title)
+    print(f"submittal log: {len(recs)} item(s) -> {args.out}")
+    return 0
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv or argv[0] == "gui" or "--gui" in argv:
@@ -149,8 +308,10 @@ def main(argv=None) -> int:
         # legacy flag style: rfi-stamper -p plans.pdf -r rfis/ [...]
         argv = ["stamp"] + argv
     args = build_parser().parse_args(argv)
-    return {"stamp": cmd_stamp, "merge": cmd_merge,
-            "split": cmd_split, "compare": cmd_compare}[args.cmd](args)
+    return {"stamp": cmd_stamp, "merge": cmd_merge, "split": cmd_split,
+            "compare": cmd_compare, "doctor": cmd_doctor, "ocr": cmd_ocr,
+            "hyperlink": cmd_hyperlink, "log": cmd_log, "batch": cmd_batch,
+            "submittal": cmd_submittal}[args.cmd](args)
 
 
 if __name__ == "__main__":

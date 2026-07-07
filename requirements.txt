@@ -3,3 +3,6 @@ pypdf>=4.0
 reportlab>=4.0
 numpy>=1.24
 tkinterdnd2>=0.4
+# Optional, offline OCR: install the Tesseract OCR engine (a system package,
+# not a pip package) to enable the "Make searchable (OCR)" button and the
+# `ocr` command. Everything else works without it.

@@ -15,6 +15,25 @@ A desktop toolkit for construction drawings that runs **100% offline**:
 * **Compare / Overlay** — Auto Align two revisions (deterministic image
   registration: translation + rotation) and view or export a color overlay
   (red = removed, blue = added, dark = unchanged).
+* **PDF Tools** — one-touch, background fixes for the common PDF problems that
+  trip up other editors: **Auto-Fix** (unlock + repair + strip hidden data,
+  verified safe), unlock password/owner-locked files, repair broken/corrupt
+  structure, compress (image downsample), **OCR** to a searchable layer,
+  **Auto-Hyperlink** every sheet reference, flatten annotations, flatten to
+  image (rasterize / "reverse-OCR"), upscale, web-optimize (linearize), strip
+  metadata, normalize rotation, remove embedded JavaScript/attachments. Every
+  operation writes a **new** file — your original is never touched — and a
+  Diagnose button lists what's wrong with a dropped PDF and fixes each issue.
+* **Auto-Hyperlink** — drop or open a plan set and the tool finds every sheet
+  reference (P-101, A-5.02, "3/A-501") throughout the document and adds
+  **native GoTo links** to the referenced page, plus a sheet-index outline in
+  the bookmarks panel. These are standard PDF link annotations, so the jumps
+  work in **any** viewer — Bluebeam, Acrobat, Preview, and open-source readers
+  alike. Click P-101 anywhere, land on sheet P-101.
+* **RFI & submittal logs** — generate a clean paginated RFI log PDF (cover
+  sheet) from any stamp run, or parse a submittal register into a submittal
+  log PDF.
+* **Batch** — stamp many plan sets against one RFI pile in a single run.
 
 Drag-and-drop works everywhere a file can go: plan sets, RFI piles, combine
 lists, compare slots, images onto drawings — and dragging a file anywhere
@@ -53,7 +72,11 @@ Python 3.10+ with Tk. Then:
     python tests/run_all.py          # full test suite
 
 `tkinterdnd2` enables OS drag-and-drop; without it the app still works with
-Browse buttons.
+Browse buttons. **OCR is optional and offline**: if the free
+[Tesseract OCR](https://github.com/tesseract-ocr/tesseract) engine is
+installed on the machine, the OCR button and `ocr` command light up; if it
+isn't, every other feature still works and the app never phones home either
+way. Nothing else needs an external binary.
 
 ### Windows executables
 
@@ -98,6 +121,13 @@ later packages automatically backfill the earlier record's answer.
     rfi-stamper merge a.pdf b.pdf c.pdf -o combined.pdf --pages 1-3 all 2-
     rfi-stamper split big.pdf --every 1 -d pages/
     rfi-stamper compare old_rev.pdf new_rev.pdf -o overlay.pdf
+    rfi-stamper doctor plans.pdf --action auto        # unlock+repair+strip meta
+    rfi-stamper doctor plans.pdf --action diagnose    # list problems
+    rfi-stamper ocr scanned.pdf -o searchable.pdf     # offline Tesseract
+    rfi-stamper hyperlink plans.pdf -o linked.pdf     # cross-link sheet refs
+    rfi-stamper log -p plans.pdf -r rfi_folder -o RFI_log.pdf
+    rfi-stamper batch -p setA.pdf setB.pdf -r rfi_folder -d out/
+    rfi-stamper submittal register.pdf -o submittal_log.pdf
 
 The mapping CSV's `via` column tells you how each match was made: `planref`
 (labeled Plan Ref / Drawing Number line — high confidence), `body` (sheet

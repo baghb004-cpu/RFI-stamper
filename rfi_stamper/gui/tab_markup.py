@@ -50,7 +50,8 @@ class MarkupTab(ttk.Frame):
         self.status = status
         self.author = author
         self.store = None
-        self.cal = None
+        self.cals = {}          # page_no -> ScaleCal (per-sheet scale memory)
+        self.default_cal = None
         self.tool = "select"
         self.cur_style = mk.Style()
         self.selection: set = set()
@@ -130,7 +131,7 @@ class MarkupTab(ttk.Frame):
                 Tooltip(b, tip + (f"  [{key}]" if key else ""), theme)
                 self.tool_btns[name] = b
         self.viewer = PDFViewer(center, theme, on_render=self.redraw_markups,
-                                on_page_changed=lambda n: self.cancel_tool())
+                                on_page_changed=self._on_page_changed)
         self.viewer.pack(fill="both", expand=True, pady=(4, 0))
         cv = self.viewer.canvas
         cv.bind("<ButtonPress-1>", self.on_press)
@@ -141,6 +142,7 @@ class MarkupTab(ttk.Frame):
         dnd.enable_drop(cv, self.on_drop)
         self.scale_btn = ttk.Menubutton(tb, text="scale: not calibrated")
         self.scale_btn.pack(side="right", padx=8)
+        self.scale_all_pages = tk.BooleanVar(value=False)
         self._build_scale_menu()
 
         # --------------------------------------------------- properties
@@ -289,10 +291,11 @@ class MarkupTab(ttk.Frame):
         path = path or filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not path:
             return
+        path = self._maybe_unlock(path)
         self.cancel_tool()
         self.viewer.open(path)
         self.store = mk.MarkupStore(path)     # autoloads sidecar if present
-        self.cal = self._load_cal(path)
+        self._load_cals(path)
         self.selection.clear()
         self.undo_stack.clear()
         self.redo_stack.clear()
@@ -307,6 +310,21 @@ class MarkupTab(ttk.Frame):
 
     def handle_drop(self, paths):
         self.on_drop(paths)
+
+    def _maybe_unlock(self, path):
+        """If the PDF is owner/password-locked, transparently unlock a working
+        copy so markup can proceed — the original is never touched."""
+        try:
+            from .. import pdfdoctor
+            if not pdfdoctor.is_encrypted(path):
+                return path
+            out = os.path.splitext(path)[0] + "_unlocked.pdf"
+            if pdfdoctor.unlock(path, out):
+                self.status.set("PDF was locked — opened an unlocked copy", "ok")
+                return out
+        except Exception:   # noqa: BLE001 -- unlock is best-effort
+            pass
+        return path
 
     # ------------------------------------------------------ sheet navigator
     def _load_sheets(self, path):
@@ -347,6 +365,10 @@ class MarkupTab(ttk.Frame):
         if sel:
             self.viewer.goto(int(sel[0]))
 
+    def _on_page_changed(self, _n):
+        self.cancel_tool()
+        self._show_cal()        # per-page scale: reflect this sheet's calibration
+
     def on_drop(self, paths):
         pdfs = [p for p in paths if p.lower().endswith(".pdf")]
         imgs = [p for p in paths if p.lower().endswith(
@@ -368,24 +390,48 @@ class MarkupTab(ttk.Frame):
                 self.store.add(m)
             self.after_change()
 
+    # per-page scale memory: plans mix scales (plan at 1/8", details at 3/4"),
+    # so each page keeps its own calibration; `default_cal` covers pages that
+    # have none (e.g. a whole set stamped at one scale).
+    @property
+    def cal(self):
+        return self.cal_for(self.viewer.page_no)
+
+    def cal_for(self, page):
+        return self.cals.get(page) or self.default_cal
+
     def _cal_path(self, pdf_path):
         return pdf_path + ".scale.json"
 
-    def _load_cal(self, pdf_path):
+    def _load_cals(self, pdf_path):
+        self.cals = {}
+        self.default_cal = None
         try:
             with open(self._cal_path(pdf_path), encoding="utf-8") as f:
-                return measure.ScaleCal.from_dict(json.load(f))
+                d = json.load(f)
         except Exception:   # noqa: BLE001 -- no calibration yet
-            return None
+            return
+        if isinstance(d, dict) and "pages" in d:          # per-page format
+            for k, v in d.get("pages", {}).items():
+                self.cals[int(k)] = measure.ScaleCal.from_dict(v)
+            if d.get("default"):
+                self.default_cal = measure.ScaleCal.from_dict(d["default"])
+        elif isinstance(d, dict) and "real_per_pt" in d:  # legacy flat -> default
+            self.default_cal = measure.ScaleCal.from_dict(d)
 
     def _save_cal(self):
-        if self.cal and self.viewer.path:
-            try:
-                with open(self._cal_path(self.viewer.path), "w",
-                          encoding="utf-8") as f:
-                    json.dump(self.cal.to_dict(), f)
-            except Exception:   # noqa: BLE001
-                pass
+        if not self.viewer.path:
+            return
+        try:
+            payload = {"version": 2,
+                       "pages": {str(k): c.to_dict() for k, c in self.cals.items()}}
+            if self.default_cal:
+                payload["default"] = self.default_cal.to_dict()
+            with open(self._cal_path(self.viewer.path), "w",
+                      encoding="utf-8") as f:
+                json.dump(payload, f)
+        except Exception:   # noqa: BLE001
+            pass
 
     # architectural / metric scale presets: X" on paper = 1'-0" real, or 1:N.
     # real_per_pt(ft) = (12/X inches-per-ft => 1/X ft per paper inch) / 72;
@@ -402,30 +448,42 @@ class MarkupTab(ttk.Frame):
         menu = tk.Menu(self.scale_btn, tearoff=0)
         menu.add_command(label="Calibrate from two points…",
                          command=lambda: self.set_tool("calibrate"))
+        menu.add_checkbutton(label="Apply scale to ALL pages",
+                             variable=self.scale_all_pages)
         menu.add_separator()
         for label, rpp, unit in self._SCALES:
             menu.add_command(
                 label=label,
                 command=lambda l=label, r=rpp, u=unit: self._use_scale(l, r, u))
         menu.add_separator()
-        menu.add_command(label="Clear scale", command=self._clear_scale)
+        menu.add_command(label="Clear this page's scale", command=self._clear_scale)
         self.scale_btn.configure(menu=menu)
 
+    def _set_page_cal(self, cal):
+        """Store cal for the current page, or as the all-pages default."""
+        if self.scale_all_pages.get():
+            self.default_cal = cal
+            self.cals.clear()
+        else:
+            self.cals[self.viewer.page_no] = cal
+
     def _use_scale(self, label, real_per_pt, unit):
-        self.cal = measure.ScaleCal(real_per_pt=real_per_pt, unit=unit)
+        self._set_page_cal(measure.ScaleCal(real_per_pt=real_per_pt, unit=unit))
         self._save_cal()
         self._show_cal(label)
         self._recompute_measures()
         self.after_change()
-        self.status.set(f"Scale set: {label}", "ok")
+        scope = "all pages" if self.scale_all_pages.get() else \
+            f"sheet {self.viewer.page_no}"
+        self.status.set(f"Scale {label} set for {scope}", "ok")
 
     def _clear_scale(self):
-        self.cal = None
-        try:
-            os.remove(self._cal_path(self.viewer.path))
-        except OSError:
-            pass
+        self.cals.pop(self.viewer.page_no, None)
+        if self.scale_all_pages.get():
+            self.default_cal = None
+        self._save_cal()
         self._show_cal()
+        self._recompute_measures()
         self.after_change()
 
     def _show_cal(self, label=""):
@@ -706,7 +764,7 @@ class MarkupTab(ttk.Frame):
             messagebox.showwarning("Calibrate", "Format:  <number> <unit>")
             return
         try:
-            self.cal = measure.ScaleCal.calibrate(p0, p1, val, unit)
+            self._set_page_cal(measure.ScaleCal.calibrate(p0, p1, val, unit))
         except ValueError as e:
             messagebox.showwarning("Calibrate", str(e))
             return
@@ -717,9 +775,10 @@ class MarkupTab(ttk.Frame):
         self.status.set(f"Calibrated: {val} {unit} segment", "ok")
 
     def _set_measure(self, m):
-        if m.type in MEASURE_TOOLS and self.cal:
-            m.measure_value = measure.compute(m, self.cal)
-            m.measure_unit = self.cal.unit
+        cal = self.cal_for(m.page)          # each markup measured in its page's scale
+        if m.type in MEASURE_TOOLS and cal:
+            m.measure_value = measure.compute(m, cal)
+            m.measure_unit = cal.unit
 
     def _recompute_measures(self):
         if not self.store:
@@ -728,10 +787,12 @@ class MarkupTab(ttk.Frame):
             self._set_measure(m)
 
     # ====================================================== change handling
+    UNDO_LIMIT = 1000       # effectively unlimited for a session; caps memory
+
     def push_undo(self):
         if self.store:
             self.undo_stack.append([m.to_dict() for m in self.store.markups])
-            del self.undo_stack[:-50]
+            del self.undo_stack[:-self.UNDO_LIMIT]
             self.redo_stack.clear()
 
     def undo(self):
@@ -870,7 +931,7 @@ class MarkupTab(ttk.Frame):
         q = self.list_q.get().strip()
         items = self.store.search(q) if q else self.store.markups
         for m in items:
-            cap = measure.caption_for(m, self.cal)
+            cap = measure.caption_for(m, self.cal_for(m.page))
             self.mtree.insert("", "end", iid=m.id, values=(
                 m.page, m.type, m.subject, m.comment, m.text, m.status,
                 cap or (f"{m.measure_value:.2f} {m.measure_unit}"
@@ -1129,12 +1190,12 @@ class MarkupTab(ttk.Frame):
         # deep-copy so the worker never mutates the live store (thread safety,
         # and the caption resolution below must not stick to saved markups)
         markups = [mk.Markup.from_dict(m.to_dict()) for m in self.store.markups]
-        cal = self.cal
+        cals = {m.page: self.cal_for(m.page) for m in markups}
 
         def work():
             for m in markups:
                 if m.type in MEASURE_TOOLS or m.type == "count":
-                    cap = measure.caption_for(m, cal)
+                    cap = measure.caption_for(m, cals.get(m.page))
                     if cap and not m.comment:
                         m.comment = cap
             return mk.apply_to_pdf(src, out, markups, flatten=flatten)

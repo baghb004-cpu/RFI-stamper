@@ -39,8 +39,8 @@ def main():
     root.update_idletasks()
     root.update()
 
-    # every tab constructed (home + four tools)
-    assert len(app.nb.tabs()) == 5, app.nb.tabs()
+    # every tab constructed (home + five tools)
+    assert len(app.nb.tabs()) == 6, app.nb.tabs()
 
     # theme round-trip (start theme comes from user prefs — don't assume it)
     start = app.theme.name
@@ -168,6 +168,26 @@ def main():
     names = [p.name for p in tc.presets]
     assert any("HOLD" in n for n in names), names
     assert any("Punch Dot" in n for n in names), names
+
+    # per-page scale memory: a scale on page 2 doesn't leak to page 1.
+    # Use a fresh PDF path so no earlier sub-test's .scale.json sidecar bleeds in.
+    import shutil
+    pdf2 = os.path.join(tmp, "scale_iso.pdf")
+    shutil.copy(pdf, pdf2)
+    app.nb.select(app.markup)
+    app.markup.open_pdf(pdf2)
+    root.update()
+    app.markup.viewer.goto(2)
+    app.markup.scale_all_pages.set(False)
+    app.markup._use_scale('1/4" = 1\'-0"', (1 / 0.25) / 72.0, "ft-in")
+    assert app.markup.cal_for(2) is not None
+    assert app.markup.cal_for(1) is None
+
+    # PDF Tools tab wired with the one-touch actions
+    assert hasattr(app.pdftools, "auto_fix") and hasattr(app.pdftools, "autolink")
+
+    # effectively-unlimited undo depth
+    assert app.markup.UNDO_LIMIT >= 500
 
     # CLI: top-level --help must not be swallowed by the legacy-flag rewrite
     import subprocess

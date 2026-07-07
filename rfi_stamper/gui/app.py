@@ -14,6 +14,7 @@ from .tab_compare import CompareTab
 from .tab_home import HomeTab
 from .tab_markup import MarkupTab
 from .tab_merge import MergeTab
+from .tab_pdftools import PdfToolsTab
 from .tab_stamp import StampTab
 from .theme import ThemeManager
 from .widgets import StatusBar, toast
@@ -56,6 +57,7 @@ class App:
         self.markup = MarkupTab(self.nb, self.theme, self.status,
                                 author=self.prefs.get("author", ""))
         self.compare = CompareTab(self.nb, self.theme, self.status)
+        self.pdftools = PdfToolsTab(self.nb, self.theme, self.status, root)
         self.home = HomeTab(
             self.nb, self.theme, self.status,
             actions={"stamp": lambda: self.nb.select(self.stamp),
@@ -71,6 +73,7 @@ class App:
         self.nb.add(self.merge, text="  ⧉  Combine  ")
         self.nb.add(self.markup, text="  ✎  Markup  ")
         self.nb.add(self.compare, text="  ⇄  Compare  ")
+        self.nb.add(self.pdftools, text="  ⚕  PDF Tools  ")
 
         # completion hooks -> recents + toasts
         self.markup.on_opened = lambda p: self.add_recent(p, "markup")
@@ -194,6 +197,9 @@ class App:
         toolsm = tk.Menu(m, tearoff=0)
         toolsm.add_command(label="Command palette\tCtrl+K",
                            command=self.palette.open)
+        toolsm.add_command(label="Generate submittal log…",
+                           command=self.submittal_log)
+        toolsm.add_separator()
         toolsm.add_command(label="Set author name…", command=self.set_author)
         toolsm.add_command(label="Toggle offline guard",
                            command=self.toggle_guard)
@@ -216,11 +222,13 @@ class App:
         p.register("Set author name (markups)", "Preferences", self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
         p.register("Toggle status-bar tips", "Preferences", self.toggle_tips)
+        p.register("Generate submittal log PDF", "Tools", self.submittal_log)
         for tab, name in ((self.home, "Home"),
                           (self.stamp, "Stamp RFIs"),
                           (self.merge, "Combine PDFs"),
                           (self.markup, "Markup & Measure"),
-                          (self.compare, "Compare / Overlay")):
+                          (self.compare, "Compare / Overlay"),
+                          (self.pdftools, "PDF Tools")):
             p.register(f"Go to {name}", "Tabs",
                        lambda t=tab: self.nb.select(t))
             if tab is not self.home:
@@ -269,6 +277,38 @@ class App:
         if name is not None:
             self.prefs["author"] = name.strip()
             self.markup.author = self.prefs["author"]
+
+    def submittal_log(self):
+        from tkinter import filedialog
+
+        from .widgets import open_path, run_bg, toast
+        files = filedialog.askopenfilenames(
+            title="Submittal register file(s)",
+            filetypes=[("Documents", "*.pdf *.txt *.zip"), ("All", "*.*")])
+        if not files:
+            return
+        out = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile="submittal_log.pdf",
+            filetypes=[("PDF", "*.pdf")])
+        if not out:
+            return
+        self.status.set("Parsing submittals…")
+
+        def work():
+            from .. import submittal
+            recs = submittal.parse_submittals(list(files))
+            submittal.submittal_log_pdf(recs, out)
+            return len(recs)
+
+        def done(n, err):
+            if err:
+                self.status.set(f"Submittal log failed: {err}", "err")
+                return
+            self.status.set(f"Submittal log written ({n} item(s))", "ok")
+            toast(self.root, self.theme, f"Submittal log: {n} item(s)")
+            open_path(out)
+
+        run_bg(self.root, work, done)
 
     def show_shortcuts(self):
         messagebox.showinfo("Keyboard shortcuts", SHORTCUTS, parent=self.root)

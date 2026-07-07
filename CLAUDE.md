@@ -53,11 +53,19 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/offline_guard.py  process-wide outbound-socket kill-switch
     rfi_stamper/merge.py      combine / split / rotate engine (pypdf)
     rfi_stamper/align.py      auto-align + color overlay compare (numpy FFT)
+    rfi_stamper/pdfdoctor.py  diagnose + repair/unlock/compress/rasterize/upscale/
+                              linearize/strip-metadata/normalize-rotation, verify_safe
+    rfi_stamper/ocr.py        offline Tesseract searchable-layer OCR (optional binary)
+    rfi_stamper/hyperlink.py  auto sheet cross-linking (native GoTo links) + outline
+    rfi_stamper/transmittal.py  RFI-log / generic table PDF (reportlab)
+    rfi_stamper/batch.py      stamp many plan sets against one RFI pile
+    rfi_stamper/submittal.py  submittal-register parser + log PDF
     rfi_stamper/markups/      GUI-free markup data layer: model (+ PDF annot
                               writer), multiply, measure, toolchest
     rfi_stamper/gui/          tkinter app: app, theme (dark mode), dnd, widgets,
-                              palette (Ctrl+K), viewer, tab_stamp, tab_merge,
-                              tab_markup, tab_compare, prefs
+                              palette (Ctrl+K), overlay (full-window drop),
+                              viewer, tab_home, tab_stamp, tab_merge, tab_markup,
+                              tab_compare, tab_pdftools, prefs
     rfi_stamper/__main__.py   CLI (stamp/merge/split/compare/gui); no args -> GUI
     tests/                    plain-python test scripts; tests/run_all.py runs all
     skill/rfi-overlay/        Claude skill wrapping the stamping engine

@@ -111,6 +111,17 @@ class StampTab(ttk.Frame):
         self.csv_btn = ttk.Button(r5, text="Export mapping CSV…", state="disabled",
                                   command=self.export_csv)
         self.csv_btn.pack(side="left", padx=6)
+        self.log_btn = ttk.Button(r5, text="RFI log PDF…", state="disabled",
+                                  command=self.export_log)
+        self.log_btn.pack(side="left", padx=6)
+        self.link_var = tk.BooleanVar(value=True)
+        lc = ttk.Checkbutton(r5, text="hyperlink sheet refs in output",
+                             variable=self.link_var)
+        lc.pack(side="left", padx=6)
+        Tooltip(lc, "After stamping, add clickable links from every sheet "
+                    "reference to its page — works in any PDF viewer.", theme)
+        ttk.Button(r5, text="Batch…", command=self.batch_dialog).pack(side="right")
+        self.last_report = None
 
         self.log = LogConsole(self, theme, height=7)
         self.log.pack(fill="both", expand=True, pady=(4, 0))
@@ -276,11 +287,23 @@ class StampTab(ttk.Frame):
         self.open_btn.configure(state="disabled")
         self.status.set("Stamping…")
         rows, index = self.rows, self.index    # frozen: edit_cell is blocked
+        add_links = self.link_var.get()
 
         def work():
-            return pipeline.run(plan, out_path=self.out_path, rows=rows,
-                                index=index, summarizer=OfflineSummarizer(),
-                                log=self.log.say)
+            rep = pipeline.run(plan, out_path=self.out_path, rows=rows,
+                               index=index, summarizer=OfflineSummarizer(),
+                               log=self.log.say)
+            if rep.verify_ok and add_links:
+                # native GoTo links from every sheet reference to its page —
+                # done after verify so it never affects the pixel-diff check
+                try:
+                    from .. import hyperlink
+                    stats = hyperlink.auto_link(self.out_path, self.out_path,
+                                                index=index, log=self.log.say)
+                    self.log.say(f"  hyperlinked {stats.links_added} reference(s)")
+                except Exception as e:      # noqa: BLE001 -- links are a bonus
+                    self.log.say(f"  (hyperlinking skipped: {e})")
+            return rep
 
         def done(rep, err):
             self._running = False
@@ -290,6 +313,8 @@ class StampTab(ttk.Frame):
                 self.log.say(f"!! run failed: {err}")
                 self.status.set("Run failed — see log", "err")
                 return
+            self.last_report = rep
+            self.log_btn.configure(state="normal")
             if rep.verify_ok:
                 self.status.set("VERIFIED — nothing covered", "ok")
                 self.open_btn.configure(state="normal")
@@ -299,5 +324,64 @@ class StampTab(ttk.Frame):
                                      "the log before issuing.")
             if self.on_stamped:
                 self.on_stamped(rep.verify_ok, self.out_path)
+
+        run_bg(self, work, done)
+
+    def export_log(self):
+        if not self.last_report:
+            return
+        p = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile="RFI_log.pdf",
+            filetypes=[("PDF", "*.pdf")])
+        if not p:
+            return
+        from .. import transmittal
+
+        def work():
+            return transmittal.rfi_log_pdf(self.last_report, p, log=self.log.say)
+
+        def done(res, err):
+            if err:
+                self.status.set(f"RFI log failed: {err}", "err")
+                return
+            self.status.set(f"RFI log written ({res['rows']} rows, "
+                            f"{res['pages']} pages)", "ok")
+            open_path(p)
+
+        run_bg(self, work, done)
+
+    def batch_dialog(self):
+        """Stamp several plan sets against the current RFI list in one run."""
+        rfis = list(self.rfi_list.get(0, "end"))
+        if not rfis:
+            messagebox.showinfo("Batch", "Add RFI files first — they'll be "
+                                         "stamped onto every plan set you pick.")
+            return
+        plans = filedialog.askopenfilenames(
+            title="Pick plan-set PDFs to stamp (each gets its own output)",
+            filetypes=[("PDF", "*.pdf")])
+        if not plans:
+            return
+        out_dir = filedialog.askdirectory(title="Output folder") or None
+        self.status.set(f"Batch stamping {len(plans)} plan set(s)…")
+        from .. import batch
+        from ..summarize import OfflineSummarizer
+
+        def work():
+            return batch.batch_stamp(list(plans), rfis, out_dir=out_dir,
+                                     summarizer=OfflineSummarizer(),
+                                     log=self.log.say)
+
+        def done(items, err):
+            if err:
+                self.status.set(f"Batch failed: {err}", "err")
+                return
+            s = batch.batch_summary(items)
+            self.status.set(f"Batch done: {s['verified']}/{s['total']} verified, "
+                            f"{s['failed']} failed", "ok" if not s['failed'] else "err")
+            for it in items:
+                self.log.say(f"  {os.path.basename(it.plan_path)}: "
+                             + ("OK " + it.out_path if it.verify_ok
+                                else "FAILED " + (it.error or "verify")))
 
         run_bg(self, work, done)
