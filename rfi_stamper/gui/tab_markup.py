@@ -26,7 +26,7 @@ TOOLS = [
     ("line", "Line", "L", "Straight line"),
     ("arrow", "Arrow", "A", "Arrow (head at second click)"),
     ("rect", "Rect", "R", "Rectangle"),
-    ("ellipse", "Ellipse", "E", "Ellipse"),
+    ("ellipse", "Oval", "E", "Ellipse"),
     ("cloud", "Cloud", "C", "Revision cloud"),
     ("callout", "Callout", "Q", "Click arrow tip, then text position"),
     ("text", "Text", "T", "Click to place a text note"),
@@ -62,6 +62,8 @@ class MarkupTab(ttk.Frame):
         self._moved = False
         self._count_n = 0
         self.chest = None       # ToolChest, loaded lazily
+        self.on_opened = None   # app hook: called with path after open_pdf
+        self.drop_hint = "Open in Markup & Measure"
 
         outer = ttk.Panedwindow(self, orient="vertical")
         outer.pack(fill="both", expand=True)
@@ -89,21 +91,44 @@ class MarkupTab(ttk.Frame):
         ttk.Button(chest_pane, text="Delete preset", command=self.del_preset
                    ).pack(fill="x", pady=1)
 
+        # sheet navigator: thumbnails + detected sheet numbers — construction
+        # users navigate by "P-2.01", not by page 37
+        ttk.Label(chest_pane, text="Sheets", style="Title.TLabel"
+                  ).pack(anchor="w", pady=(12, 2))
+        self.sheet_tree = ttk.Treeview(chest_pane, show="tree", height=7,
+                                       style="Sheets.Treeview")
+        self.sheet_tree.pack(fill="both", expand=True)
+        self.sheet_tree.bind("<<TreeviewSelect>>", self._goto_sheet)
+        self._thumbs = []            # PhotoImage refs (tk needs live handles)
+
         # ------------------------------------------------------- center
         center = ttk.Frame(top)
         top.add(center, weight=5)
         tb = ttk.Frame(center)
         tb.pack(fill="x")
         ttk.Button(tb, text="Open PDF…", command=self.open_pdf).pack(side="left")
-        self.tool_btns = {}
-        for name, label, key, tip in TOOLS:
-            b = ttk.Button(tb, text=label, style="Tool.TButton",
-                           command=lambda n=name: self.set_tool(n))
-            b.pack(side="left", padx=1)
-            Tooltip(b, tip + (f"  [{key}]" if key else ""), theme)
-            self.tool_btns[name] = b
         ttk.Button(tb, text="Apply to PDF…", style="Accent.TButton",
                    command=self.apply_pdf).pack(side="right", padx=2)
+        # tools on three short labeled rows — sixteen buttons never fit one
+        self.tool_btns = {}
+        groups = (("Draw", ("select", "pen", "highlighter", "line", "arrow",
+                            "rect", "ellipse")),
+                  ("Note", ("cloud", "callout", "text", "image")),
+                  ("Measure", ("calibrate", "measure_length",
+                               "measure_polylength", "measure_area", "count")))
+        tool_by_name = {t[0]: t for t in TOOLS}
+        for caption, names in groups:
+            row = ttk.Frame(center)
+            row.pack(fill="x", pady=(2, 0))
+            ttk.Label(row, text=caption, style="Muted.TLabel", width=8
+                      ).pack(side="left")
+            for name in names:
+                _n, label, key, tip = tool_by_name[name]
+                b = ttk.Button(row, text=label, style="Tool.TButton",
+                               command=lambda n=name: self.set_tool(n))
+                b.pack(side="left", padx=1)
+                Tooltip(b, tip + (f"  [{key}]" if key else ""), theme)
+                self.tool_btns[name] = b
         self.viewer = PDFViewer(center, theme, on_render=self.redraw_markups,
                                 on_page_changed=lambda n: self.cancel_tool())
         self.viewer.pack(fill="both", expand=True, pady=(4, 0))
@@ -114,9 +139,9 @@ class MarkupTab(ttk.Frame):
         cv.bind("<Double-Button-1>", self.on_double)
         cv.bind("<Motion>", self.on_hover)
         dnd.enable_drop(cv, self.on_drop)
-        self.scale_lbl = ttk.Label(tb, text="scale: not calibrated",
-                                   style="Muted.TLabel")
-        self.scale_lbl.pack(side="right", padx=8)
+        self.scale_btn = ttk.Menubutton(tb, text="scale: not calibrated")
+        self.scale_btn.pack(side="right", padx=8)
+        self._build_scale_menu()
 
         # --------------------------------------------------- properties
         props = ttk.Frame(top, padding=4)
@@ -170,8 +195,15 @@ class MarkupTab(ttk.Frame):
                    ).grid(row=r + 1, column=0, columnspan=2, sticky="ew", pady=1)
         ttk.Button(props, text="Delete selection", command=self.delete_selection
                    ).grid(row=r + 2, column=0, columnspan=2, sticky="ew", pady=1)
+        self.autonum_var = tk.BooleanVar(value=True)
+        autonum = ttk.Checkbutton(props, text="Auto-number counts",
+                                  variable=self.autonum_var)
+        autonum.grid(row=r + 3, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        Tooltip(autonum, "Count dots get sequential labels from the Label "
+                         "field: P → P-001, P-002…  Perfect for punch lists.",
+                theme)
         ttk.Label(props, text="Statuses: Alt+1..5", style="Muted.TLabel"
-                  ).grid(row=r + 3, column=0, columnspan=2, sticky="w", pady=(6, 0))
+                  ).grid(row=r + 4, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         # ------------------------------------------------- markups list
         bottom = ttk.Frame(outer, padding=(4, 2))
@@ -267,8 +299,53 @@ class MarkupTab(ttk.Frame):
         self._count_n = sum(1 for m in self.store.markups if m.type == "count")
         self._show_cal()
         self.fill_list()
+        self._load_sheets(path)
         self.status.set(f"Opened {os.path.basename(path)} — "
                         f"{len(self.store.markups)} saved markup(s)", "ok")
+        if self.on_opened:
+            self.on_opened(path)
+
+    def handle_drop(self, paths):
+        self.on_drop(paths)
+
+    # ------------------------------------------------------ sheet navigator
+    def _load_sheets(self, path):
+        """Detect sheet numbers + render tiny thumbnails in the background;
+        PhotoImages are created on the UI thread (tk requirement)."""
+        self.sheet_tree.delete(*self.sheet_tree.get_children())
+        self._thumbs.clear()
+
+        def work():
+            import fitz
+            from ..sheets import SheetIndex
+            idx = SheetIndex(path)                 # own doc handle, thread-safe
+            doc = fitz.open(path)
+            out = []
+            for info in idx.pages:
+                page = doc[info.page_no - 1]
+                z = 84.0 / max(page.rect.width, 1)
+                pix = page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
+                out.append((info.page_no, info.sheet, pix.tobytes("ppm")))
+            doc.close()
+            return out
+
+        def done(rows, err):
+            if err or not rows:
+                return
+            if self.viewer.path != path:
+                return                      # a different PDF was opened since
+            for page_no, sheet, ppm in rows:
+                img = tk.PhotoImage(data=ppm)
+                self._thumbs.append(img)
+                self.sheet_tree.insert("", "end", iid=str(page_no),
+                                       text=f"  {sheet}", image=img)
+
+        run_bg(self, work, done)
+
+    def _goto_sheet(self, _e):
+        sel = self.sheet_tree.selection()
+        if sel:
+            self.viewer.goto(int(sel[0]))
 
     def on_drop(self, paths):
         pdfs = [p for p in paths if p.lower().endswith(".pdf")]
@@ -310,12 +387,53 @@ class MarkupTab(ttk.Frame):
             except Exception:   # noqa: BLE001
                 pass
 
-    def _show_cal(self):
+    # architectural / metric scale presets: X" on paper = 1'-0" real, or 1:N.
+    # real_per_pt(ft) = (12/X inches-per-ft => 1/X ft per paper inch) / 72;
+    # metric: 1 pt paper = N pt real = N * 0.0254/72 m.
+    _SCALES = (
+        [(f'{lbl}" = 1\'-0"', (1.0 / x) / 72.0, "ft-in") for lbl, x in
+         (("1/16", 1 / 16), ("3/32", 3 / 32), ("1/8", 1 / 8), ("3/16", 3 / 16),
+          ("1/4", 1 / 4), ("3/8", 3 / 8), ("1/2", 1 / 2), ("3/4", 3 / 4),
+          ("1", 1.0), ("1-1/2", 1.5), ("3", 3.0))]
+        + [(f"1:{n}", n * 0.0254 / 72.0, "m") for n in (50, 100, 200, 250, 500)]
+    )
+
+    def _build_scale_menu(self):
+        menu = tk.Menu(self.scale_btn, tearoff=0)
+        menu.add_command(label="Calibrate from two points…",
+                         command=lambda: self.set_tool("calibrate"))
+        menu.add_separator()
+        for label, rpp, unit in self._SCALES:
+            menu.add_command(
+                label=label,
+                command=lambda l=label, r=rpp, u=unit: self._use_scale(l, r, u))
+        menu.add_separator()
+        menu.add_command(label="Clear scale", command=self._clear_scale)
+        self.scale_btn.configure(menu=menu)
+
+    def _use_scale(self, label, real_per_pt, unit):
+        self.cal = measure.ScaleCal(real_per_pt=real_per_pt, unit=unit)
+        self._save_cal()
+        self._show_cal(label)
+        self._recompute_measures()
+        self.after_change()
+        self.status.set(f"Scale set: {label}", "ok")
+
+    def _clear_scale(self):
+        self.cal = None
+        try:
+            os.remove(self._cal_path(self.viewer.path))
+        except OSError:
+            pass
+        self._show_cal()
+        self.after_change()
+
+    def _show_cal(self, label=""):
         if self.cal:
-            self.scale_lbl.configure(
-                text=f"scale: 1pt = {self.cal.real_per_pt:.4g} {self.cal.unit}")
+            txt = label or f"1pt = {self.cal.real_per_pt:.4g} {self.cal.unit}"
+            self.scale_btn.configure(text=f"scale: {txt} ▾")
         else:
-            self.scale_lbl.configure(text="scale: not calibrated")
+            self.scale_btn.configure(text="scale: not calibrated ▾")
 
     # ============================================================= tools
     def set_tool(self, name):
@@ -385,6 +503,12 @@ class MarkupTab(ttk.Frame):
             self.push_undo()
             self._count_n += 1
             label = self.textlbl_var.get() or self.subject_var.get() or "count"
+            if self.autonum_var.get():
+                prefix = label.rstrip("-0123456789 ").strip() or "C"
+                seq = sum(1 for m in self.store.markups
+                          if m.type == "count"
+                          and m.text.startswith(prefix + "-")) + 1
+                label = f"{prefix}-{seq:03d}"
             self.store.add(mk.Markup.new(
                 self.viewer.page_no, "count", [(x, y)], text=label,
                 subject=self.subject_var.get() or label, author=self.author,

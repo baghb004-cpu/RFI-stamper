@@ -24,6 +24,7 @@ class _DocPick(ttk.Frame):
         super().__init__(parent)
         self.on_change = on_change
         ttk.Label(self, text=title, style="Title.TLabel").pack(anchor="w")
+        self.has_file = lambda: bool(self.var.get().strip())
         self.var = tk.StringVar()
         r = ttk.Frame(self)
         r.pack(fill="x")
@@ -73,6 +74,8 @@ class CompareTab(ttk.Frame):
         self.align_result = None
         self._photo = None
         self._out = None
+        self.on_compared = None      # app hook: called with output path
+        self.drop_hint = "Compare — first PDF fills Base, second fills Overlay"
 
         top = ttk.Frame(self)
         top.pack(fill="x")
@@ -146,6 +149,18 @@ class CompareTab(ttk.Frame):
             ("Preview overlay", "Compare", self.preview),
             ("Save overlay PDF", "Compare", self.save_pdf),
         ]
+
+    def handle_drop(self, paths):
+        """First dropped PDF fills Base, the next fills Overlay."""
+        for p in paths:
+            if not p.lower().endswith(".pdf"):
+                continue
+            if not self.a.has_file():
+                self.a._drop([p])
+            elif not self.b.has_file():
+                self.b._drop([p])
+            else:
+                self.b._drop([p])   # both full: newest revision replaces overlay
 
     # -------------------------------------------------------------- actions
     def _ready(self):
@@ -255,5 +270,7 @@ class CompareTab(ttk.Frame):
             self.open_btn.configure(state="normal")
             self.status.set("Overlay PDF written", "ok")
             self.log.say(f"wrote {res}")
+            if self.on_compared:
+                self.on_compared(res)
 
         run_bg(self, work, done)

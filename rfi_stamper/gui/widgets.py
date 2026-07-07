@@ -45,7 +45,7 @@ class DropZone(ttk.Frame):
     drag-drop lights up when tkinterdnd2 is present."""
 
     def __init__(self, parent, theme, text: str, on_paths, exts=None,
-                 browse=None, height=52):
+                 browse=None, height=64, big=False):
         super().__init__(parent)
         self.theme = theme
         self.on_paths = on_paths
@@ -53,6 +53,7 @@ class DropZone(ttk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self._text = text
         self._hover = False
+        self._big = big
         dnd_on = dnd.enable_drop(self.canvas, on_paths, exts=exts,
                                  on_enter=lambda: self._set_hover(True),
                                  on_leave=lambda: self._set_hover(False))
@@ -76,10 +77,11 @@ class DropZone(ttk.Frame):
         cv.delete("all")
         w = max(cv.winfo_width(), 10)
         h = max(cv.winfo_height(), 10)
-        cv.create_rectangle(4, 4, w - 4, h - 4, dash=(5, 3), width=1.4,
+        cv.create_rectangle(4, 4, w - 4, h - 4, dash=(6, 4), width=1.6,
                             outline=c["accent"] if self._hover else c["muted"])
         cv.create_text(w / 2, h / 2, text=self._text, fill=c["muted"],
-                       font=("Segoe UI", 9), width=w - 24, justify="center")
+                       font=("Segoe UI", 14 if self._big else 10),
+                       width=w - 30, justify="center")
 
 
 class LogConsole(ttk.Frame):
@@ -135,30 +137,51 @@ TIPS = [
 ]
 
 
+_SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
 class StatusBar(ttk.Frame):
-    """Status text + rotating discovery tips + offline indicator."""
+    """Status text + busy spinner + rotating discovery tips + offline pill."""
 
     def __init__(self, parent, theme, show_tips=True):
         super().__init__(parent, style="Panel.TFrame")
         self.theme = theme
         self.status = ttk.Label(self, text="Ready", style="Status.TLabel")
-        self.status.pack(side="left", padx=8, pady=2)
-        self.offline = ttk.Label(self, text="", style="Ok.TLabel")
+        self.status.pack(side="left", padx=8, pady=3)
+        self.spinner = ttk.Label(self, text="", style="Status.TLabel")
+        self.spinner.pack(side="left", padx=4)
+        self.offline = ttk.Label(self, text="", style="PillOk.TLabel")
         self.offline.pack(side="right", padx=8)
         self.tip = ttk.Label(self, text="", style="Status.TLabel")
         if show_tips:
             self.tip.pack(side="right", padx=8)
             self._tip_i = 0
             self._rotate()
+        self._spin_i = 0
+        self._spin()
 
     def set(self, msg: str, kind: str = "info"):
         style = {"ok": "Ok.TLabel", "err": "Err.TLabel"}.get(kind, "Status.TLabel")
         self.status.configure(text=msg, style=style)
 
+    def _spin(self):
+        """Animated pulse while any background job runs — 9 fps, no CPU cost."""
+        if not self.winfo_exists():
+            return
+        if busy_count() > 0:
+            self.spinner.configure(text=_SPIN[self._spin_i % len(_SPIN)]
+                                   + " working…")
+            self._spin_i += 1
+            self.after(110, self._spin)
+        else:
+            if self.spinner.cget("text"):
+                self.spinner.configure(text="")
+            self.after(260, self._spin)
+
     def set_offline(self, active: bool):
         self.offline.configure(
             text="● OFFLINE — network blocked" if active else "○ offline guard off",
-            style="Ok.TLabel" if active else "Err.TLabel")
+            style="PillOk.TLabel" if active else "PillErr.TLabel")
 
     def _rotate(self):
         if not self.winfo_exists():
@@ -224,6 +247,64 @@ def open_path(path: str):
         subprocess.Popen(["open", path])
     else:
         subprocess.Popen(["xdg-open", path])
+
+
+_toasts: list = []
+
+
+def toast(root, theme, msg: str, kind: str = "ok", ms: int = 2800):
+    """Slide/fade notification card, bottom-right.  Timer-driven fade via
+    window alpha (a handful of `after` ticks) — no continuous animation."""
+    import tkinter as tk
+    c = theme.colors
+    tw = tk.Toplevel(root)
+    tw.wm_overrideredirect(True)
+    try:
+        tw.attributes("-alpha", 0.0)
+        fade = True
+    except tk.TclError:
+        fade = False
+    color = {"ok": c["ok"], "err": c["err"], "info": c["muted"]}.get(kind, c["ok"])
+    frame = tk.Frame(tw, bg=c["panel"], highlightbackground=color,
+                     highlightthickness=2)
+    frame.pack()
+    glyph = {"ok": "✓", "err": "✕", "info": "ℹ"}.get(kind, "✓")
+    tk.Label(frame, text=f"{glyph}  {msg}", bg=c["panel"], fg=c["fg"],
+             font=("Segoe UI", 11), padx=16, pady=11).pack()
+    tw.update_idletasks()
+    _toasts[:] = [t for t in _toasts if t.winfo_exists()]
+    stack = sum(t.winfo_height() + 10 for t in _toasts)
+    x = root.winfo_rootx() + root.winfo_width() - tw.winfo_width() - 24
+    y = (root.winfo_rooty() + root.winfo_height() - tw.winfo_height()
+         - 56 - stack)
+    tw.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+    _toasts.append(tw)
+
+    def _fade(step, closing):
+        if not tw.winfo_exists():
+            return
+        a = (step / 6) if not closing else (1 - step / 6)
+        try:
+            tw.attributes("-alpha", max(0.0, min(0.94, a)))
+        except tk.TclError:
+            pass
+        if step < 6:
+            tw.after(28, _fade, step + 1, closing)
+        elif closing:
+            tw.destroy()
+
+    def _close():
+        if tw.winfo_exists():
+            if fade:
+                _fade(0, True)
+            else:
+                tw.destroy()
+
+    if fade:
+        _fade(0, False)
+    tw.after(ms, _close)
+    frame.bind("<Button-1>", lambda e: _close())
+    return tw
 
 
 def make_tree(parent, theme, columns, widths, height=8):

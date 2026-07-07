@@ -1,54 +1,72 @@
-"""Light/dark theming for ttk + plain tk widgets.
+"""Light/dark theming for ttk + plain tk widgets, plus the app type scale.
 
 Dark Mode: reduces eyestrain on large plan sets.  ttk styles are restyled
 globally; plain tk widgets (Text, Listbox, Canvas) register a recolor callback
-via ThemeManager.register.
+via ThemeManager.register.  All animation in the app is timer-based (tk
+`after`) — no render loops, near-zero idle CPU.
 """
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
+# ------------------------------------------------------------- type scale ---
+FAMILY = "Segoe UI"                 # tk substitutes a system font elsewhere
+F_UI = (FAMILY, 10)
+F_UI_B = (FAMILY, 10, "bold")
+F_BIG = (FAMILY, 12)
+F_TITLE = (FAMILY, 15, "bold")
+F_HERO = (FAMILY, 26, "bold")
+F_STAT = (FAMILY, 22, "bold")
+F_GHOST = (FAMILY, 15)
+F_MONO = ("Consolas", 9)
+
 LIGHT = {
     "name": "light",
-    "bg": "#eef0f3",
+    "bg": "#f3f4f7",
     "panel": "#ffffff",
-    "fg": "#1b1d21",
-    "muted": "#6b7280",
+    "fg": "#191b1f",
+    "muted": "#69707d",
     "accent": "#c22323",
     "accent_fg": "#ffffff",
+    "accent_soft": "#faeceb",
     "entry_bg": "#ffffff",
-    "border": "#c9ced6",
+    "border": "#d4d8df",
     "sel_bg": "#dbe7f8",
     "sel_fg": "#111318",
-    "canvas_bg": "#dfe2e8",
-    "log_bg": "#f7f8fa",
+    "canvas_bg": "#e2e5ea",
+    "log_bg": "#f8f9fb",
     "ok": "#177245",
     "warn": "#b45309",
     "err": "#b91c1c",
-    "drop_bg": "#f4f6fa",
-    "drop_hi": "#e3edfb",
+    "drop_bg": "#f6f8fb",
+    "drop_hi": "#e8f0fc",
+    "card": "#ffffff",
+    "card_hi": "#fdf6f5",
 }
 
 DARK = {
     "name": "dark",
-    "bg": "#1d1f24",
-    "panel": "#26282f",
-    "fg": "#e6e8ec",
-    "muted": "#9aa1ac",
-    "accent": "#e05a5a",
+    "bg": "#16171b",
+    "panel": "#1f2127",
+    "fg": "#e8eaee",
+    "muted": "#98a0ab",
+    "accent": "#e2564e",
     "accent_fg": "#ffffff",
-    "entry_bg": "#2e3038",
-    "border": "#3d4049",
+    "accent_soft": "#33221f",
+    "entry_bg": "#2a2c34",
+    "border": "#383b44",
     "sel_bg": "#3a4a63",
     "sel_fg": "#f2f4f8",
-    "canvas_bg": "#131418",
-    "log_bg": "#212329",
+    "canvas_bg": "#101114",
+    "log_bg": "#1c1e23",
     "ok": "#4ade80",
     "warn": "#fbbf24",
     "err": "#f87171",
-    "drop_bg": "#24262d",
-    "drop_hi": "#2d3644",
+    "drop_bg": "#1d1f25",
+    "drop_hi": "#283142",
+    "card": "#22242b",
+    "card_hi": "#2b2420",
 }
 
 
@@ -84,47 +102,78 @@ class ThemeManager:
         s.configure(".", background=c["bg"], foreground=c["fg"],
                     fieldbackground=c["entry_bg"], bordercolor=c["border"],
                     lightcolor=c["panel"], darkcolor=c["bg"],
-                    troughcolor=c["bg"], focuscolor=c["accent"])
+                    troughcolor=c["bg"], focuscolor=c["accent"], font=F_UI)
         s.configure("TFrame", background=c["bg"])
         s.configure("Panel.TFrame", background=c["panel"])
-        s.configure("TLabel", background=c["bg"], foreground=c["fg"])
+        s.configure("TLabel", background=c["bg"], foreground=c["fg"], font=F_UI)
         s.configure("Panel.TLabel", background=c["panel"], foreground=c["fg"])
         s.configure("Muted.TLabel", background=c["bg"], foreground=c["muted"])
         s.configure("Status.TLabel", background=c["panel"], foreground=c["muted"])
         s.configure("Ok.TLabel", background=c["panel"], foreground=c["ok"])
         s.configure("Err.TLabel", background=c["panel"], foreground=c["err"])
         s.configure("Title.TLabel", background=c["bg"], foreground=c["fg"],
-                    font=("Segoe UI", 11, "bold"))
+                    font=F_TITLE)
+        s.configure("Hero.TLabel", background=c["bg"], foreground=c["fg"],
+                    font=F_HERO)
+        s.configure("Sub.TLabel", background=c["bg"], foreground=c["muted"],
+                    font=F_BIG)
+        s.configure("Ghost.TLabel", background=c["canvas_bg"],
+                    foreground=c["muted"], font=F_GHOST)
+        s.configure("Stat.TLabel", background=c["panel"], foreground=c["accent"],
+                    font=F_STAT)
+        s.configure("StatCap.TLabel", background=c["panel"],
+                    foreground=c["muted"], font=(FAMILY, 9))
+        # status pills: colored text on a soft panel chip
+        s.configure("PillOk.TLabel", background=c["panel"], foreground=c["ok"],
+                    font=F_UI_B, padding=(10, 3))
+        s.configure("PillErr.TLabel", background=c["panel"], foreground=c["err"],
+                    font=F_UI_B, padding=(10, 3))
         s.configure("TLabelframe", background=c["bg"], bordercolor=c["border"])
-        s.configure("TLabelframe.Label", background=c["bg"], foreground=c["muted"])
-        s.configure("TButton", background=c["panel"], foreground=c["fg"], padding=4)
+        s.configure("TLabelframe.Label", background=c["bg"],
+                    foreground=c["muted"], font=F_UI_B)
+        s.configure("TButton", background=c["panel"], foreground=c["fg"],
+                    padding=(10, 5), font=F_UI)
         s.map("TButton",
               background=[("active", c["sel_bg"]), ("disabled", c["bg"])],
               foreground=[("disabled", c["muted"])])
-        s.configure("Accent.TButton", background=c["accent"], foreground=c["accent_fg"])
-        s.map("Accent.TButton", background=[("active", c["accent"]), ("disabled", c["bg"])],
+        s.configure("Accent.TButton", background=c["accent"],
+                    foreground=c["accent_fg"], font=F_UI_B, padding=(14, 6))
+        s.map("Accent.TButton",
+              background=[("active", c["accent"]), ("disabled", c["bg"])],
               foreground=[("disabled", c["muted"])])
-        s.configure("Tool.TButton", padding=(6, 3))
-        s.configure("ToolOn.TButton", padding=(6, 3), background=c["sel_bg"])
+        s.configure("Tool.TButton", padding=(5, 2), font=(FAMILY, 9))
+        s.configure("ToolOn.TButton", padding=(5, 2), font=(FAMILY, 9),
+                    background=c["sel_bg"])
         s.configure("TEntry", fieldbackground=c["entry_bg"], foreground=c["fg"],
-                    insertcolor=c["fg"])
+                    insertcolor=c["fg"], padding=3)
         s.configure("TCombobox", fieldbackground=c["entry_bg"], foreground=c["fg"],
                     background=c["panel"], arrowcolor=c["fg"])
+        s.map("TCombobox",
+              fieldbackground=[("readonly", c["entry_bg"])],
+              foreground=[("readonly", c["fg"])],
+              selectbackground=[("readonly", c["entry_bg"])],
+              selectforeground=[("readonly", c["fg"])])
         s.configure("TSpinbox", fieldbackground=c["entry_bg"], foreground=c["fg"],
                     background=c["panel"], arrowcolor=c["fg"])
         s.configure("TCheckbutton", background=c["bg"], foreground=c["fg"])
         s.map("TCheckbutton", background=[("active", c["bg"])])
-        s.configure("TNotebook", background=c["bg"], bordercolor=c["border"])
-        s.configure("TNotebook.Tab", background=c["panel"], foreground=c["muted"],
-                    padding=(14, 6))
+        s.configure("TRadiobutton", background=c["bg"], foreground=c["fg"])
+        s.map("TRadiobutton", background=[("active", c["bg"])])
+        s.configure("TNotebook", background=c["bg"], bordercolor=c["border"],
+                    tabmargins=(8, 6, 8, 0))
+        s.configure("TNotebook.Tab", background=c["panel"],
+                    foreground=c["muted"], padding=(18, 8), font=F_BIG)
         s.map("TNotebook.Tab",
               background=[("selected", c["bg"])],
               foreground=[("selected", c["fg"])])
         s.configure("Treeview", background=c["panel"], foreground=c["fg"],
-                    fieldbackground=c["panel"], bordercolor=c["border"], rowheight=22)
+                    fieldbackground=c["panel"], bordercolor=c["border"],
+                    rowheight=26, font=F_UI)
         s.map("Treeview", background=[("selected", c["sel_bg"])],
               foreground=[("selected", c["sel_fg"])])
-        s.configure("Treeview.Heading", background=c["bg"], foreground=c["muted"])
+        s.configure("Treeview.Heading", background=c["bg"],
+                    foreground=c["muted"], font=F_UI_B)
+        s.configure("Sheets.Treeview", rowheight=62)   # thumbnail navigator
         s.configure("TScrollbar", background=c["panel"], troughcolor=c["bg"],
                     arrowcolor=c["muted"])
         s.configure("TPanedwindow", background=c["bg"])
@@ -154,7 +203,8 @@ class ThemeManager:
         c = self.colors
         w.configure(bg=c["panel"], fg=c["fg"], selectbackground=c["sel_bg"],
                     selectforeground=c["sel_fg"], highlightthickness=1,
-                    highlightbackground=c["border"], relief="flat")
+                    highlightbackground=c["border"], relief="flat",
+                    font=F_UI)
 
     def style_canvas(self, w: tk.Canvas) -> None:
         c = self.colors

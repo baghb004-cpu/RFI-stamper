@@ -14,6 +14,7 @@ DEFAULTS = {
     "last_dir": "",
     "invert_pdf_in_dark": False,
     "tips": True,
+    "recent": [],
 }
 
 

@@ -22,6 +22,9 @@ class StampTab(ttk.Frame):
         self.out_path = None
         self.scanned_plan = None     # the plan the current index/rows belong to
         self._running = False        # guards re-entry via palette/keyboard
+        self.on_scanned = None       # app hook: (plan_path)
+        self.on_stamped = None       # app hook: (verify_ok, out_path)
+        self.drop_hint = "Stamp RFIs — plan set first, then RFI files"
 
         # ---------------------------------------------------------- plan set
         r1 = ttk.Frame(self)
@@ -65,10 +68,24 @@ class StampTab(ttk.Frame):
                                    command=self.scan)
         self.scan_btn.pack(side="right")
 
+        # ------------------------------------------------- dashboard tiles
+        self.tiles = ttk.Frame(self, style="Panel.TFrame")
+        self._tile_vars = {}
+        for key, cap in (("rfis", "RFIs FOUND"), ("answered", "ANSWERED"),
+                         ("sheets", "SHEETS MATCHED"), ("unmatched", "UNMATCHED")):
+            cell = ttk.Frame(self.tiles, style="Panel.TFrame", padding=(18, 8))
+            cell.pack(side="left", expand=True, fill="x")
+            v = tk.StringVar(value="–")
+            ttk.Label(cell, textvariable=v, style="Stat.TLabel").pack(anchor="w")
+            ttk.Label(cell, text=cap, style="StatCap.TLabel").pack(anchor="w")
+            self._tile_vars[key] = v
+        # (packed after the first scan, above the mapping table)
+
         # ---------------------------------------------------------- mapping
         r4 = ttk.LabelFrame(self, text="Mapping review — double-click a Sheets "
                                        "cell to edit (semicolon-separated)")
         r4.pack(fill="both", expand=True, pady=4)
+        self.map_frame = r4
         frame, self.tree = make_tree(
             r4, theme,
             [("rfi", "RFI"), ("title", "TITLE"), ("sheets", "SHEETS"),
@@ -159,11 +176,41 @@ class StampTab(ttk.Frame):
             self.index, self.rows = result
             self.scanned_plan = plan
             self.fill_tree()
+            self.show_stats()
             self.run_btn.configure(state="normal")
             self.csv_btn.configure(state="normal")
             self.status.set(f"{len(self.rows)} RFI(s) mapped — review, then stamp", "ok")
+            if self.on_scanned:
+                self.on_scanned(plan)
 
         run_bg(self, work, done)
+
+    def show_stats(self):
+        """Big-number dashboard: the scan at a glance."""
+        rows = self.rows or []
+        total = len(rows)
+        answered = sum(1 for r in rows if r.record.has_answer)
+        unmatched = sum(1 for r in rows if not r.pages)
+        sheets = len({p for r in rows for p in r.pages})
+        self._tile_vars["rfis"].set(str(total))
+        self._tile_vars["answered"].set(
+            f"{answered} ({answered * 100 // total}%)" if total else "0")
+        self._tile_vars["sheets"].set(str(sheets))
+        self._tile_vars["unmatched"].set(str(unmatched))
+        if not self.tiles.winfo_ismapped():
+            self.tiles.pack(fill="x", pady=(2, 4), before=self.map_frame)
+
+    def handle_drop(self, paths):
+        """Full-window drop routing: first PDF becomes the plan set when none
+        is picked yet; everything else joins the RFI list."""
+        rest = []
+        for p in paths:
+            if (p.lower().endswith(".pdf") and not os.path.isdir(p)
+                    and not self.plan_var.get().strip()):
+                self.plan_var.set(p)
+            else:
+                rest.append(p)
+        self.add_paths(rest)
 
     def fill_tree(self):
         self.tree.delete(*self.tree.get_children())
@@ -250,5 +297,7 @@ class StampTab(ttk.Frame):
                 self.status.set("VERIFICATION FAILED — see log/report", "err")
                 messagebox.showerror("RFI Stamper", "Verification failed — review "
                                      "the log before issuing.")
+            if self.on_stamped:
+                self.on_stamped(rep.verify_ok, self.out_path)
 
         run_bg(self, work, done)

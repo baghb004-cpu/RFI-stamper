@@ -17,8 +17,16 @@ A desktop toolkit for construction drawings that runs **100% offline**:
   (red = removed, blue = added, dark = unchanged).
 
 Drag-and-drop works everywhere a file can go: plan sets, RFI piles, combine
-lists, compare slots, images onto drawings. Every drop zone also works by
-click-to-browse.
+lists, compare slots, images onto drawings — and dragging a file anywhere
+over the window turns the whole app into one giant labeled drop target,
+routed to the right tool. Every drop zone also works by click-to-browse.
+
+The interface is built around big type and open space: a Home dashboard with
+action cards and recent files, an RFI dashboard with at-a-glance stat tiles
+after every scan, a sheet navigator with page thumbnails and detected sheet
+numbers (jump to "P-2.01", not "page 37"), toast notifications, a busy
+spinner, a zoom badge, and F11 fullscreen. All animation is timer-based tk —
+no render loops, near-zero idle CPU.
 
 ## Privacy and NDA safety
 
@@ -109,6 +117,15 @@ verification passes.
 * **Statuses by keyboard**: select markups, `Alt+1..5` assigns
   none/accepted/rejected/completed/cancelled. The CSV export can include the
   full status history or the latest status only.
+* **Scale presets**: pick a standard architectural or metric scale
+  (1/16"–3" = 1'-0", 1:50–1:500) from the scale menu, or calibrate from any
+  two points of a known dimension — every measurement gets a real-world
+  caption either way.
+* **Auto-numbered counts**: with auto-numbering on, count dots label
+  themselves from the Label field — `P` becomes P-001, P-002, … — a ready-made
+  punch list you can export to CSV.
+* **Construction stamps** ship in the Tool Chest: HOLD, AS-BUILT, REVISED,
+  NOT IN CONTRACT, BY OTHERS, VERIFY IN FIELD, numbered punch dots.
 * **Tool Chest search**: type in the box above the presets; save any current
   tool + style as a new preset.
 * **Command palette** (Ctrl+K): fuzzy-search every feature, tab, tool, and

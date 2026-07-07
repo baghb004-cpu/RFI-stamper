@@ -19,6 +19,8 @@ class MergeTab(ttk.Frame):
         self.items: list[merge.MergeItem] = []
         self._drag_iid = None
         self._running = False        # guards re-entry via palette/keyboard
+        self.on_combined = None      # app hook: called with output path
+        self.drop_hint = "Add to the Combine list"
 
         DropZone(self, theme,
                  "Drop PDFs here to combine — drag rows to reorder, "
@@ -110,6 +112,9 @@ class MergeTab(ttk.Frame):
         ]
 
     # --------------------------------------------------------------- items
+    def handle_drop(self, paths):
+        self.add_paths(paths)
+
     def add_paths(self, paths):
         for p in paths:
             if os.path.isdir(p):
@@ -253,6 +258,8 @@ class MergeTab(ttk.Frame):
             self.status.set(f"Combined {res['files']} file(s) → "
                             f"{res['pages']} pages", "ok")
             self.log.say(f"wrote {self._out}")
+            if self.on_combined:
+                self.on_combined(self._out, res["files"], res["pages"])
 
         run_bg(self, work, done)
 

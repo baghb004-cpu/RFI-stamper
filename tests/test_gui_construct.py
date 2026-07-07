@@ -39,16 +39,17 @@ def main():
     root.update_idletasks()
     root.update()
 
-    # every tab constructed
-    assert len(app.nb.tabs()) == 4, app.nb.tabs()
+    # every tab constructed (home + four tools)
+    assert len(app.nb.tabs()) == 5, app.nb.tabs()
 
-    # theme round-trip
+    # theme round-trip (start theme comes from user prefs — don't assume it)
+    start = app.theme.name
     app.toggle_dark()
     root.update()
-    assert app.theme.name == "dark"
+    assert app.theme.name != start
     app.toggle_dark()
     root.update()
-    assert app.theme.name == "light"
+    assert app.theme.name == start
 
     # command palette opens, filters, closes
     app.palette.open()
@@ -111,6 +112,62 @@ def main():
 
     # stamp guard: stamping a plan that was never scanned must be refused
     assert app.stamp.scanned_plan is None and app.stamp._running is False
+
+    # home routing: one PDF -> markup tab; several -> combine list
+    before = len(app.merge.items)
+    app.route_paths([pdf, pdf])
+    root.update()
+    assert len(app.merge.items) == before + 2
+    app.route_paths([pdf])
+    root.update()
+    assert app.markup.viewer.path == pdf
+
+    # full-window drop overlay: hint reflects the active tab, drop routes
+    app.nb.select(app.merge)
+    root.update()
+    assert "Combine" in app._drop_hint()
+    n = len(app.merge.items)
+    app._drop_route([pdf])
+    root.update()
+    assert len(app.merge.items) == n + 1
+
+    # scale preset sets a calibration and captions recompute
+    app.nb.select(app.markup)
+    app.markup._use_scale('1/8" = 1\'-0"', (1 / 0.125) / 72.0, "ft-in")
+    assert app.markup.cal is not None and app.markup.cal.unit == "ft-in"
+    assert abs(app.markup.cal.real_per_pt - 8.0 / 72.0) < 1e-9
+
+    # auto-numbered counts: P -> P-001, P-002
+    from rfi_stamper import markups as mk2
+    app.markup.textlbl_var.set("P")
+    app.markup.autonum_var.set(True)
+    app.markup.set_tool("count")
+
+    class _Ev:
+        x, y, state = 30, 30, 0
+    app.markup.on_press(_Ev())
+    app.markup.on_press(_Ev())
+    labels = sorted(m.text for m in app.markup.store.markups
+                    if m.type == "count")
+    assert labels == ["P-001", "P-002"], labels
+    app.markup.undo()
+    app.markup.undo()
+
+    # stamp dashboard tiles exist and start unpopulated
+    assert set(app.stamp._tile_vars) == {"rfis", "answered", "sheets",
+                                         "unmatched"}
+
+    # toast appears and self-destructs
+    from rfi_stamper.gui.widgets import toast
+    t = toast(root, app.theme, "test toast", ms=150)
+    root.update()
+    assert t.winfo_exists()
+
+    # construction stamps seeded in a fresh tool chest
+    tc = mk2.ToolChest(os.path.join(tmp, "toolchest.json"))
+    names = [p.name for p in tc.presets]
+    assert any("HOLD" in n for n in names), names
+    assert any("Punch Dot" in n for n in names), names
 
     # CLI: top-level --help must not be swallowed by the legacy-flag rewrite
     import subprocess

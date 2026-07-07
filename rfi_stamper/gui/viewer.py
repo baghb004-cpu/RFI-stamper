@@ -79,6 +79,9 @@ class PDFViewer(ttk.Frame):
         cv.bind("<B2-Motion>", lambda e: cv.scan_dragto(e.x, e.y, gain=1))
         cv.bind("<Prior>", lambda e: self.prev_page())
         cv.bind("<Next>", lambda e: self.next_page())
+        self._hud_after = None
+        cv.bind("<Configure>",
+                lambda e: self.doc is None and self._draw_empty(), add="+")
 
     # ------------------------------------------------------------- document
     def open(self, path: str):
@@ -100,6 +103,28 @@ class PDFViewer(ttk.Frame):
         self.canvas.delete("all")
         self._photo = None
         self._update_bar()
+        self._draw_empty()
+
+    def _draw_empty(self):
+        """Big friendly empty state instead of a bare gray void."""
+        cv = self.canvas
+        if self.doc is not None or not cv.winfo_exists():
+            return
+        cv.delete("all")
+        c = self.theme.colors
+        w = max(cv.winfo_width(), 60)
+        h = max(cv.winfo_height(), 60)
+        x, y = w / 2, h / 2
+        # little line-art plan sheet
+        cv.create_rectangle(x - 44, y - 74, x + 44, y - 14,
+                            outline=c["muted"], width=1.6)
+        cv.create_rectangle(x + 14, y - 34, x + 40, y - 18, outline=c["muted"])
+        for dy in (-62, -52, -42):
+            cv.create_line(x - 36, y + dy, x + 4, y + dy, fill=c["muted"])
+        cv.create_text(x, y + 22, text="Open or drop a PDF",
+                       fill=c["muted"], font=("Segoe UI", 16, "bold"))
+        cv.create_text(x, y + 48, fill=c["muted"], font=("Segoe UI", 10),
+                       text="drag a file anywhere onto this window")
 
     def reload(self):
         """Re-open the same file (after an external write) keeping position."""
@@ -166,6 +191,29 @@ class PDFViewer(ttk.Frame):
         ch = max(r.height * z, 1)
         self.canvas.xview_moveto(max(0.0, (px * z - focus[0]) / cw))
         self.canvas.yview_moveto(max(0.0, (py * z - focus[1]) / ch))
+        self._show_hud()
+
+    def _show_hud(self):
+        """Transient zoom badge, top-center; fades by timer (no animation loop)."""
+        cv = self.canvas
+        cv.delete("zoomhud")
+        if not self.doc:
+            return
+        c = self.theme.colors
+        x = cv.canvasx(cv.winfo_width() / 2)
+        y = cv.canvasy(30)
+        t = cv.create_text(x, y, text=f"{self.zoom * 100:.0f}%",
+                           fill=c["fg"], font=("Segoe UI", 13, "bold"),
+                           tags="zoomhud")
+        box = cv.bbox(t)
+        bg = cv.create_rectangle(box[0] - 12, box[1] - 6, box[2] + 12,
+                                 box[3] + 6, fill=c["panel"],
+                                 outline=c["border"], tags="zoomhud")
+        cv.tag_raise(t, bg)
+        if self._hud_after:
+            self.after_cancel(self._hud_after)
+        self._hud_after = self.after(
+            800, lambda: cv.winfo_exists() and cv.delete("zoomhud"))
 
     def fit_width(self):
         if not self.doc:
