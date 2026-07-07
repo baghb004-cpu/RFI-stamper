@@ -21,53 +21,80 @@ F_STAT = (FAMILY, 22, "bold")
 F_GHOST = (FAMILY, 15)
 F_MONO = ("Consolas", 9)
 
+# Color theory: the light base is warm drafting-paper (slight yellow-red cast,
+# easy on daylight screens); the dark base is deep blueprint blue-charcoal
+# (cool cast, low eyestrain at night).  Section hues below sit roughly evenly
+# around the wheel so adjacent workspaces stay distinguishable at a glance,
+# while the brand accent stays construction red for the RFI-stamping identity.
 LIGHT = {
     "name": "light",
-    "bg": "#f3f4f7",
-    "panel": "#ffffff",
-    "fg": "#191b1f",
-    "muted": "#69707d",
+    "bg": "#f4f2ec",
+    "panel": "#fdfcf8",
+    "fg": "#20211f",
+    "muted": "#6d6f68",
     "accent": "#c22323",
     "accent_fg": "#ffffff",
-    "accent_soft": "#faeceb",
+    "accent_soft": "#f8ebe7",
     "entry_bg": "#ffffff",
-    "border": "#d4d8df",
+    "border": "#d9d5c9",
     "sel_bg": "#dbe7f8",
     "sel_fg": "#111318",
-    "canvas_bg": "#e2e5ea",
-    "log_bg": "#f8f9fb",
+    "canvas_bg": "#e7e4da",
+    "log_bg": "#faf9f4",
     "ok": "#177245",
     "warn": "#b45309",
     "err": "#b91c1c",
-    "drop_bg": "#f6f8fb",
-    "drop_hi": "#e8f0fc",
-    "card": "#ffffff",
-    "card_hi": "#fdf6f5",
+    "drop_bg": "#f8f6f0",
+    "drop_hi": "#eef1e4",
+    "card": "#fdfcf8",
+    "card_hi": "#f7efe9",
 }
 
 DARK = {
     "name": "dark",
-    "bg": "#16171b",
-    "panel": "#1f2127",
-    "fg": "#e8eaee",
-    "muted": "#98a0ab",
+    "bg": "#12151d",
+    "panel": "#1a1e29",
+    "fg": "#e7eaf0",
+    "muted": "#93a0b4",
     "accent": "#e2564e",
     "accent_fg": "#ffffff",
     "accent_soft": "#33221f",
-    "entry_bg": "#2a2c34",
-    "border": "#383b44",
-    "sel_bg": "#3a4a63",
+    "entry_bg": "#242a38",
+    "border": "#333b4d",
+    "sel_bg": "#32456b",
     "sel_fg": "#f2f4f8",
-    "canvas_bg": "#101114",
-    "log_bg": "#1c1e23",
+    "canvas_bg": "#0d1017",
+    "log_bg": "#171b25",
     "ok": "#4ade80",
     "warn": "#fbbf24",
     "err": "#f87171",
-    "drop_bg": "#1d1f25",
-    "drop_hi": "#283142",
-    "card": "#22242b",
-    "card_hi": "#2b2420",
+    "drop_bg": "#181c26",
+    "drop_hi": "#233048",
+    "card": "#1e2330",
+    "card_hi": "#2a2532",
 }
+
+# workspace section hues (keys match the nav) — one color family per section
+SECTIONS = {
+    "home":         {"color": "#c2402f", "glyph": "⌂", "label": "Home"},
+    "field":        {"color": "#2f9e62", "glyph": "⛑", "label": "Field Management"},
+    "project":      {"color": "#3f6fe0", "glyph": "▤", "label": "Project Management"},
+    "plans":        {"color": "#8b5cf6", "glyph": "⬒", "label": "Plans & BIM"},
+    "reporting":    {"color": "#dd8427", "glyph": "◫", "label": "Reporting"},
+    "integrations": {"color": "#12a5ba", "glyph": "⇌", "label": "App Integrations"},
+    "truth":        {"color": "#d64570", "glyph": "◎", "label": "Ground Truth"},
+}
+
+
+def section_color(key: str) -> str:
+    return SECTIONS.get(key, {}).get("color", "#c22323")
+
+
+def mix(hex_a: str, hex_b: str, t: float) -> str:
+    """Blend two hex colors; the workhorse for tints/shades of section hues."""
+    a = [int(hex_a[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(hex_b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
 class ThemeManager:

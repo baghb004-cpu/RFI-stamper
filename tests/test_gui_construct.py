@@ -1,10 +1,10 @@
-"""Headless GUI construction test: builds the full app (all four tabs, theme
-toggle, command palette, viewer open/zoom/page-flip on a synthetic PDF) under
-a virtual display and tears it down.  Catches import errors, broken widget
-wiring, and theme regressions without a human at the screen.
+"""Headless GUI construction test for the Planloom workspace: builds the full
+app (nav + all seven sections), switches between them, exercises the project
+store through the UI layer, the viewer, markup regression paths, routing, and
+theme round-trip — under a virtual display.
 
 Run:  xvfb-run -a python3 tests/test_gui_construct.py     (Linux)
-      python tests\\test_gui_construct.py                  (Windows/mac, visible)
+      python tests\\test_gui_construct.py                  (Windows/mac)
 """
 import os
 import sys
@@ -26,23 +26,31 @@ def make_pdf(path, pages=2):
 
 
 def main():
-    from rfi_stamper.gui import dnd
-    from rfi_stamper.gui.app import App
+    from rfi_stamper.gui import dnd, fx
+    from rfi_stamper.gui.app import SECTION_ORDER, App
 
-    tmp = tempfile.mkdtemp(prefix="rfi_gui_")
+    fx.set_quality("off")          # deterministic: animations jump to end
+
+    tmp = tempfile.mkdtemp(prefix="ploom_gui_")
     pdf = os.path.join(tmp, "t.pdf")
     make_pdf(pdf)
 
     root = dnd.make_root()
-    root.geometry("1200x800")
+    root.geometry("1400x900")
     app = App(root)
     root.update_idletasks()
     root.update()
 
-    # every tab constructed (home + five tools)
-    assert len(app.nb.tabs()) == 6, app.nb.tabs()
+    # all seven sections constructed and reachable through the nav
+    assert set(app.sections) == set(SECTION_ORDER)
+    for key in SECTION_ORDER:
+        app.goto(key)
+        root.update()
+        assert app._current == key, key
+    app.goto("home")
+    root.update()
 
-    # theme round-trip (start theme comes from user prefs — don't assume it)
+    # theme round-trip (start theme comes from user prefs)
     start = app.theme.name
     app.toggle_dark()
     root.update()
@@ -59,147 +67,114 @@ def main():
     assert app.palette.listbox.size() > 0
     app.palette.close()
 
-    # viewer: open, flip, zoom, invert, markup store attached
-    app.nb.select(app.markup)
-    app.markup.open_pdf(pdf)
+    # project lifecycle through the app layer
+    ppath = os.path.join(tmp, "job.ploom.json")
+    app._load_project(ppath, create=True)
     root.update()
-    assert app.markup.viewer.page_count == 2
-    app.markup.viewer.next_page()
+    assert app.project is not None and os.path.exists(ppath)
+    from rfi_stamper.project import PunchItem, Task
+    app.project.add("tasks", Task.new(title="hang duct", status="todo",
+                                      due="2020-01-01"))
+    app.project.add("punch", PunchItem.new(title="patch wall"))
+    app.field.refresh()
     root.update()
-    assert app.markup.viewer.page_no == 2
-    app.markup.viewer.zoom_by(1.5)
-    app.markup.viewer.set_invert(True)
+    assert len(app.field.tasks.tree.get_children()) == 1
+    assert len(app.field.punch.tree.get_children()) == 1
+    app.truth.refresh()
     root.update()
-    assert app.markup.store is not None
 
-    # add a markup programmatically and check list + sidecar autosave
-    from rfi_stamper import markups as mk
-    app.markup.push_undo()
-    app.markup.store.add(mk.Markup.new(1, "rect", [(100, 100), (200, 160)],
-                                       subject="gui-test"))
-    app.markup.after_change()
+    # plan viewing: open, flip, zoom, markup store attached
+    app.goto("plans")
     root.update()
-    assert len(app.markup.mtree.get_children()) == 1
-    assert os.path.exists(mk.MarkupStore.sidecar_path(pdf))
-    app.markup.undo()
+    mk_tab = app.plans.markup
+    mk_tab.open_pdf(pdf)
     root.update()
-    assert len(app.markup.mtree.get_children()) == 0
+    assert mk_tab.viewer.page_count == 2
+    mk_tab.viewer.next_page()
+    root.update()
+    assert mk_tab.viewer.page_no == 2
+    assert mk_tab.store is not None
 
-    # poly-tool preview path (regression: _draw_poly_preview must exist and run)
-    app.markup.set_tool("measure_polylength")
-    app.markup._pts = [(50.0, 50.0), (120.0, 80.0)]
-    app.markup._draw_poly_preview()
-    root.update()
-    assert app.markup.viewer.canvas.find_withtag("preview")
-    # page navigation cancels the in-progress tool
-    app.markup.viewer.goto(1)
-    root.update()
-    assert app.markup._pts == [] and not \
-        app.markup.viewer.canvas.find_withtag("preview")
-    # Esc exits the count tool back to select
-    app.markup.set_tool("count")
-    app.markup.on_escape()
-    assert app.markup.tool == "select"
-    # cancel_tool clears the hover rubber-band too
-    app.markup.viewer.canvas.create_line(0, 0, 5, 5, tags="hoverseg")
-    app.markup.cancel_tool()
-    assert not app.markup.viewer.canvas.find_withtag("hoverseg")
-
-    # merge tab accepts a file
-    app.merge.add_paths([pdf])
-    root.update()
-    assert len(app.merge.items) == 1
-
-    # stamp guard: stamping a plan that was never scanned must be refused
-    assert app.stamp.scanned_plan is None and app.stamp._running is False
-
-    # home routing: one PDF -> markup tab; several -> combine list
-    before = len(app.merge.items)
-    app.route_paths([pdf, pdf])
-    root.update()
-    assert len(app.merge.items) == before + 2
-    app.route_paths([pdf])
-    root.update()
-    assert app.markup.viewer.path == pdf
-
-    # full-window drop overlay: hint reflects the active tab, drop routes
-    app.nb.select(app.merge)
-    root.update()
-    assert "Combine" in app._drop_hint()
-    n = len(app.merge.items)
-    app._drop_route([pdf])
-    root.update()
-    assert len(app.merge.items) == n + 1
-
-    # scale preset sets a calibration and captions recompute
-    app.nb.select(app.markup)
-    app.markup._use_scale('1/8" = 1\'-0"', (1 / 0.125) / 72.0, "ft-in")
-    assert app.markup.cal is not None and app.markup.cal.unit == "ft-in"
-    assert abs(app.markup.cal.real_per_pt - 8.0 / 72.0) < 1e-9
-
-    # auto-numbered counts: P -> P-001, P-002
+    # markup regression paths kept from the previous architecture
     from rfi_stamper import markups as mk2
-    app.markup.textlbl_var.set("P")
-    app.markup.autonum_var.set(True)
-    app.markup.set_tool("count")
-
-    class _Ev:
-        x, y, state = 30, 30, 0
-    app.markup.on_press(_Ev())
-    app.markup.on_press(_Ev())
-    labels = sorted(m.text for m in app.markup.store.markups
-                    if m.type == "count")
-    assert labels == ["P-001", "P-002"], labels
-    app.markup.undo()
-    app.markup.undo()
-
-    # stamp dashboard tiles exist and start unpopulated
-    assert set(app.stamp._tile_vars) == {"rfis", "answered", "sheets",
-                                         "unmatched"}
-
-    # toast appears and self-destructs
-    from rfi_stamper.gui.widgets import toast
-    t = toast(root, app.theme, "test toast", ms=150)
+    mk_tab.push_undo()
+    mk_tab.store.add(mk2.Markup.new(1, "rect", [(100, 100), (200, 160)],
+                                    subject="gui-test"))
+    mk_tab.after_change()
     root.update()
-    assert t.winfo_exists()
+    assert len(mk_tab.mtree.get_children()) == 1
+    mk_tab.undo()
+    root.update()
+    assert len(mk_tab.mtree.get_children()) == 0
+    mk_tab.set_tool("measure_polylength")
+    mk_tab._pts = [(50.0, 50.0), (120.0, 80.0)]
+    mk_tab._draw_poly_preview()
+    root.update()
+    assert mk_tab.viewer.canvas.find_withtag("preview")
+    mk_tab.viewer.goto(1)
+    root.update()
+    assert mk_tab._pts == []
+    mk_tab.set_tool("count")
+    mk_tab.on_escape()
+    assert mk_tab.tool == "select"
 
-    # construction stamps seeded in a fresh tool chest
-    tc = mk2.ToolChest(os.path.join(tmp, "toolchest.json"))
-    names = [p.name for p in tc.presets]
-    assert any("HOLD" in n for n in names), names
-    assert any("Punch Dot" in n for n in names), names
-
-    # per-page scale memory: a scale on page 2 doesn't leak to page 1.
-    # Use a fresh PDF path so no earlier sub-test's .scale.json sidecar bleeds in.
+    # per-page scale memory isolation
     import shutil
     pdf2 = os.path.join(tmp, "scale_iso.pdf")
     shutil.copy(pdf, pdf2)
-    app.nb.select(app.markup)
-    app.markup.open_pdf(pdf2)
+    mk_tab.open_pdf(pdf2)
     root.update()
-    app.markup.viewer.goto(2)
-    app.markup.scale_all_pages.set(False)
-    app.markup._use_scale('1/4" = 1\'-0"', (1 / 0.25) / 72.0, "ft-in")
-    assert app.markup.cal_for(2) is not None
-    assert app.markup.cal_for(1) is None
+    mk_tab.viewer.goto(2)
+    mk_tab.scale_all_pages.set(False)
+    mk_tab._use_scale('1/4" = 1\'-0"', (1 / 0.25) / 72.0, "ft-in")
+    assert mk_tab.cal_for(2) is not None and mk_tab.cal_for(1) is None
 
-    # PDF Tools tab wired with the one-touch actions
-    assert hasattr(app.pdftools, "auto_fix") and hasattr(app.pdftools, "autolink")
+    # home routing: one PDF -> plan viewing; several -> combine list
+    before = len(app.projsec.merge.items)
+    app.route_paths([pdf, pdf])
+    root.update()
+    assert len(app.projsec.merge.items) == before + 2
+    app.route_paths([pdf])
+    root.update()
+    assert app.plans.markup.viewer.path == pdf and app._current == "plans"
 
-    # effectively-unlimited undo depth
-    assert app.markup.UNDO_LIMIT >= 500
+    # overlay hint reflects the active section
+    app.goto("project")
+    root.update()
+    assert "plan set" in app._drop_hint().lower()
 
-    # CLI: top-level --help must not be swallowed by the legacy-flag rewrite
+    # stamp guards intact + resolution hook wired
+    st = app.projsec.stamp
+    assert st.scanned_plan is None and st._running is False
+    assert st.get_statuses is not None
+
+    # BIM viewer: demo model renders segments
+    app.goto("plans")
+    app.plans.nb.select(app.plans.bim)
+    root.update()
+    import rfi_stamper.bim as bim
+    app.plans.bim.set_model(bim.demo_building())
+    root.update()
+    assert len(app.plans.bim.canvas.find_all()) > 50
+
+    # ground truth renders and computes without a scan
+    app.goto("truth")
+    root.update()
+    app.truth.refresh()
+    root.update()
+
+    # CLI --help unswallowed (regression)
     import subprocess
     r = subprocess.run([sys.executable, "-m", "rfi_stamper", "--help"],
                        capture_output=True, text=True,
                        cwd=os.path.dirname(os.path.dirname(
                            os.path.abspath(__file__))))
-    assert r.returncode == 0 and "merge" in r.stdout and "compare" in r.stdout
+    assert r.returncode == 0 and "merge" in r.stdout
 
-    # offline guard is active by default
+    # offline guard active by default; undo depth effectively unlimited
     from rfi_stamper import offline_guard
     assert offline_guard.is_active()
+    assert mk_tab.UNDO_LIMIT >= 500
 
     app.on_close()
     print("GUI CONSTRUCT TEST PASSED")

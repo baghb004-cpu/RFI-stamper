@@ -77,7 +77,7 @@ DEFAULTS = (
 
 
 class ToolChest:
-    DEFAULT_PATH = os.path.join("~", ".rfi_stamper", "toolchest.json")
+    DEFAULT_PATH = os.path.join("~", ".planloom", "toolchest.json")
 
     def __init__(self, path: str | None = None):
         self.path = os.path.expanduser(path or self.DEFAULT_PATH)

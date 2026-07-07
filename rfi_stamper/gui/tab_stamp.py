@@ -24,6 +24,9 @@ class StampTab(ttk.Frame):
         self._running = False        # guards re-entry via palette/keyboard
         self.on_scanned = None       # app hook: (plan_path)
         self.on_stamped = None       # app hook: (verify_ok, out_path)
+        self.get_statuses = None     # app hook: () -> {rfi#: status} | None
+                                     # (Resolution Board statuses ride into
+                                     # the stamped note headers)
         self.drop_hint = "Stamp RFIs — plan set first, then RFI files"
 
         # ---------------------------------------------------------- plan set
@@ -288,11 +291,12 @@ class StampTab(ttk.Frame):
         self.status.set("Stamping…")
         rows, index = self.rows, self.index    # frozen: edit_cell is blocked
         add_links = self.link_var.get()
+        statuses = self.get_statuses() if self.get_statuses else None
 
         def work():
             rep = pipeline.run(plan, out_path=self.out_path, rows=rows,
                                index=index, summarizer=OfflineSummarizer(),
-                               log=self.log.say)
+                               statuses=statuses, log=self.log.say)
             if rep.verify_ok and add_links:
                 # native GoTo links from every sheet reference to its page —
                 # done after verify so it never affects the pixel-diff check

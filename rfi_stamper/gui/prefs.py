@@ -1,24 +1,42 @@
-"""User preferences persisted to ~/.rfi_stamper/prefs.json (local disk only)."""
+"""User preferences persisted to ~/.planloom/prefs.json (local disk only).
+
+Older installs kept prefs in ~/.rfi_stamper; migrated once, transparently.
+"""
 from __future__ import annotations
 
 import json
 import os
+import shutil
 
-PREFS_DIR = os.path.join(os.path.expanduser("~"), ".rfi_stamper")
+PREFS_DIR = os.path.join(os.path.expanduser("~"), ".planloom")
+LEGACY_DIR = os.path.join(os.path.expanduser("~"), ".rfi_stamper")
 PREFS_PATH = os.path.join(PREFS_DIR, "prefs.json")
 
 DEFAULTS = {
-    "theme": "light",
+    "theme": "dark",
     "author": os.environ.get("USERNAME") or os.environ.get("USER") or "",
     "offline_guard": True,
     "last_dir": "",
     "invert_pdf_in_dark": False,
     "tips": True,
     "recent": [],
+    "effects": "auto",       # auto / full / reduced / off — 2026 machines get
+                             # the full treatment, older hardware degrades
+    "last_project": "",
 }
 
 
+def _migrate() -> None:
+    if os.path.isdir(PREFS_DIR) or not os.path.isdir(LEGACY_DIR):
+        return
+    try:
+        shutil.copytree(LEGACY_DIR, PREFS_DIR)
+    except Exception:   # noqa: BLE001 -- migration is best-effort
+        pass
+
+
 def load() -> dict:
+    _migrate()
     prefs = dict(DEFAULTS)
     try:
         with open(PREFS_PATH, encoding="utf-8") as f:

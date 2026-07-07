@@ -1,9 +1,13 @@
-# CLAUDE.md — RFI Stamper (offline plan toolkit)
+# CLAUDE.md — Planloom (offline construction workspace)
 
-Desktop tool + library for construction plan-set PDFs: RFI note stamping with
-pixel-diff verification, PDF combine/split, a full markup & measurement
-editor, and revision compare with auto-align. Generalized to any trade and
-any firm's RFI format. **Fully offline by policy** — see the invariants.
+Product name: **Planloom** ("weaves the answers into the sheets"); the Python
+package keeps the historical name `rfi_stamper` for API stability. Core: RFI
+note stamping with pixel-diff verification and a resolution lifecycle
+(open→answered→in_work→fixed→verified) stamped into note headers, wrapped in
+a seven-section workspace (Home, Field Management, Project Management,
+Plans & BIM, Reporting, App Integrations, Ground Truth). Generalized to any
+trade and any firm's RFI format. **Fully offline by policy** — see the
+invariants.
 
 ## First task (if none given)
 
@@ -24,7 +28,9 @@ run; the `*_report.txt` must end in PASS).
    9.2); 1–2 line body = question + answer/direction (Helvetica 7.7);
    multiple RFIs on one sheet stack inside one box. Constants live in
    `layout.py`. Style changes require the user's sign-off on a one-sheet
-   proof first.
+   proof first. USER-APPROVED extension: an optional resolution-status suffix
+   on the header line (` · ANSWERED` etc., same font/color) — appended after
+   the title clip so it is never truncated (`layout.make_entries(statuses=)`).
 3. NEVER cover linework, dimensions, keynotes, or title blocks. A spot only
    qualifies if the padded window is completely free of content pixels
    (gray < 225 at 90 dpi). No exceptions, no "mostly empty".
@@ -60,16 +66,33 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/transmittal.py  RFI-log / generic table PDF (reportlab)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile
     rfi_stamper/submittal.py  submittal-register parser + log PDF
+    rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
+                              header suffix, Designer Pickup Sheet PDF
+    rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
+                              schedule, punch, inspections, COs, budget, docs,
+                              CSI spec parsing
+    rfi_stamper/reports.py    form templates (blank + filled PDFs), project
+                              snapshot report
+    rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
+                              drop-folder scan — NEVER network
+    rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
     rfi_stamper/markups/      GUI-free markup data layer: model (+ PDF annot
                               writer), multiply, measure, toolchest
-    rfi_stamper/gui/          tkinter app: app, theme (dark mode), dnd, widgets,
-                              palette (Ctrl+K), overlay (full-window drop),
-                              viewer, tab_home, tab_stamp, tab_merge, tab_markup,
-                              tab_compare, tab_pdftools, prefs
+    rfi_stamper/gui/          tkinter app: app (nav shell), nav (animated
+                              section bar), fx (animation framework: single
+                              idle-when-done scheduler, quality tiers),
+                              theme (color-theory palettes + SECTIONS hues),
+                              crud (schema-driven module panels), bim3d
+                              (canvas 3D viewer), dnd, widgets, palette,
+                              overlay, viewer, prefs (~/.planloom), tab_home,
+                              tab_field, tab_project (incl. ResolutionBoard),
+                              tab_plansbim, tab_reporting, tab_integrations,
+                              tab_truth, tab_stamp, tab_merge, tab_markup,
+                              tab_compare, tab_pdftools
     rfi_stamper/__main__.py   CLI (stamp/merge/split/compare/gui); no args -> GUI
     tests/                    plain-python test scripts; tests/run_all.py runs all
     skill/rfi-overlay/        Claude skill wrapping the stamping engine
-    rfi_stamper.spec          PyInstaller: RFI-Stamper (GUI) + rfi-stamp-cli
+    rfi_stamper.spec          PyInstaller: Planloom (GUI) + planloom-cli
     build_windows.bat         one-click Windows build
 
 ## Commands
@@ -136,6 +159,20 @@ were proven on real export files. GUI constructs under xvfb.
   it is pixel-verified in `tests/test_markups.py`; keep that test.
 - tk.PhotoImage renders from PPM bytes (`pix.tobytes("ppm")`); keep a Python
   reference to every PhotoImage or tk garbage-collects the image mid-display.
+- fitz `insert_link` raises "bad page number" for a GoTo target that doesn't
+  exist YET — when rebuilding a doc page-by-page, re-attach links in a second
+  pass after every page exists (`pdfdoctor.normalize_rotation`).
+- fitz `search_for` is substring matching: a "P-100" hit also matches P-1 and
+  P-10. `hyperlink._standalone()` word-boundary-checks every hit; keep it.
+- ALL animation goes through `gui/fx.py`'s single scheduler, which disarms
+  when no task is active (zero idle CPU) and pauses ambient loops on <Unmap>.
+  Never add a free-running `after` loop; register with fx instead.
+- The animation quality tiers (full/reduced/off, `fx.set_quality`) are a user
+  promise: old hardware must stay usable. `quality()=="off"` must never touch
+  tk mid-animation (it jumps straight to the final state).
+- Resolution statuses are keyed by zero-filled RFI numbers (matching core's
+  `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
+  existing status.
 
 ## Summaries
 

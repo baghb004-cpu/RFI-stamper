@@ -105,7 +105,7 @@ def apply_csv(index, rows, path, log=print):
 # ------------------------------------------------------------------- run ---
 
 def run(plan_path, rfi_paths=None, out_path=None, rows=None, index=None,
-        summarizer=None, dpi=90, log=print):
+        summarizer=None, statuses=None, dpi=90, log=print):
     if index is None or rows is None:
         index, rows = scan(plan_path, rfi_paths, log=log)
     out_path = out_path or os.path.splitext(plan_path)[0] + "_RFI_overlay.pdf"
@@ -124,7 +124,8 @@ def run(plan_path, rfi_paths=None, out_path=None, rows=None, index=None,
     for p in sorted(per_page):
         info = index.info(p)
         recs = sorted(per_page[p], key=lambda r: r.number)
-        entries = layout.make_entries(recs, summarizer=summarizer)
+        entries = layout.make_entries(recs, summarizer=summarizer,
+                                      statuses=statuses)
         base_w = min(400.0, info.view_w * 0.30)
         max_h = info.view_h * 0.45
         gray = render_gray(doc, p, dpi)
@@ -156,7 +157,8 @@ def run(plan_path, rfi_paths=None, out_path=None, rows=None, index=None,
 
     if unmatched:
         rep.appendix.append(("Unmatched RFIs (no sheet reference found \u2014 review)",
-                             layout.make_entries(unmatched, summarizer=summarizer)))
+                             layout.make_entries(unmatched, summarizer=summarizer,
+                                                 statuses=statuses)))
         log(f"  {len(unmatched)} RFI(s) had no sheet match \u2014 listed on appendix page")
 
     log("Stamping \u2026")

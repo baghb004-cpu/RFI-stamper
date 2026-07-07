@@ -1,36 +1,40 @@
-"""Main window: home + tabs, menu, dark mode, command palette, full-window
-drag-drop overlay, toasts, offline guard."""
+"""Planloom main window: animated section nav, the seven workspaces, project
+lifecycle, command palette, full-window drag-drop, offline guard."""
 from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .. import __version__, offline_guard
-from . import dnd, prefs
+from ..project import Project
+from . import dnd, fx, prefs
+from .nav import NavBar
 from .overlay import DropOverlay
 from .palette import CommandPalette
-from .tab_compare import CompareTab
+from .tab_field import FieldSection
 from .tab_home import HomeTab
-from .tab_markup import MarkupTab
-from .tab_merge import MergeTab
-from .tab_pdftools import PdfToolsTab
-from .tab_stamp import StampTab
+from .tab_integrations import IntegrationsSection
+from .tab_plansbim import PlansSection
+from .tab_project import ProjectSection
+from .tab_reporting import ReportingSection
+from .tab_truth import TruthSection
 from .theme import ThemeManager
 from .widgets import StatusBar, toast
 
+SECTION_ORDER = ("home", "field", "project", "plans", "reporting",
+                 "integrations", "truth")
+
 SHORTCUTS = """\
 Ctrl+K        command palette (search every feature)
+Ctrl+1..7     jump between workspaces
 Ctrl+D        toggle dark mode          F11    fullscreen
 Ctrl+Z / Y    undo / redo markup change
 Ctrl+M        multiply selected markups
-Alt+1..5      set markup status (none/accepted/rejected/completed/cancelled)
-Del           delete selected markups
-Esc           cancel the in-progress tool
-V P G L A R E C Q T N M   markup tools (select, pen, highlight, line, arrow,
-                          rect, ellipse, cloud, callout, text, count, length)
+Alt+1..5      set markup status
+Del           delete selected markups     Esc   cancel the in-progress tool
+V P G L A R E C Q T N M   markup tools
 Ctrl+Wheel    zoom at cursor        Middle-drag   pan
-PgUp / PgDn   previous / next page
 """
 
 
@@ -38,112 +42,199 @@ class App:
     def __init__(self, root):
         self.root = root
         self.prefs = prefs.load()
-        root.title(f"RFI Stamper {__version__} — offline plan toolkit")
-        root.geometry("1360x880")
-        self.theme = ThemeManager(root, self.prefs.get("theme", "light"))
+        root.title(f"Planloom {__version__} — offline construction workspace")
+        root.geometry("1400x900")
+        self.theme = ThemeManager(root, self.prefs.get("theme", "dark"))
+
+        eff = self.prefs.get("effects", "auto")
+        if eff == "auto":
+            fx.auto_quality(root)
+        else:
+            fx.set_quality(eff)
 
         if self.prefs.get("offline_guard", True):
             offline_guard.install()
 
-        self.nb = ttk.Notebook(root)
+        self.project: Project | None = None
+
+        self.nav = NavBar(root, self.theme, SECTION_ORDER, self._on_switch)
+        self.nav.pack(fill="x")
         self.status = StatusBar(root, self.theme,
                                 show_tips=self.prefs.get("tips", True))
         self.status.pack(side="bottom", fill="x")
         self.status.set_offline(offline_guard.is_active())
-        self.nb.pack(fill="both", expand=True, padx=6, pady=(6, 0))
+        self.container = ttk.Frame(root)
+        self.container.pack(fill="both", expand=True)
 
-        self.stamp = StampTab(self.nb, self.theme, self.status)
-        self.merge = MergeTab(self.nb, self.theme, self.status)
-        self.markup = MarkupTab(self.nb, self.theme, self.status,
-                                author=self.prefs.get("author", ""))
-        self.compare = CompareTab(self.nb, self.theme, self.status)
-        self.pdftools = PdfToolsTab(self.nb, self.theme, self.status, root)
+        get_project = lambda: self.project           # noqa: E731
         self.home = HomeTab(
-            self.nb, self.theme, self.status,
-            actions={"stamp": lambda: self.nb.select(self.stamp),
-                     "merge": lambda: self.nb.select(self.merge),
-                     "markup": lambda: self.nb.select(self.markup),
-                     "compare": lambda: self.nb.select(self.compare)},
-            recent=self.prefs.get("recent", []),
-            on_recent=self.open_recent)
-        self.home.drop_hint = "Drop it — I'll route it to the right tool"
-        self.home.set_router(self.route_paths)
-        self.nb.add(self.home, text="  ⌂  Home  ")
-        self.nb.add(self.stamp, text="  ▣  Stamp RFIs  ")
-        self.nb.add(self.merge, text="  ⧉  Combine  ")
-        self.nb.add(self.markup, text="  ✎  Markup  ")
-        self.nb.add(self.compare, text="  ⇄  Compare  ")
-        self.nb.add(self.pdftools, text="  ⚕  PDF Tools  ")
+            self.container, self.theme, self.status,
+            goto_section=self.goto,
+            project_ops={"name": lambda: self.project.name
+                         if self.project else "", "new": self.new_project,
+                         "open": self.open_project},
+            recent=self.prefs.get("recent", []), on_recent=self.open_recent)
+        self.field = FieldSection(self.container, self.theme, self.status,
+                                  get_project, self.data_changed)
+        self.projsec = ProjectSection(self.container, self.theme, self.status,
+                                      root, get_project, self.data_changed)
+        self.plans = PlansSection(self.container, self.theme, self.status,
+                                  root, author=self.prefs.get("author", ""))
+        self.reporting = ReportingSection(self.container, self.theme,
+                                          self.status, root, get_project,
+                                          self.projsec)
+        self.integrations = IntegrationsSection(
+            self.container, self.theme, self.status, root, get_project,
+            self.data_changed, self.route_paths)
+        self.truth = TruthSection(self.container, self.theme, self.status,
+                                  get_project, self.projsec)
+        self.sections = {"home": self.home, "field": self.field,
+                         "project": self.projsec, "plans": self.plans,
+                         "reporting": self.reporting,
+                         "integrations": self.integrations,
+                         "truth": self.truth}
+        self._current = "home"
+        self.home.place(x=0, y=0, relwidth=1.0, relheight=1.0)
 
-        # completion hooks -> recents + toasts
-        self.markup.on_opened = lambda p: self.add_recent(p, "markup")
-        self.stamp.on_scanned = lambda p: self.add_recent(p, "plan")
-        self.stamp.on_stamped = lambda ok, out: toast(
-            self.root, self.theme,
-            "Stamped & verified — nothing covered" if ok
-            else "Verification FAILED — do not issue",
-            "ok" if ok else "err")
-        self.merge.on_combined = lambda out, files, pages: (
-            self.add_recent(out, "combine"),
-            toast(self.root, self.theme,
-                  f"Combined {files} file(s) → {pages} pages"))
-        self.compare.on_compared = lambda out: (
-            self.add_recent(out, "compare"),
-            toast(self.root, self.theme, "Overlay PDF written"))
-
-        # full-window drag-and-drop overlay, routed to the active tab
+        # drop hints per section for the full-window overlay
+        self.home.drop_hint = "Drop it — Planloom routes it to the right tool"
+        self.field.drop_hint = "Field Management — drop task CSVs on " \
+                               "App Integrations to import"
+        self.projsec.drop_hint = "Project Management — plan set first, " \
+                                 "then RFI files"
+        self.plans.drop_hint = "Open in Plan Viewing"
+        self.reporting.drop_hint = "Reporting — generate PDFs from the " \
+                                   "buttons inside"
+        self.integrations.drop_hint = "App Integrations — drop a CSV to " \
+                                      "import tasks"
+        self.truth.drop_hint = "Ground Truth reads the project stores — " \
+                               "drop files on Home instead"
         self.overlay = DropOverlay(root, self.theme, self._drop_hint,
                                    self._drop_route)
 
+        # recents + toasts riding on the embedded tools
+        self.plans.markup.on_opened = lambda p: self.add_recent(p, "markup")
+        st = self.projsec.stamp
+        prev = st.on_scanned
+        def scanned(plan, _prev=prev):
+            if _prev:
+                _prev(plan)
+            self.add_recent(plan, "plan")
+            self.truth.refresh()
+        st.on_scanned = scanned
+        st.on_stamped = lambda ok, out: (
+            toast(root, self.theme,
+                  "Stamped & verified — statuses woven into the sheets" if ok
+                  else "Verification FAILED — do not issue",
+                  "ok" if ok else "err"),
+            self.truth.refresh())
+        self.projsec.merge.on_combined = lambda out, files, pages: (
+            self.add_recent(out, "combine"),
+            toast(root, self.theme, f"Combined {files} file(s) → {pages} "
+                                    f"pages"))
+        self.plans.asbuilt.compare.on_compared = lambda out: (
+            self.add_recent(out, "compare"),
+            toast(root, self.theme, "Overlay PDF written"))
+
         self.palette = CommandPalette(root, self.theme)
         self._register_commands()
-        self.markup.bind_shortcuts(root)
+        self.plans.markup.bind_shortcuts(root)
         root.bind("<Control-k>", self.palette.open)
         root.bind("<Control-d>", lambda e: self.toggle_dark())
         root.bind("<F1>", lambda e: self.show_shortcuts())
         root.bind("<F11>", lambda e: self.toggle_fullscreen())
+        for i, key in enumerate(SECTION_ORDER, start=1):
+            root.bind(f"<Control-Key-{i}>",
+                      lambda e, k=key: self.goto(k))
         root.protocol("WM_DELETE_WINDOW", self.on_close)
-
         self._build_menu()
-        if not dnd.HAS_DND:
-            self.status.set("Tip: pip install tkinterdnd2 enables OS drag-and-"
-                            "drop (everything also works via Browse)", "info")
-        else:
-            self.status.set("Ready")
+
+        last = self.prefs.get("last_project", "")
+        if last and os.path.exists(last):
+            self._load_project(last)
 
     # ------------------------------------------------------------- routing
-    def _active_tab(self):
-        try:
-            return self.nb.nametowidget(self.nb.select())
-        except (tk.TclError, KeyError):
-            return self.home
+    def goto(self, key):
+        self.nav.select(key)
+
+    def _on_switch(self, key, direction):
+        old = self.sections[self._current]
+        new = self.sections[key]
+        self._current = key
+        fx.slide_switch(self.container, old, new, direction=direction)
+        refresh = getattr(new, "refresh", None)
+        if refresh:
+            self.root.after(80, refresh)
 
     def _drop_hint(self):
-        tab = self._active_tab()
-        return getattr(tab, "drop_hint", "Drop files")
+        return getattr(self.sections[self._current], "drop_hint",
+                       "Drop files")
 
     def _drop_route(self, paths):
-        tab = self._active_tab()
-        if tab is self.home:
+        sec = self.sections[self._current]
+        if self._current == "project":
+            self.projsec.stamp.handle_drop(paths)
+        elif self._current == "plans":
+            self.plans.markup.on_drop(paths)
+        elif self._current == "integrations" and paths[0].lower().endswith(
+                ".csv"):
+            self.integrations.import_tasks()
+        elif hasattr(sec, "handle_drop"):
+            sec.handle_drop(paths)
+        else:
             self.route_paths(paths)
-        elif hasattr(tab, "handle_drop"):
-            tab.handle_drop(paths)
 
     def route_paths(self, paths):
-        """Home-screen smart routing: one PDF -> markup viewer; several PDFs
-        -> combine list; folders / RFI-ish files -> the stamp tab."""
         pdfs = [p for p in paths if p.lower().endswith(".pdf")
                 and not os.path.isdir(p)]
         other = [p for p in paths if p not in pdfs]
         if len(pdfs) == 1 and not other:
-            self.nb.select(self.markup)
-            self.markup.open_pdf(pdfs[0])
+            self.goto("plans")
+            self.plans.markup.open_pdf(pdfs[0])
         elif len(pdfs) > 1 and not other:
-            self.nb.select(self.merge)
-            self.merge.add_paths(pdfs)
+            self.goto("project")
+            self.projsec.nb.select(5)      # Documents
+            self.projsec.merge.add_paths(pdfs)
         elif paths:
-            self.nb.select(self.stamp)
-            self.stamp.handle_drop(paths)
+            self.goto("project")
+            self.projsec.nb.select(0)      # RFIs
+            self.projsec.stamp.handle_drop(paths)
+
+    # ------------------------------------------------------------- project
+    def data_changed(self):
+        self.truth.refresh()
+
+    def new_project(self):
+        p = filedialog.asksaveasfilename(
+            title="Create project file",
+            defaultextension=Project.SUFFIX,
+            initialfile="project" + Project.SUFFIX,
+            filetypes=[("Planloom project", "*" + Project.SUFFIX)])
+        if p:
+            self._load_project(p, create=True)
+
+    def open_project(self):
+        p = filedialog.askopenfilename(
+            filetypes=[("Planloom project", "*" + Project.SUFFIX),
+                       ("All", "*.*")])
+        if p:
+            self._load_project(p)
+
+    def _load_project(self, path, create=False):
+        try:
+            self.project = Project(path)
+            if create:
+                self.project.save()
+        except Exception as e:      # noqa: BLE001
+            messagebox.showerror("Planloom", f"Could not open project:\n{e}")
+            return
+        self.prefs["last_project"] = path
+        prefs.save(self.prefs)
+        self.home.set_project_name(self.project.name)
+        for sec in (self.field, self.projsec):
+            sec.refresh()
+        self.truth.refresh()
+        self.status.set(f"Project '{self.project.name}' open", "ok")
 
     # ------------------------------------------------------------- recents
     def add_recent(self, path, kind):
@@ -159,47 +250,39 @@ class App:
             toast(self.root, self.theme, "File no longer exists", "err")
             return
         if kind == "plan":
-            self.nb.select(self.stamp)
-            self.stamp.plan_var.set(path)
+            self.goto("project")
+            self.projsec.stamp.plan_var.set(path)
         else:
-            self.nb.select(self.markup)
-            self.markup.open_pdf(path)
+            self.goto("plans")
+            self.plans.markup.open_pdf(path)
 
     # ---------------------------------------------------------------- menu
     def _build_menu(self):
         m = tk.Menu(self.root)
         filem = tk.Menu(m, tearoff=0)
-        filem.add_command(label="Open PDF in Markup tab…",
-                          command=lambda: (self.nb.select(self.markup),
-                                           self.markup.open_pdf()))
-        recentm = tk.Menu(filem, tearoff=0)
-        filem.add_cascade(label="Recent", menu=recentm)
+        filem.add_command(label="New project…", command=self.new_project)
+        filem.add_command(label="Open project…", command=self.open_project)
+        filem.add_separator()
+        filem.add_command(label="Open PDF in Plan Viewing…",
+                          command=lambda: (self.goto("plans"),
+                                           self.plans.markup.open_pdf()))
         filem.add_separator()
         filem.add_command(label="Exit", command=self.on_close)
         m.add_cascade(label="File", menu=filem)
-
-        def fill_recent():
-            recentm.delete(0, "end")
-            for r in self.prefs.get("recent", []):
-                recentm.add_command(
-                    label=os.path.basename(r.get("path", "")),
-                    command=lambda rr=r: self.open_recent(rr["path"],
-                                                          rr.get("kind", "")))
-        filem.configure(postcommand=fill_recent)
-
         viewm = tk.Menu(m, tearoff=0)
         viewm.add_command(label="Toggle dark mode\tCtrl+D",
                           command=self.toggle_dark)
-        viewm.add_command(label="Fullscreen\tF11", command=self.toggle_fullscreen)
-        viewm.add_command(label="Invert PDF colors (markup view)",
-                          command=self.toggle_invert)
+        viewm.add_command(label="Fullscreen\tF11",
+                          command=self.toggle_fullscreen)
+        effm = tk.Menu(viewm, tearoff=0)
+        for q in ("auto", "full", "reduced", "off"):
+            effm.add_command(label=q.capitalize(),
+                             command=lambda qq=q: self.set_effects(qq))
+        viewm.add_cascade(label="Animation quality", menu=effm)
         m.add_cascade(label="View", menu=viewm)
         toolsm = tk.Menu(m, tearoff=0)
         toolsm.add_command(label="Command palette\tCtrl+K",
                            command=self.palette.open)
-        toolsm.add_command(label="Generate submittal log…",
-                           command=self.submittal_log)
-        toolsm.add_separator()
         toolsm.add_command(label="Set author name…", command=self.set_author)
         toolsm.add_command(label="Toggle offline guard",
                            command=self.toggle_guard)
@@ -207,7 +290,7 @@ class App:
         helpm = tk.Menu(m, tearoff=0)
         helpm.add_command(label="Keyboard shortcuts\tF1",
                           command=self.show_shortcuts)
-        helpm.add_command(label="About", command=self.about)
+        helpm.add_command(label="About Planloom", command=self.about)
         m.add_cascade(label="Help", menu=helpm)
         self.root.config(menu=m)
 
@@ -216,46 +299,48 @@ class App:
         p = self.palette
         p.register("Toggle dark mode", "View", self.toggle_dark, "Ctrl+D")
         p.register("Fullscreen", "View", self.toggle_fullscreen, "F11")
-        p.register("Invert PDF colors in markup view", "View", self.toggle_invert)
         p.register("Keyboard shortcuts", "Help", self.show_shortcuts, "F1")
-        p.register("About RFI Stamper", "Help", self.about)
-        p.register("Set author name (markups)", "Preferences", self.set_author)
+        p.register("About Planloom", "Help", self.about)
+        p.register("Set author name (markups)", "Preferences",
+                   self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
-        p.register("Toggle status-bar tips", "Preferences", self.toggle_tips)
-        p.register("Generate submittal log PDF", "Tools", self.submittal_log)
-        for tab, name in ((self.home, "Home"),
-                          (self.stamp, "Stamp RFIs"),
-                          (self.merge, "Combine PDFs"),
-                          (self.markup, "Markup & Measure"),
-                          (self.compare, "Compare / Overlay"),
-                          (self.pdftools, "PDF Tools")):
-            p.register(f"Go to {name}", "Tabs",
-                       lambda t=tab: self.nb.select(t))
-            if tab is not self.home:
-                p.register_many(tab.commands())
+        for q in ("auto", "full", "reduced", "off"):
+            p.register(f"Animation quality: {q}", "Preferences",
+                       lambda qq=q: self.set_effects(qq))
+        for i, key in enumerate(SECTION_ORDER, start=1):
+            from .theme import SECTIONS
+            p.register(f"Go to {SECTIONS[key]['label']}", "Workspaces",
+                       lambda k=key: self.goto(k), f"Ctrl+{i}")
+        for sec in self.sections.values():
+            cmds = getattr(sec, "commands", None)
+            if cmds:
+                p.register_many(cmds())
 
     # ------------------------------------------------------------- actions
+    def set_effects(self, q):
+        self.prefs["effects"] = q
+        if q == "auto":
+            q = fx.auto_quality(self.root)
+        else:
+            fx.set_quality(q)
+        self.status.set(f"Animation quality: {q}", "ok")
+
     def toggle_dark(self):
         name = self.theme.toggle()
         self.prefs["theme"] = name
         if self.prefs.get("invert_pdf_in_dark"):
-            self.markup.viewer.set_invert(name == "dark")
+            self.plans.markup.viewer.set_invert(name == "dark")
 
     def toggle_fullscreen(self):
-        full = not self.root.attributes("-fullscreen")
-        self.root.attributes("-fullscreen", full)
-
-    def toggle_invert(self):
-        v = self.markup.viewer
-        v.set_invert(not v.invert)
-        self.prefs["invert_pdf_in_dark"] = v.invert
+        self.root.attributes("-fullscreen",
+                             not self.root.attributes("-fullscreen"))
 
     def toggle_guard(self):
         if offline_guard.is_active():
             if not messagebox.askyesno(
                     "Offline guard",
                     "The offline guard blocks every outbound network "
-                    "connection from this app — that is the point of it.\n\n"
+                    "connection — that is the point of Planloom.\n\n"
                     "Really turn it OFF for this session?"):
                 return
             offline_guard.uninstall()
@@ -265,68 +350,34 @@ class App:
             self.prefs["offline_guard"] = True
         self.status.set_offline(offline_guard.is_active())
 
-    def toggle_tips(self):
-        self.prefs["tips"] = not self.prefs.get("tips", True)
-        self.status.set("Tips " + ("on (restart to apply)"
-                                   if self.prefs["tips"] else "off"), "ok")
-
     def set_author(self):
         name = simpledialog.askstring(
             "Author", "Name to record on new markups:",
             initialvalue=self.prefs.get("author", ""), parent=self.root)
         if name is not None:
             self.prefs["author"] = name.strip()
-            self.markup.author = self.prefs["author"]
-
-    def submittal_log(self):
-        from tkinter import filedialog
-
-        from .widgets import open_path, run_bg, toast
-        files = filedialog.askopenfilenames(
-            title="Submittal register file(s)",
-            filetypes=[("Documents", "*.pdf *.txt *.zip"), ("All", "*.*")])
-        if not files:
-            return
-        out = filedialog.asksaveasfilename(
-            defaultextension=".pdf", initialfile="submittal_log.pdf",
-            filetypes=[("PDF", "*.pdf")])
-        if not out:
-            return
-        self.status.set("Parsing submittals…")
-
-        def work():
-            from .. import submittal
-            recs = submittal.parse_submittals(list(files))
-            submittal.submittal_log_pdf(recs, out)
-            return len(recs)
-
-        def done(n, err):
-            if err:
-                self.status.set(f"Submittal log failed: {err}", "err")
-                return
-            self.status.set(f"Submittal log written ({n} item(s))", "ok")
-            toast(self.root, self.theme, f"Submittal log: {n} item(s)")
-            open_path(out)
-
-        run_bg(self.root, work, done)
+            self.plans.markup.author = self.prefs["author"]
 
     def show_shortcuts(self):
-        messagebox.showinfo("Keyboard shortcuts", SHORTCUTS, parent=self.root)
+        messagebox.showinfo("Keyboard shortcuts", SHORTCUTS,
+                            parent=self.root)
 
     def about(self):
         messagebox.showinfo(
             "About",
-            f"RFI Stamper {__version__} — offline plan toolkit\n\n"
-            "Stamp RFI cliff notes onto plan sets, combine and split PDFs,\n"
-            "mark up and measure drawings, compare revisions — all locally.\n\n"
+            f"Planloom {__version__} — offline construction workspace\n\n"
+            "Weaves RFI answers straight into the plan sheets, then wraps "
+            "the whole job around them: field management, project "
+            "management, plans & BIM, reporting, integrations, and ground "
+            "truth — all local, all offline.\n\n"
             "This application makes no network connections. Documents,\n"
-            "markups, and preferences never leave this machine.",
+            "markups, and project data never leave this machine.",
             parent=self.root)
 
     def on_close(self):
         from .widgets import busy_count
         if busy_count() > 0 and not messagebox.askyesno(
-                "RFI Stamper",
+                "Planloom",
                 "Background work is still running (a stamp, combine, or "
                 "export could be mid-write).\n\nQuit anyway?"):
             return

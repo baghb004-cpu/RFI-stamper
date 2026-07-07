@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Builds two one-file executables:
-#   RFI-Stamper      windowed GUI (double-click)
-#   rfi-stamp-cli    console tool for scripting / batch use
+#   Planloom         windowed GUI (double-click)
+#   planloom-cli     console tool for scripting / batch use
 # Build on the target OS (run build_windows.bat on Windows to get .exe files).
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -25,7 +25,7 @@ exe_gui = EXE(
     a_gui.binaries,
     a_gui.datas,
     [],
-    name="RFI-Stamper",
+    name="Planloom",
     console=False,
     upx=False,
 )
@@ -44,7 +44,7 @@ exe_cli = EXE(
     a_cli.binaries,
     a_cli.datas,
     [],
-    name="rfi-stamp-cli",
+    name="planloom-cli",
     console=True,
     upx=False,
 )

@@ -53,10 +53,14 @@ def note_body(rec, summarizer=None) -> str:
     return f"Q: {q} {a}"
 
 
-def make_entries(records, summarizer=None):
+def make_entries(records, summarizer=None, statuses: dict | None = None):
     out = []
     for r in records:
         hdr = f"RFI {r.number} \u2014 {clip(r.title, 46).upper()}"
+        if statuses:
+            from . import resolution   # lazy import; avoids an import cycle
+            # append AFTER clipping so the status suffix is never clipped away
+            hdr += resolution.status_suffix(statuses.get(r.number, ""))
         out.append((r.number, hdr, note_body(r, summarizer)))
     return out
 
