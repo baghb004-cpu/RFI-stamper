@@ -103,11 +103,21 @@ class PlansSection(ttk.Frame):
             return
         page = self.fieldstitch.viewer.page_no
         pdf = job.pdf_path
+        # snapshot the georeference into a detached job (house rule: workers
+        # get plain data) — the live job can gain points / a new basepoint /
+        # a new scale on the UI thread while the worker reads it
+        from .. import fieldstitch as fs
+        snap = fs.LayoutJob()               # no pdf_path: no sidecar I/O
+        snap.scale = dict(job.scale) if job.scale else None
+        snap.units = job.units
+        snap.base_page_xy = tuple(job.base_page_xy)
+        snap.base_world = tuple(job.base_world)
+        snap.rotation_deg = float(job.rotation_deg)
         from .widgets import run_bg, toast
 
         def work():
             from .. import extrude
-            return extrude.model_from_plan(pdf, page_no=page, job=job,
+            return extrude.model_from_plan(pdf, page_no=page, job=snap,
                                            wall_height=height, floors=floors)
 
         def done(res, err):

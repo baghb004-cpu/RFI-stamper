@@ -9,6 +9,7 @@ uploaded anywhere.
 from __future__ import annotations
 
 import math
+import os
 import tkinter as tk
 from tkinter import ttk
 
@@ -23,10 +24,16 @@ _GRID_CACHE_MAX = 8
 
 
 def load_image_rgb(path: str) -> np.ndarray:
-    """Read any common image (or single-page PDF) to an RGB HxWx3 array."""
-    pix = fitz.Pixmap(path)
-    if pix.alpha or pix.colorspace is None or pix.n != 3:
-        pix = fitz.Pixmap(fitz.csRGB, pix)
+    """Read any common image (or a PDF's first page) to an RGB HxWx3 array."""
+    try:
+        pix = fitz.Pixmap(path)
+    except Exception:   # noqa: BLE001 -- not an image codec: try as document
+        with fitz.open(path) as doc:            # PDF "photo" -> render page 1
+            pix = doc[0].get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+    if pix.colorspace is None or pix.colorspace.n != 3:
+        pix = fitz.Pixmap(fitz.csRGB, pix)      # gray / CMYK -> RGB
+    if pix.alpha:
+        pix = fitz.Pixmap(pix, 0)               # conversion keeps alpha: drop
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
         pix.height, pix.width, 3)
     return img.copy()
@@ -90,13 +97,14 @@ class LookoutViewer(tk.Toplevel):
     """Drag to look around, wheel to zoom FOV, double-click to recenter."""
 
     def __init__(self, root, theme, path: str):
-        super().__init__(root)
+        img = load_image_rgb(path)      # BEFORE the window: an unreadable
+        super().__init__(root)          # file must not orphan a Toplevel
         self.theme = theme
-        self.title("Lookout — " + path.split("/")[-1])
+        self.title("Lookout — " + os.path.basename(path))
         self.geometry("1000x640")
         c = theme.colors
         self.configure(bg=c["bg"])
-        self.img = load_image_rgb(path)
+        self.img = img
         self.pano = is_panorama(self.img)
         self.yaw, self.pitch, self.fov = 0.0, 0.0, 75.0
         self._photo = None

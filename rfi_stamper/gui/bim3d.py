@@ -106,10 +106,21 @@ class Bim3DViewer(ttk.Frame):
         self._slice_frac = float(self.slice_var.get()) / 100.0
         self._render()
 
+    def _cancel_cam_anim(self):
+        """User input owns the camera: stop any fly-in / fit tween so it
+        can't keep overwriting yaw/pitch/dist mid-drag."""
+        try:
+            from . import fx
+            fx.cancel(self, "flyin")
+            fx.cancel(self, "fit")
+        except Exception:                       # noqa: BLE001 -- no fx module
+            pass
+
     def _fly_in(self):
         """Cinematic approach on load: swing in from high and far."""
         try:
             from . import fx
+            fx.cancel(self, "fit")              # never fight a running fit
             if fx.quality() == "off":
                 self._render()
                 return
@@ -160,6 +171,7 @@ class Bim3DViewer(ttk.Frame):
         yaw1, pitch1, dist1, target1 = self._fit_params()
         try:
             from . import fx                    # optional; fall back silently
+            fx.cancel(self, "flyin")            # never fight a running fly-in
             cam = self.cam
             y0, p0, d0 = cam.yaw, cam.pitch, cam.dist
             t0 = np.asarray(cam.target, dtype=float)
@@ -209,6 +221,7 @@ class Bim3DViewer(ttk.Frame):
 
     # ------------------------------------------------------- interactions ---
     def _on_press(self, e):
+        self._cancel_cam_anim()
         self._moved = 0.0
         if e.state & 0x1:                       # shift+left -> pan
             self._pan0 = (e.x, e.y, np.asarray(self.cam.target, dtype=float))
@@ -237,6 +250,7 @@ class Bim3DViewer(ttk.Frame):
         self._end_interaction()
 
     def _on_pan_start(self, e):
+        self._cancel_cam_anim()
         self._pan0 = (e.x, e.y, np.asarray(self.cam.target, dtype=float))
 
     def _on_pan(self, e):
@@ -259,6 +273,7 @@ class Bim3DViewer(ttk.Frame):
 
     def _zoom(self, factor, x, y):
         """dist *= factor, drifting the target toward the cursor point."""
+        self._cancel_cam_anim()
         cv = self.canvas
         w = max(cv.winfo_width(), 2)
         h = max(cv.winfo_height(), 2)

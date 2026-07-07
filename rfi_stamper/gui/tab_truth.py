@@ -99,12 +99,17 @@ class TruthSection(ttk.Frame):
                             state="disabled", font=("Segoe UI", 10),
                             spacing3=7)
         self.feed.pack(fill="both", expand=True)
-        theme.register(lambda c: theme.style_text(self.feed))
         for kind, color in INSIGHT_COLOR.items():
             self.feed.tag_configure(kind, foreground=color,
                                     font=("Segoe UI", 10, "bold"))
-        self.feed.tag_configure("rule", foreground=theme.colors["muted"],
-                                font=("Segoe UI", 8))
+
+        def _style_feed(c):
+            theme.style_text(self.feed)
+            # the rule tag uses the theme's muted tone — re-apply on every
+            # theme change or it goes unreadable after a light/dark toggle
+            self.feed.tag_configure("rule", foreground=c["muted"],
+                                    font=("Segoe UI", 8))
+        theme.register(_style_feed)
 
         ttk.Button(body, text="⟳ Recompute", command=self.refresh).pack(
             anchor="e", pady=(8, 0))

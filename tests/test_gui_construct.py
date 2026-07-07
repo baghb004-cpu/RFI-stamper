@@ -287,6 +287,234 @@ def main():
     root.update()
     assert len(app.plans.bim.canvas.find_all()) > 10
 
+    # ---- regressions from the adversarial GUI review -------------------
+    import tkinter as tk
+    from tkinter import messagebox as _mb
+
+    # theme toggle restyles live widgets: crud status chips + insight tags
+    app.toggle_dark()
+    root.update()
+    _c = app.theme.colors
+    assert str(app.truth.feed.tag_cget("rule", "foreground")) == _c["muted"], \
+        "insight 'rule' tag must follow the theme"
+    _chips = app.field.tasks.chips.winfo_children()
+    assert _chips and all(str(w.cget("bg")) == _c["panel"] for w in _chips), \
+        "status chips must follow the theme"
+    app.toggle_dark()
+    root.update()
+
+    # Return inside a multiline Text edits text, it must not save-close
+    panel = app.field.tasks
+    panel._editor(None)
+    root.update()
+    dlg = [w for w in panel.winfo_children()
+           if isinstance(w, tk.Toplevel)][-1]
+    txt = [w for w in dlg.winfo_children()[0].winfo_children()
+           if isinstance(w, tk.Text)][0]
+    txt.focus_force()
+    root.update()
+    txt.event_generate("<Return>")
+    root.update()
+    assert dlg.winfo_exists(), "Return in a Text field must not submit"
+    dlg.destroy()
+    root.update()
+
+    # a scan that finds no RFIs must not pop the resolution 'sync' modal
+    st = app.projsec.stamp
+    _orig_info = _mb.showinfo
+
+    def _no_modal(*a, **k):
+        raise AssertionError(f"unexpected modal: {a}")
+    _mb.showinfo = _no_modal
+    try:
+        st.rows, st.index, st.scanned_plan = [], None, pdf
+        st.on_scanned(pdf)
+    finally:
+        _mb.showinfo = _orig_info
+    root.update()
+
+    # resolution board drag: outside release cancels, inside release moves
+    class _Rec:
+        def __init__(self, n):
+            self.number, self.title, self.has_answer = n, "t", False
+
+    class _Row:
+        def __init__(self, n):
+            self.record, self.pages, self.via = _Rec(n), [1], "planref"
+
+    st.rows = [_Row("001"), _Row("002")]
+    st.scanned_plan = pdf
+    app.goto("project")
+    root.update()
+    board = app.projsec.board
+    app.projsec.nb.select(board)
+    root.update()
+    board.sync()
+    root.update()
+    rstore = board._ensure_store()
+    assert rstore.statuses()["001"] == "open"
+    bbox = board.canvas.bbox("card_001")
+
+    class _Ev:
+        pass
+    press = _Ev()
+    press.x, press.y = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
+    board._press(press)
+    outside = _Ev()
+    outside.x, outside.y = int(board._colw * 4.5), -25
+    board._release(outside)
+    assert rstore.statuses()["001"] == "open", \
+        "release outside the board must cancel the drag"
+    board._press(press)
+    inside = _Ev()
+    inside.x, inside.y = int(board._colw * 1.5), 60
+    board._release(inside)
+    assert rstore.statuses()["001"] == "answered", \
+        "release in the ANSWERED column must advance the card"
+
+    # daybook store rebinds when the project changes
+    p2 = os.path.join(tmp, "job2.ploom.json")
+    app._load_project(p2, create=True)
+    root.update()
+    assert app.field.daybook._ensure_store().base_path == p2, \
+        "daybook store must follow the open project"
+
+    # ---- regressions: fieldstitch / bim3d / pano review pass ------------
+    import time as _t
+
+    class _EvAt:
+        def __init__(self, x, y):
+            self.x, self.y, self.state = int(x), int(y), 0
+
+    def _ev_at_page(px, py):
+        """Event whose canvas coords land on page point (px, py) — the
+        canvas may be scrolled after a zoom, so raw coords won't do."""
+        cv = fst.viewer.canvas
+        return _EvAt(px * fst.viewer.scale - cv.canvasx(0),
+                     py * fst.viewer.scale - cv.canvasy(0))
+
+    app.goto("plans")
+    app.plans.nb.select(fst)
+    _t.sleep(0.06)
+    root.update()                      # flush the viewer's deferred fit
+    fst.viewer.set_zoom(1.0)
+    root.update()
+
+    # canvas click on a point the table filter hides must not raise
+    fst.set_tool("select")
+    fst.filter_var.set("zzz-no-match")
+    root.update()
+    fst.on_press(_ev_at_page(p0.x, p0.y))
+    assert fst.selection == p0.id
+    fst.filter_var.set("")
+    root.update()
+
+    # hit radius is 9 SCREEN px at any zoom (not 9 page pts)
+    fst.viewer.set_zoom(4.0)
+    root.update()
+    assert fst._hit(p0.x + 8, p0.y) is None      # 32 screen px away: miss
+    assert fst._hit(p0.x + 2, p0.y) == p0.id     # 8 screen px away: hit
+    fst.viewer.set_zoom(0.2)
+    root.update()
+    assert fst._hit(p0.x + 10, p0.y) == p0.id    # 2 screen px away: hit
+    fst.viewer.set_zoom(1.0)
+    root.update()
+
+    # hidden layers are click-through; locked layers select but never move
+    ly0 = fst.job.layers[0]
+    ly0.visible = False
+    assert fst._hit(p0.x, p0.y) is None
+    ly0.visible = True
+    ly0.locked = True
+    fst.on_press(_ev_at_page(p0.x, p0.y))
+    assert fst.selection == p0.id
+    _ox = p0.x
+    fst.on_drag(_ev_at_page(p0.x + 40, p0.y))
+    fst.on_release(_EvAt(0, 0))
+    assert p0.x == _ox, "locked layer point moved"
+    fst.delete_sel()
+    assert fst.job.get(p0.id) is not None, "locked layer point deleted"
+    ly0.locked = False
+
+    # typing prefix / next # updates the job without any click
+    fst.prefix_var.set("ZZ-")
+    fst.num_var.set("55")
+    assert fst.job.prefix == "ZZ-" and fst.job.next_num == 55
+
+    # blank grid sheet: a previous layout is offered, never silently
+    # adopted or clobbered (HOME redirected: real ~/.planloom untouched)
+    _envs = {k: os.environ.get(k) for k in ("HOME", "USERPROFILE")}
+    os.environ["HOME"] = os.environ["USERPROFILE"] = tmp
+    try:
+        fst.blank_sheet()
+        root.update()
+        first_sheet = fst.viewer.path
+        fst.set_tool("place")
+        fst.on_press(_EvAt(80, 80))
+        root.update()
+        assert len(fst.job.points) == 1
+        _ask0 = _mb.askyesno
+        _mb.askyesno = lambda *a, **k: False     # decline: start fresh
+        try:
+            fst.blank_sheet()
+            root.update()
+        finally:
+            _mb.askyesno = _ask0
+        assert fst.viewer.path != first_sheet
+        assert not fst.job.points, "previous blank-grid layout leaked in"
+        assert os.path.exists(first_sheet + ".stitch.json"), \
+            "previous blank-grid layout was clobbered"
+    finally:
+        for k, v in _envs.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # bim3d: a user drag cancels the fly-in instead of fighting it
+    fx.set_quality("full")
+    bv = app.plans.bim
+    app.plans.nb.select(bv)
+    root.update()
+    import rfi_stamper.bim as bim3
+    bv.set_model(bim3.demo_building())           # starts the fly-in tween
+    root.update()
+    bv._on_press(_EvAt(300, 300))
+    bv._on_drag(_EvAt(400, 300))
+    yaw_hold = bv.cam.yaw
+    t_end = _t.time() + 0.3
+    while _t.time() < t_end:
+        root.update()
+        _t.sleep(0.02)
+    assert bv.cam.yaw == yaw_hold, "fly-in fought the user's drag"
+    bv._on_release(_EvAt(400, 300))
+    fx.set_quality("off")
+
+    # pano: alpha images and PDF "photos" load; unreadable files never
+    # orphan a Toplevel; a 2:1 image opens as a live panorama
+    from rfi_stamper.gui import pano
+    rgba = os.path.join(tmp, "rgba.png")
+    pm = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 64, 32), True)   # alpha
+    pm.clear_with(120)
+    pm.save(rgba)
+    assert pano.load_image_rgb(rgba).shape == (32, 64, 3)
+    assert pano.load_image_rgb(pdf).shape[2] == 3        # PDF -> page 1
+    tops0 = sum(isinstance(w, tk.Toplevel) for w in root.winfo_children())
+    assert pano.open_lookout(root, app.theme,
+                             os.path.join(tmp, "missing.jpg")) is None
+    root.update()
+    assert sum(isinstance(w, tk.Toplevel)
+               for w in root.winfo_children()) == tops0, \
+        "unreadable image leaked a Toplevel"
+    lv = pano.open_lookout(root, app.theme, rgba)        # 64x32 = 2:1 pano
+    root.update()
+    assert lv is not None and lv.pano
+    lv._render()
+    root.update()
+    assert lv.canvas.find_all(), "panorama did not render"
+    lv.destroy()
+    root.update()
+
     # ---- Crewpass ledger (temp path, never the real one)
     from rfi_stamper import crewpass
     led = crewpass.Ledger(os.path.join(tmp, "cp.json"))

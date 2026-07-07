@@ -214,9 +214,8 @@ class DaybookPanel(ttk.Frame):
         if not proj or not proj.path:
             return None
         from .. import daybook
-        if self.store is None or getattr(self.store, "_base", None) != proj.path:
+        if self.store is None or self.store.base_path != proj.path:
             self.store = daybook.DaybookStore(proj.path)
-            self.store._base = proj.path
         return self.store
 
     def refresh(self):

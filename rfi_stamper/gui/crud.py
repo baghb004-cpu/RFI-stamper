@@ -55,10 +55,9 @@ class CrudPanel(ttk.Frame):
         self.title_lbl = tk.Label(head, text="▍" + title,
                                   font=("Segoe UI", 14, "bold"))
         self.title_lbl.pack(side="left")
-        theme.register(lambda c: self.title_lbl.configure(
-            bg=c["bg"], fg=self.accent))
         self.chips = ttk.Frame(head)
         self.chips.pack(side="left", padx=16)
+        theme.register(self._on_theme)
         ttk.Button(head, text="＋ Add", style="Accent.TButton",
                    command=self.add_dialog).pack(side="right", padx=2)
         ttk.Button(head, text="Edit", command=self.edit_sel).pack(side="right",
@@ -118,6 +117,11 @@ class CrudPanel(ttk.Frame):
         if self.hint:
             (self.hint.pack(anchor="w", pady=(2, 0)) if not items
              else self.hint.pack_forget())
+
+    def _on_theme(self, c):
+        self.title_lbl.configure(bg=c["bg"], fg=self.accent)
+        for w in self.chips.winfo_children():   # live chips track the theme
+            w.configure(bg=c["panel"])
 
     def _refresh_chips(self, items):
         for w in self.chips.winfo_children():
@@ -189,7 +193,8 @@ class CrudPanel(ttk.Frame):
             item = proj.get(self.kind, iid)
             if item is not None and hasattr(item, "status"):
                 item.status = status
-        proj.save()
+        if proj.path:               # in-memory project: autosave contract off
+            proj.save()
         self._changed()
 
     def _changed(self):
@@ -260,7 +265,8 @@ class CrudPanel(ttk.Frame):
             else:
                 for k, val in vals.items():
                     setattr(item, k, val)
-                proj.save()
+                if proj.path:       # match add(): autosave only with a path
+                    proj.save()
             dlg.destroy()
             self._changed()
 
@@ -271,5 +277,8 @@ class CrudPanel(ttk.Frame):
                    command=save).pack(side="right")
         ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(
             side="right", padx=6)
-        dlg.bind("<Return>", lambda e: save())
+        # Return submits — except inside a multiline Text, where it must
+        # insert a newline instead of silently saving the half-typed item
+        dlg.bind("<Return>",
+                 lambda e: None if isinstance(e.widget, tk.Text) else save())
         dlg.bind("<Escape>", lambda e: dlg.destroy())

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
+from datetime import datetime
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 import fitz
@@ -142,6 +143,7 @@ class FieldstitchTab(ttk.Frame):
         cv.bind("<ButtonRelease-1>", self.on_release)
         cv.bind("<Motion>", self.on_hover, add="+")
         cv.bind("<Leave>", lambda e: cv.delete("hud"), add="+")
+        cv.bind("<Delete>", lambda e: self.delete_sel())     # tooltip promise
         dnd.enable_drop(cv, lambda p: p and self.open_pdf(p[0]),
                         exts=(".pdf",))
 
@@ -164,6 +166,7 @@ class FieldstitchTab(ttk.Frame):
             (80, 34, 76, 76, 56, 120, 76), height=14)
         frame.pack(fill="both", expand=True, pady=4)
         self.ptree.bind("<<TreeviewSelect>>", self._table_select)
+        self.ptree.bind("<Delete>", lambda e: self.delete_sel())
         row2 = ttk.Frame(right)
         row2.pack(fill="x")
         ttk.Button(row2, text="Delete", command=self.delete_sel
@@ -174,6 +177,11 @@ class FieldstitchTab(ttk.Frame):
                    ).pack(side="right")
 
         self.set_tool("place")
+        # typing a prefix / next # / suffix updates the job immediately —
+        # otherwise a kit exported (or sidecar saved) before the next click
+        # would carry stale values
+        for v in (self.prefix_var, self.num_var, self.suffix_var):
+            v.trace_add("write", lambda *_: self._push_to_job())
 
     # ------------------------------------------------------------- setup
     def open_pdf(self, path=None):
@@ -190,10 +198,37 @@ class FieldstitchTab(ttk.Frame):
                         f"{len(self.job.points)} point(s)", "ok")
 
     def blank_sheet(self):
-        """No CAD, no PDF? Draw on a fresh gridded sheet."""
-        out = os.path.join(os.path.expanduser("~"), ".planloom",
-                           "blank_grid.pdf")
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        """No CAD, no PDF? Draw on a fresh gridded sheet.
+
+        The sheet lives at a fixed path, so its ``.stitch.json`` sidecar can
+        hold a layout from an earlier session or a different project.  Never
+        silently adopt (or clobber) that: offer to continue it, otherwise
+        start a fresh sheet at a new timestamped path and leave the previous
+        layout untouched."""
+        base = os.path.join(os.path.expanduser("~"), ".planloom")
+        os.makedirs(base, exist_ok=True)
+        out = os.path.join(base, "blank_grid.pdf")
+        prev = 0
+        if os.path.exists(out + fs.LayoutJob.SUFFIX):
+            try:
+                prev = len(fs.LayoutJob(out).points)
+            except Exception:   # noqa: BLE001 -- unreadable sidecar
+                prev = 0
+        if prev:
+            if messagebox.askyesno(
+                    "Blank grid sheet",
+                    f"The blank grid sheet already carries a layout "
+                    f"({prev} point(s), possibly from another project).\n\n"
+                    "Continue that layout?  (No starts a fresh sheet; the "
+                    "previous layout is kept.)"):
+                if os.path.exists(out):
+                    self.open_pdf(out)
+                    return
+            else:
+                out = os.path.join(base, "blank_grid_%s.pdf" %
+                                   datetime.now().strftime("%Y%m%d-%H%M%S"))
+        if self.viewer.path == out:
+            self.viewer.close()     # Windows can't overwrite an open PDF
         doc = fitz.open()
         page = doc.new_page(width=1224, height=792)
         for x in range(24, 1224, 24):
@@ -308,10 +343,15 @@ class FieldstitchTab(ttk.Frame):
             self.set_tool("place")
         else:                                   # select
             self.selection = self._hit(x, y)
-            self._drag_id = self.selection
+            p = self.job.get(self.selection) if self.selection else None
+            # locked layers: selectable (inspect), never draggable
+            self._drag_id = p.id if p and not self._locked(p) else None
             self.redraw_points()
             if self.selection:
-                self.ptree.selection_set(self.selection)
+                if self.ptree.exists(self.selection):   # may be filtered out
+                    self.ptree.selection_set(self.selection)
+            else:
+                self.ptree.selection_set(())    # keep table in step
 
     def on_drag(self, event):
         if self.tool == "select" and self._drag_id and self.job:
@@ -326,9 +366,20 @@ class FieldstitchTab(ttk.Frame):
             self.fill_table()
         self._drag_id = None
 
+    def _locked(self, p) -> bool:
+        ly = self.job.layer(p.layer) if self.job else None
+        return bool(ly and ly.locked)
+
     def _hit(self, x, y):
-        best, best_d = None, 81.0               # 9pt hit radius
+        """Nearest visible point within 9 *screen* pixels — constant feel at
+        any zoom (a page-unit radius is untouchable zoomed out and grabs
+        half the sheet zoomed in).  Hidden layers are click-through."""
+        vis = {ly.name for ly in self.job.layers if ly.visible}
+        r = 9.0 / max(self.viewer.scale, 1e-9)
+        best, best_d = None, r * r
         for p in self.job.points_on(self.viewer.page_no):
+            if p.layer not in vis:
+                continue
             d = (p.x - x) ** 2 + (p.y - y) ** 2
             if d < best_d:
                 best, best_d = p.id, d
@@ -500,11 +551,23 @@ class FieldstitchTab(ttk.Frame):
     def delete_sel(self):
         if not self.job:
             return
-        for iid in self.ptree.selection():
+        iids = self.ptree.selection() or (
+            (self.selection,) if self.selection else ())
+        skipped = 0
+        for iid in iids:
+            p = self.job.get(iid)
+            if p is None:
+                continue
+            if self._locked(p):
+                skipped += 1
+                continue
             self.job.remove(iid)
         self.selection = None
         self.fill_table()
         self.redraw_points()
+        if skipped:
+            self.status.set(f"{skipped} point(s) on a locked layer kept",
+                            "err")
 
     def renumber(self):
         if self.job and messagebox.askyesno(
@@ -554,16 +617,19 @@ class FieldstitchTab(ttk.Frame):
         p = filedialog.askopenfilename(filetypes=[("CSV", "*.csv *.txt")])
         if not p:
             return
+        job = self.job      # snapshot: the worker must never chase self.job
+                            # into a plan the user opened mid-import
 
         def done(n, err):
             if err:
                 self.status.set(f"Import failed: {err}", "err")
                 return
             toast(self.root, self.theme, f"Imported {n} point(s)")
-            self.fill_table()
-            self.redraw_points()
+            if self.job is job:
+                self.fill_table()
+                self.redraw_points()
 
-        run_bg(self, lambda: fs.import_csv(self.job, p), done)
+        run_bg(self, lambda: fs.import_csv(job, p), done)
 
     # ---------------------------------------------------------------- 3D
     def push_pins(self):

@@ -173,6 +173,10 @@ class ResolutionBoard(ttk.Frame):
         if not self._drag:
             return
         num, self._drag = self._drag, None
+        if not (0 <= event.x < cv.winfo_width()
+                and 0 <= event.y < cv.winfo_height()):
+            self.redraw()            # released outside the board: cancel,
+            return                   # never advance a card by accident
         col = int(max(0, min(len(resolution.STATUSES) - 1,
                              (event.x - 6) // self._colw)))
         new_status = resolution.STATUSES[col]
@@ -342,8 +346,12 @@ class SpecsPanel(ttk.Frame):
             if err:
                 self.status.set(f"Spec parse failed: {err}", "err")
                 return
-            for s in secs:
-                proj.add("specs", s)
+            if secs:
+                # one atomic save for the whole book — proj.add() would
+                # rewrite the entire project file once per section
+                proj.specs.extend(secs)
+                if proj.path:
+                    proj.save()
             self.refresh()
             self.on_change()
             self.status.set(f"{len(secs)} spec section(s) imported", "ok")
@@ -555,7 +563,12 @@ class ProjectSection(ttk.Frame):
         def scanned(plan, _prev=prev_hook):
             if _prev:
                 _prev(plan)
-            self.board.sync()
+            if self.stamp.rows:
+                self.board.sync()
+            else:
+                # a scan that found no RFIs must not pop sync()'s "scan
+                # first" modal at the user — just clear any stale cards
+                self.board.redraw()
         self.stamp.on_scanned = scanned
 
         self.submittals = SubmittalPanel(nb, theme, status, root)

@@ -460,11 +460,15 @@ class App:
         frame.pack(fill="both", expand=True, pady=8)
 
         def refresh():
+            sel = tree.selection()
             tree.delete(*tree.get_children())
             for s in ledger.seats:
                 tree.insert("", "end", iid=s.id, values=(
                     s.user, s.role, s.device or "—",
                     "Active" if s.device else "Released"))
+            keep = [iid for iid in sel if tree.exists(iid)]
+            if keep:
+                tree.selection_set(keep)
 
         row = ttk.Frame(frm)
         row.pack(fill="x")
@@ -480,7 +484,7 @@ class App:
         def assign():
             try:
                 ledger.assign(uv.get().strip(), dv.get().strip(), rv.get())
-            except (ValueError, Exception) as e:   # noqa: BLE001
+            except ValueError as e:      # bad role / empty / duplicate seat
                 messagebox.showwarning("Crewpass", str(e), parent=dlg)
                 return
             refresh()
@@ -494,8 +498,9 @@ class App:
             if nd:
                 try:
                     ledger.transfer(sel[0], nd.strip())
-                except KeyError:
-                    pass
+                except (KeyError, ValueError) as e:
+                    # unknown seat / blank device / user already active there
+                    messagebox.showwarning("Crewpass", str(e), parent=dlg)
                 refresh()
 
         def release():
