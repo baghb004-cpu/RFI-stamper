@@ -68,6 +68,27 @@ hardware:
 * PDF Tools includes **strip metadata** for scrubbing files before they go
   out the door.
 
+## Fieldstitch — layout points for the field crew
+
+Draw it in the office, stake it in the field, **without CAD**. Open a plan
+PDF (or a blank grid), drop numbered layout points exactly where they belong
+— prefix/suffix/auto-increment numbering, descriptions, categories, per-point
+elevations — organized in **Strata** layers (visibility, color override,
+lock, filter — conventions any CAD/BIM user already knows). Set a basepoint,
+rotation, and scale, and every point gets real-world N/E/Z coordinates. Then
+hand it to whichever tablet the crew carries:
+
+* **Bowline Kit** — PNEZD CSV + DXF, the import pair for
+  robotic-total-station field tablets
+* **Clovehitch Kit** — XLSX (X/Y/Z, point number, prefix/suffix,
+  description, category, layer) + DXF, the import pair for grid-layout
+  tablets
+* **Full Spool** — everything at once, plus the re-loadable job JSON
+
+Points placed on sheets also show up as 3D pins on those sheets in the BIM
+viewer, and the **Horizon Slice** control cuts the 3D model at any elevation
+band — an animated section cut for coordination reviews.
+
 ## Everything else in the box
 
 Combine/split/rotate PDFs with bookmarks · one-touch PDF repair (unlock,

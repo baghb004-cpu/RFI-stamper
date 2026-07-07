@@ -44,6 +44,10 @@ run; the `*_report.txt` must end in PASS).
    addendum deltas); the rectangle style above does that — don't add cloud
    or bubble shapes to the stamper output.
 7. No company, project, or person names in code, comments, docs, or history.
+   EXTENDED (owner request): no third-party vendor/product names either
+   (survey-tablet makers, CAD/BIM authoring tools). Describe compatibility by
+   format only ("PNEZD CSV for robotic-total-station tablets"). Product
+   naming registry lives in HANDOFF.md — use those names.
 
 ## Repo map
 
@@ -76,6 +80,9 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
                               drop-folder scan — NEVER network
     rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
+    rfi_stamper/fieldstitch.py layout points: layers, numbering, world coords,
+                              PNEZD CSV / XLSX (hand-rolled OOXML) / DXF R12
+                              exporters, kits (bowline/clovehitch/fullspool)
     rfi_stamper/markups/      GUI-free markup data layer: model (+ PDF annot
                               writer), multiply, measure, toolchest
     rfi_stamper/gui/          tkinter app: app (nav shell), nav (animated
