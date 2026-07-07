@@ -109,11 +109,11 @@ class IntegrationsSection(ttk.Frame):
         self._export("Tasks CSV", "tasks.csv", integrations.export_tasks_csv,
                      [("CSV", "*.csv")])
 
-    def import_tasks(self):
+    def import_tasks(self, path=None):
         proj = self._proj()
         if not proj:
             return
-        p = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        p = path or filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
         if not p:
             return
 
@@ -210,6 +210,15 @@ class IntegrationsSection(ttk.Frame):
                     self.route_paths(res["plans"] + res["rfis"])
 
         run_bg(self, lambda: integrations.scan_drop_folder(folder), done)
+
+    def handle_drop(self, paths):
+        """A dropped CSV imports tasks directly; other files scan as a folder
+        drop via Home routing."""
+        csvs = [p for p in paths if p.lower().endswith(".csv")]
+        if csvs:
+            self.import_tasks(csvs[0])
+        elif paths:
+            self.route_paths(paths)
 
     def refresh(self):
         pass

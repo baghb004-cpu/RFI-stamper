@@ -525,6 +525,24 @@ def main():
     crewpass.report_pdf(led, rep_pdf)
     assert os.path.exists(rep_pdf)
 
+    # ---- App Integrations: a dropped CSV imports directly (no re-prompt)
+    csvp = os.path.join(tmp, "tasks_in.csv")
+    with open(csvp, "w", encoding="utf-8") as f:
+        f.write("title,assignee,status,due\n"
+                "install hangers,crew B,todo,2026-08-01\n")
+    before_tasks = len(app.project.items("tasks"))
+    app.goto("integrations")
+    root.update()
+    app.integrations.handle_drop([csvp])
+    for _ in range(60):
+        root.update()
+        if len(app.project.items("tasks")) > before_tasks:
+            break
+        import time as _t2
+        _t2.sleep(0.05)
+    assert len(app.project.items("tasks")) == before_tasks + 1, \
+        "dropped CSV should import without a dialog"
+
     # CLI --help unswallowed (regression)
     import subprocess
     r = subprocess.run([sys.executable, "-m", "rfi_stamper", "--help"],

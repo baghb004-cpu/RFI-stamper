@@ -259,9 +259,6 @@ class App:
             self.projsec.stamp.handle_drop(paths)
         elif self._current == "plans":
             self.plans.markup.on_drop(paths)
-        elif self._current == "integrations" and paths[0].lower().endswith(
-                ".csv"):
-            self.integrations.import_tasks()
         elif hasattr(sec, "handle_drop"):
             sec.handle_drop(paths)
         else:
