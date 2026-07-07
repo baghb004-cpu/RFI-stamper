@@ -617,8 +617,36 @@ def remove_embedded_files(path: str, out_path: str, log=print) -> dict:
 def normalize_rotation(path: str, out_path: str, log=print) -> dict:
     """Bake any /Rotate into page content so every page has rotation 0 and
     looks identical in every viewer.  Vector content is preserved (each page
-    is placed as a Form XObject, not rasterized)."""
+    is placed as a Form XObject, not rasterized).
+
+    ``show_pdf_page`` copies a page's ``/Contents`` but NOT its ``/Annots``, so
+    any annotations or form widgets (a reviewer's markup, a filled field) would
+    be silently dropped.  We first ``bake`` those appearances into the content
+    stream -- still as vector Form XObjects, not rasterized -- so nothing
+    visible is lost when the rotation is normalized.
+
+    Navigation ``/Link`` annotations have no appearance (bake skips them), so we
+    re-attach them to the new upright page explicitly, mapping each link rect
+    from unrotated media space back to viewer space via ``derotation_matrix``
+    (the new page is rotation 0, so its viewer space == the old viewer space).
+    This keeps auto-hyperlinked sheet jumps working after normalization."""
     src = _open(path, log)
+    # capture links before bake/rebuild (bake can drop them)
+    links_per_page = []
+    for pno in range(len(src)):
+        page = src[pno]
+        try:
+            derot = page.derotation_matrix
+            links_per_page.append([
+                {**lk, "from": fitz.Rect(lk["from"]) * derot}
+                for lk in page.get_links()])
+        except Exception:
+            links_per_page.append([])
+    if hasattr(src, "bake"):
+        try:
+            src.bake(annots=True, widgets=True)  # fold markups into content so
+        except Exception as e:                   # show_pdf_page carries them
+            log(f"  normalize_rotation: bake skipped ({e})")
     out = fitz.open()
     try:
         rotated = 0
@@ -629,12 +657,24 @@ def normalize_rotation(path: str, out_path: str, log=print) -> dict:
             rect = page.rect                    # already the displayed size
             npage = out.new_page(width=rect.width, height=rect.height)
             npage.show_pdf_page(npage.rect, src, pno)
+        # re-attach links in a second pass, once EVERY page exists — a GoTo
+        # link to a not-yet-created page raises "bad page number", so this
+        # can't be done inside the build loop
+        kept_links = 0
+        for pno, links in enumerate(links_per_page):
+            for lk in links:
+                try:
+                    out[pno].insert_link(lk)
+                    kept_links += 1
+                except Exception:
+                    pass
         pages = len(out)
         _atomic_save(out, out_path, garbage=4, deflate=True)
     finally:
         out.close()
         src.close()
-    log(f"  normalize_rotation: baked rotation on {rotated} page(s)")
+    log(f"  normalize_rotation: baked rotation on {rotated} page(s)"
+        + (f", preserved {kept_links} link(s)" if kept_links else ""))
     return {"out_path": out_path, "normalized": rotated, "pages": pages}
 
 

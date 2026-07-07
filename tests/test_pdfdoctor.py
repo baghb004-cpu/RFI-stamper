@@ -288,6 +288,41 @@ def test_normalize_rotation(tmp):
     print("  normalize_rotation OK")
 
 
+def test_normalize_rotation_keeps_annotations(tmp):
+    """Regression: show_pdf_page copies /Contents but not /Annots, so a rotated
+    page carrying a reviewer's markup would silently lose it.  normalize_rotation
+    must bake annotation/widget appearances into content first."""
+    src = os.path.join(tmp, "rot_annot.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=300)
+    page.insert_text((30, 40), "base text", fontsize=14)
+    page.add_freetext_annot(fitz.Rect(50, 120, 350, 180),
+                            "IMPORTANT REVIEW STAMP", fontsize=16,
+                            text_color=(1, 0, 0), fill_color=(1, 1, 0))
+    page.set_rotation(90)
+    doc.save(src)
+    doc.close()
+
+    s = fitz.open(src)
+    ref = gray_arr(s[0], 60)                            # displayed WITH annot
+    s.close()
+    ref_ink = int((ref < 200).sum())
+    assert ref_ink > 0
+
+    out = os.path.join(tmp, "rot_annot_norm.pdf")
+    doctor.normalize_rotation(src, out, log=quiet)
+    n = fitz.open(out)
+    assert n[0].rotation == 0
+    got = gray_arr(n[0], 60)
+    n.close()
+    got_ink = int((got < 200).sum())
+    # the annotation (its yellow box + red text) must survive baking, not vanish
+    assert got_ink / ref_ink > 0.85, (ref_ink, got_ink)
+    assert got.shape == ref.shape, (got.shape, ref.shape)
+    assert float(np.abs(got.astype(int) - ref.astype(int)).mean()) < 12.0
+    print("  normalize_rotation_keeps_annotations OK")
+
+
 def test_linearize(tmp):
     src = make_text_pdf(os.path.join(tmp, "lin_in.pdf"), n_pages=2, tag="lin")
     out = os.path.join(tmp, "lin_out.pdf")
@@ -431,6 +466,7 @@ def main():
         test_rasterize(tmp)
         test_upscale(tmp)
         test_normalize_rotation(tmp)
+        test_normalize_rotation_keeps_annotations(tmp)
         test_linearize(tmp)
         test_javascript_and_embedded(tmp)
         test_flatten_annotations(tmp)
