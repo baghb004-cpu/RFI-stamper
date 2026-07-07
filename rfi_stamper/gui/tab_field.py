@@ -162,8 +162,52 @@ class DaybookPanel(ttk.Frame):
              ("photos", "PHOTOS")],
             (90, 110, 80, 320, 190, 60), height=12)
         frame.pack(fill="both", expand=True, pady=6)
+        self.tree.bind("<Double-1>", self._open_photos)
         Tooltip(self.tree, "Photos are file references — nothing is copied "
-                           "or uploaded.", theme)
+                           "or uploaded.  Double-click an entry to view its "
+                           "photos in Lookout (360° panoramas supported).",
+                theme)
+
+    def _open_photos(self, _e=None):
+        """Double-click an entry → its photos open in the Lookout viewer;
+        2:1 equirectangular shots become drag-to-look-around panoramas."""
+        store = self._ensure_store()
+        sel = self.tree.selection()
+        if not store or not sel:
+            return
+        entry = store.get(sel[0])
+        if not entry or not entry.photos:
+            return
+        from . import pano
+        existing = [p for p in entry.photos if os.path.exists(p)]
+        if not existing:
+            messagebox.showinfo(
+                "Lookout", "This entry's photo files aren't reachable from "
+                           "this machine (they're stored as references).")
+            return
+        if len(existing) == 1:
+            if pano.open_lookout(self.winfo_toplevel(), self.theme,
+                                 existing[0]) is None:
+                messagebox.showwarning("Lookout",
+                                       "Could not read that image.")
+            return
+        dlg = tk.Toplevel(self)
+        dlg.title("Lookout — pick a photo")
+        dlg.transient(self.winfo_toplevel())
+        lb = tk.Listbox(dlg, width=70, height=min(12, len(existing)))
+        self.theme.style_listbox(lb)
+        lb.pack(fill="both", expand=True, padx=10, pady=10)
+        for p in existing:
+            lb.insert("end", p)
+
+        def open_sel(_e=None):
+            cur = lb.curselection()
+            if cur:
+                pano.open_lookout(self.winfo_toplevel(), self.theme,
+                                  existing[cur[0]])
+        lb.bind("<Double-Button-1>", open_sel)
+        ttk.Button(dlg, text="Open in Lookout", command=open_sel
+                   ).pack(pady=(0, 10))
 
     def _ensure_store(self):
         proj = self.get_project()

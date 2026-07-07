@@ -44,6 +44,7 @@ class Bim3DViewer(ttk.Frame):
         self._restore_after = None
         self._slice_frac = 1.0      # Horizon Slice: fraction of height shown
         self.pins = []              # layout pins: (x, y, z, label, color)
+        self.hidden_systems = set() # Strata: systems toggled off via legend
 
         bar = ttk.Frame(self)
         bar.pack(fill="x")
@@ -309,14 +310,29 @@ class Bim3DViewer(ttk.Frame):
 
     # ------------------------------------------------------------ legend ---
     def _build_legend(self):
+        """Strata-style legend: every system chip is a click-to-toggle."""
         for child in self.legend.winfo_children():
             child.destroy()
         if self.model is None:
             return
         c = self.theme.colors
         for name, color in self.model.systems:
-            tk.Label(self.legend, text=f"■ {name}", fg=color, bg=c["bg"],
-                     font=(FAMILY, 9)).pack(side="left", padx=(0, 8))
+            off = name in self.hidden_systems
+            lbl = tk.Label(self.legend,
+                           text=("□ " if off else "■ ") + name,
+                           fg=c["muted"] if off else color, bg=c["bg"],
+                           font=(FAMILY, 9), cursor="hand2")
+            lbl.pack(side="left", padx=(0, 8))
+            lbl.bind("<Button-1>",
+                     lambda e, n=name: self.toggle_system(n))
+
+    def toggle_system(self, name: str) -> None:
+        if name in self.hidden_systems:
+            self.hidden_systems.discard(name)
+        else:
+            self.hidden_systems.add(name)
+        self._build_legend()
+        self._render()
 
     # ------------------------------------------------------------ render ---
     def _render(self):
@@ -346,6 +362,8 @@ class Bim3DViewer(ttk.Frame):
 
         # decimate when the last frame was slow
         segs = m.segments
+        if self.hidden_systems:
+            segs = [s for s in segs if s.system not in self.hidden_systems]
         if z_cut is not None:
             segs = [s for s in segs
                     if (s.a[2] + s.b[2]) * 0.5 <= z_cut]

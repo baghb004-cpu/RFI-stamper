@@ -80,15 +80,26 @@ All items below are BUILT, tested (19 suites green) and pushed:
 - **crewpass.py + Tools → Crewpass dialog**: offline seat ledger
   (assign/transfer/release + report PDF), local JSON at ~/.planloom.
 
+## Round 3 (SHIPPED): Lookout · Strata↔3D · hardening
+
+- **gui/pano.py "Lookout"**: offline 360° panorama viewer — pure-numpy
+  equirect→perspective reprojection (direction-verified in tests/test_pano.py),
+  drag look, FOV wheel zoom, flat photos shown fitted. Daybook entries
+  double-click into it.
+- **BIM legend = Strata toggles**: click a system chip to hide/show that
+  system in 3D (segments carry .system; filter composes with Horizon Slice).
+- **Adversarial review round 2**: two agents swept every GUI file written in
+  rounds 4–6 (fieldstitch studio, bim3d additions, plansbim wiring, pano,
+  daybook/reckoner/crewpass panels, app/nav/crud/truth) — confirmed bugs
+  fixed in place with construct-test regressions.
+
 ## Roadmap (still open)
 
-- **Daybook 360°**: owner brief mentioned panoramic views — photo refs ship
-  today; an actual pano viewer is a stretch goal.
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
-- **Strata ↔ BIM systems**: layer panel driving 3D system visibility.
 - **Richer extrusion**: door/window gap detection, per-layer wall heights.
 - **Digital plans from paper**: served by OCR + markup; keep surfacing it.
+- **Lookout stereo/tiles**: very large (>30MP) panos could downsample-first.
 
 ## Session pickup checklist
 
