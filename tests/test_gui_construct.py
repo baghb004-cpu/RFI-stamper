@@ -223,6 +223,80 @@ def main():
     app.plans.bim.slice_var.set(100.0)
     app.plans.bim._on_slice()
 
+    # ---- Daybook: entry through the store the panel binds to
+    app.goto("field")
+    root.update()
+    db = app.field.daybook
+    store = db._ensure_store()
+    assert store is not None, "project is open, store should bind"
+    store.add(date="2026-07-08", crew="crew A", weather="clear",
+              summary="hung duct mains", measurements=["riser 9'-2\""],
+              photos=[])
+    db.refresh()
+    root.update()
+    assert len(db.tree.get_children()) == 1
+    assert "1 entr" in db.counts_lbl.cget("text")
+
+    # ---- Reckoner: takeoff from a synthetic marked-up PDF
+    import json as _json
+
+    from rfi_stamper import markups as mk3
+    tk_pdf = os.path.join(tmp, "takeoff.pdf")
+    make_pdf(tk_pdf)
+    st2 = mk3.MarkupStore(tk_pdf)
+    for i in range(3):
+        st2.add(mk3.Markup.new(1, "count", [(50 + i * 20, 60)],
+                               text=f"S-{i}", subject="Sprinkler Head"))
+    st2.add(mk3.Markup.new(1, "measure_length", [(0, 0), (100, 0)],
+                           subject="Pipe Run"))
+    st2.save()
+    with open(tk_pdf + ".scale.json", "w", encoding="utf-8") as f:
+        _json.dump({"version": 2, "pages": {},
+                    "default": {"real_per_pt": 0.1, "unit": "ft"}}, f)
+    book = os.path.join(tmp, "prices.csv")
+    with open(book, "w", encoding="utf-8") as f:
+        f.write("code,description,unit,cost\nSPK,Sprinkler Head,ea,45.50\n"
+                "PIPE,Pipe Run,ft,12.00\n")
+    app.goto("project")
+    rp = app.projsec.reckoner
+    app.projsec.nb.select(rp)
+    root.update()
+    rp.pdf_var.set(tk_pdf)
+    rp.book_var.set(book)
+    rp.run_takeoff()
+    for _ in range(100):
+        root.update()
+        if rp.lines:
+            break
+        import time as _t
+        _t.sleep(0.05)
+    assert rp.lines, "takeoff produced lines"
+    by_subj = {ln.subject: ln for ln in rp.lines}
+    assert by_subj["Sprinkler Head"].qty == 3
+    assert abs(by_subj["Pipe Run"].qty - 10.0) < 1e-6      # 100pt * 0.1ft
+    assert abs(by_subj["Sprinkler Head"].total - 136.5) < 1e-6
+
+    # ---- Extrude: the Fieldstitch plan becomes a 3D model in world coords
+    from rfi_stamper import extrude
+    model, stats = extrude.model_from_plan(pdf, page_no=1, job=fst.job,
+                                           wall_height=10.0, floors=2)
+    assert stats["walls"] > 0 and len(model.segments) > 0
+    (_mnx, _mny, mnz), (_mxx, _mxy, mxz) = model.bounds()
+    assert mxz - mnz >= 20.0, "two floors of 10 should stack"
+    app.plans.bim.set_model(model)
+    root.update()
+    assert len(app.plans.bim.canvas.find_all()) > 10
+
+    # ---- Crewpass ledger (temp path, never the real one)
+    from rfi_stamper import crewpass
+    led = crewpass.Ledger(os.path.join(tmp, "cp.json"))
+    s1 = led.assign("field lead", "tablet-01", "field")
+    led.transfer(s1.id, "tablet-02")
+    assert led.active()[0].device == "tablet-02"
+    rep_pdf = os.path.join(tmp, "cp.pdf")
+    crewpass.report_pdf(led, rep_pdf)
+    assert os.path.exists(rep_pdf)
+
     # CLI --help unswallowed (regression)
     import subprocess
     r = subprocess.run([sys.executable, "-m", "rfi_stamper", "--help"],

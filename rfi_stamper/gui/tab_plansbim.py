@@ -65,9 +65,65 @@ class PlansSection(ttk.Frame):
         nb.add(self.bim, text="  BIM Viewer  ")
         # place the open plan's sheets into the model as floor planes
         bar = ttk.Frame(self.bim)
+        ttk.Button(bar, text="⌂ From plan…", command=self._extrude_plan
+                   ).pack(side="left", padx=(0, 4))
         ttk.Button(bar, text="Place open plan's sheets in 3D",
                    command=self._place_sheets).pack(side="left")
         bar.place(relx=1.0, y=4, anchor="ne", x=-8)
+
+    def _extrude_plan(self):
+        """Your own floor plan becomes the 3D model: vector linework from the
+        Fieldstitch plan is extruded into walls, in the same world frame as
+        the layout points — so pins land inside the real building."""
+        from tkinter import messagebox, simpledialog
+        job = self.fieldstitch.job
+        if not job or not job.pdf_path:
+            messagebox.showinfo(
+                "From plan", "Open the plan in Fieldstitch Layout first — "
+                             "the model shares its scale and basepoint so "
+                             "layout pins land inside the building.")
+            self.nb.select(self.fieldstitch)
+            return
+        if job.cal is None:
+            messagebox.showinfo("From plan",
+                                "Set the Fieldstitch scale first (scale ▾).")
+            self.nb.select(self.fieldstitch)
+            return
+        ans = simpledialog.askstring(
+            "From plan", "Wall height and floor count —  height, floors "
+                         "(e.g.  10, 3):", initialvalue="10, 1", parent=self)
+        if not ans:
+            return
+        try:
+            parts = [v.strip() for v in ans.split(",")]
+            height = float(parts[0])
+            floors = int(parts[1]) if len(parts) > 1 else 1
+        except (ValueError, IndexError):
+            messagebox.showwarning("From plan", "Format:  height, floors")
+            return
+        page = self.fieldstitch.viewer.page_no
+        pdf = job.pdf_path
+        from .widgets import run_bg, toast
+
+        def work():
+            from .. import extrude
+            return extrude.model_from_plan(pdf, page_no=page, job=job,
+                                           wall_height=height, floors=floors)
+
+        def done(res, err):
+            if err:
+                messagebox.showerror("From plan", str(err))
+                return
+            model, stats = res
+            self.bim.set_model(model)
+            self.nb.select(self.bim)
+            toast(self.winfo_toplevel(), self.bim.theme,
+                  f"Extruded {stats['walls']} wall(s) × {stats['floors']} "
+                  f"floor(s) from the plan")
+            if self.fieldstitch.job and self.fieldstitch.job.points:
+                self.fieldstitch.push_pins()   # pins land inside the model
+
+        run_bg(self, work, done)
 
     def _pins_to_3d(self, pins):
         """Fieldstitch points arrive as world-coordinate 3D pins."""

@@ -83,6 +83,11 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/fieldstitch.py layout points: layers, numbering, world coords,
                               PNEZD CSV / XLSX (hand-rolled OOXML) / DXF R12
                               exporters, kits (bowline/clovehitch/fullspool)
+    rfi_stamper/extrude.py    plan PDF vector linework -> extruded 3D wall model
+                              in the Fieldstitch world frame
+    rfi_stamper/daybook.py    daily progress journal store + PDF log
+    rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
+    rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
     rfi_stamper/markups/      GUI-free markup data layer: model (+ PDF annot
                               writer), multiply, measure, toolchest
     rfi_stamper/gui/          tkinter app: app (nav shell), nav (animated

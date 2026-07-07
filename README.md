@@ -87,7 +87,23 @@ hand it to whichever tablet the crew carries:
 
 Points placed on sheets also show up as 3D pins on those sheets in the BIM
 viewer, and the **Horizon Slice** control cuts the 3D model at any elevation
-band — an animated section cut for coordination reviews.
+band — an animated section cut for coordination reviews. Better still,
+**⌂ From plan** extrudes the plan's own vector linework into the 3D model —
+walls rise from your actual floor plan, in the same coordinate frame as the
+layout points, so every pin lands inside the real building.
+
+## Daybook, Reckoner, Crewpass
+
+* **Daybook** (Field Management) — the foreman's daily journal: crew,
+  weather, work performed, measurements, comments, photo references (paths
+  only — nothing is copied or uploaded), and a one-click paginated PDF log.
+* **Reckoner** (Project Management) — quantity takeoff from the drawing
+  markups: count dots, length runs and area takeoffs become quantities;
+  point it at a local **price book CSV** and it produces a priced estimate,
+  export as CSV or PDF. No cloud pricing, ever.
+* **Crewpass** (Tools menu) — an offline seat ledger: assign users to
+  devices, transfer seats, print the usage report. A local JSON file; no
+  license server, no activation calls.
 
 ## Everything else in the box
 

@@ -370,6 +370,166 @@ class SpecsPanel(ttk.Frame):
         self.text.configure(state="disabled")
 
 
+class ReckonerPanel(ttk.Frame):
+    """Quantity takeoff & pricing: the count/length/area markups on a drawing
+    become quantities; a local price book CSV turns them into an estimate."""
+
+    def __init__(self, parent, theme, status, root):
+        super().__init__(parent, padding=8)
+        self.theme, self.status, self.root = theme, status, root
+        self.lines = []
+        bar = ttk.Frame(self)
+        bar.pack(fill="x")
+        ttk.Label(bar, text="▍Reckoner", font=("Segoe UI", 14, "bold"),
+                  foreground=section_color("project")).pack(side="left")
+        ttk.Label(bar, style="Muted.TLabel",
+                  text="  takeoff from drawing markups · priced from a local "
+                       "CSV price book").pack(side="left")
+        r1 = ttk.Frame(self)
+        r1.pack(fill="x", pady=(6, 2))
+        ttk.Label(r1, text="Marked-up PDF:").pack(side="left")
+        self.pdf_var = tk.StringVar()
+        e1 = ttk.Entry(r1, textvariable=self.pdf_var)
+        e1.pack(side="left", fill="x", expand=True, padx=4)
+        dnd.enable_drop(e1, lambda p: p and self.pdf_var.set(p[0]),
+                        exts=(".pdf",))
+        ttk.Button(r1, text="…", width=3, command=self._pick_pdf
+                   ).pack(side="left")
+        ttk.Label(r1, text="Price book CSV:").pack(side="left", padx=(12, 0))
+        self.book_var = tk.StringVar()
+        e2 = ttk.Entry(r1, textvariable=self.book_var, width=28)
+        e2.pack(side="left", padx=4)
+        dnd.enable_drop(e2, lambda p: p and self.book_var.set(p[0]),
+                        exts=(".csv",))
+        ttk.Button(r1, text="…", width=3, command=self._pick_book
+                   ).pack(side="left")
+        ttk.Button(r1, text="Run takeoff", style="Accent.TButton",
+                   command=self.run_takeoff).pack(side="left", padx=8)
+
+        frame, self.tree = make_tree(
+            self, theme,
+            [("subject", "SUBJECT"), ("kind", "KIND"), ("qty", "QTY"),
+             ("unit", "UNIT"), ("pages", "PAGES"), ("code", "CODE"),
+             ("cost", "UNIT COST"), ("total", "TOTAL")],
+            (190, 70, 90, 60, 80, 90, 90, 110), height=11)
+        frame.pack(fill="both", expand=True, pady=6)
+
+        r2 = ttk.Frame(self)
+        r2.pack(fill="x")
+        self.total_lbl = ttk.Label(r2, text="", style="Stat.TLabel")
+        self.total_lbl.pack(side="left")
+        self.match_lbl = ttk.Label(r2, text="", style="Muted.TLabel")
+        self.match_lbl.pack(side="left", padx=10)
+        ttk.Button(r2, text="Takeoff PDF…", command=self.export_pdf
+                   ).pack(side="right", padx=2)
+        ttk.Button(r2, text="Export CSV…", command=self.export_csv
+                   ).pack(side="right", padx=2)
+
+    def _pick_pdf(self):
+        p = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
+        if p:
+            self.pdf_var.set(p)
+
+    def _pick_book(self):
+        p = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        if p:
+            self.book_var.set(p)
+
+    @staticmethod
+    def _cal_for_pdf(pdf_path):
+        """Per-page scale lookup from the markup tab's .scale.json sidecar."""
+        import json
+
+        from ..markups import measure
+        cals, default = {}, None
+        try:
+            with open(pdf_path + ".scale.json", encoding="utf-8") as f:
+                d = json.load(f)
+            for k, v in d.get("pages", {}).items():
+                cals[int(k)] = measure.ScaleCal.from_dict(v)
+            if d.get("default"):
+                default = measure.ScaleCal.from_dict(d["default"])
+            if "real_per_pt" in d:                        # legacy flat
+                default = measure.ScaleCal.from_dict(d)
+        except Exception:   # noqa: BLE001 -- no scale sidecar
+            pass
+        return lambda page: cals.get(page) or default
+
+    def run_takeoff(self):
+        pdf = self.pdf_var.get().strip()
+        if not pdf or not os.path.exists(pdf):
+            messagebox.showinfo("Reckoner", "Pick a marked-up PDF first — "
+                                            "counts, lengths and areas come "
+                                            "from its markups.")
+            return
+        book_path = self.book_var.get().strip()
+        self.status.set("Running takeoff…")
+
+        def work():
+            from .. import markups as mk
+            from .. import reckoner
+            store = mk.MarkupStore(pdf)
+            lines = reckoner.takeoff(store, self._cal_for_pdf(pdf))
+            summary = None
+            if book_path:
+                summary = reckoner.price(lines,
+                                         reckoner.PriceBook(book_path))
+            return lines, summary
+
+        def done(res, err):
+            if err:
+                self.status.set(f"Takeoff failed: {err}", "err")
+                return
+            self.lines, summary = res
+            self.tree.delete(*self.tree.get_children())
+            for i, ln in enumerate(self.lines):
+                self.tree.insert("", "end", iid=str(i), values=(
+                    ln.subject, ln.kind, f"{ln.qty:,.2f}", ln.unit,
+                    ",".join(str(p) for p in ln.pages), ln.code,
+                    f"{ln.unit_cost:,.2f}" if ln.unit_cost else "",
+                    f"{ln.total:,.2f}" if ln.total else ""))
+            if summary:
+                self.total_lbl.configure(
+                    text=f"$ {summary['total']:,.2f}")
+                self.match_lbl.configure(
+                    text=f"{summary['matched']} matched · "
+                         f"{summary['unmatched']} unmatched")
+            else:
+                self.total_lbl.configure(text="")
+                self.match_lbl.configure(
+                    text=f"{len(self.lines)} line(s) — add a price book CSV "
+                         "to price them")
+            self.status.set(f"Takeoff: {len(self.lines)} line(s)", "ok")
+            self._summary = summary
+
+        run_bg(self, work, done)
+
+    def export_csv(self):
+        if not self.lines:
+            return
+        out = filedialog.asksaveasfilename(
+            defaultextension=".csv", initialfile="takeoff.csv",
+            filetypes=[("CSV", "*.csv")])
+        if out:
+            from .. import reckoner
+            reckoner.export_csv(self.lines, out)
+            toast(self.root, self.theme, "Takeoff CSV written")
+            open_path(out)
+
+    def export_pdf(self):
+        if not self.lines:
+            return
+        out = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile="takeoff.pdf",
+            filetypes=[("PDF", "*.pdf")])
+        if out:
+            from .. import reckoner
+            reckoner.takeoff_pdf(self.lines, out,
+                                 summary=getattr(self, "_summary", None))
+            toast(self.root, self.theme, "Takeoff PDF ready")
+            open_path(out)
+
+
 class ProjectSection(ttk.Frame):
     def __init__(self, parent, theme, status, root, get_project, on_change):
         super().__init__(parent)
@@ -436,7 +596,11 @@ class ProjectSection(ttk.Frame):
         nb.add(budget_wrap, text="  Budget  ")
         self.get_project = get_project
 
+        self.reckoner = ReckonerPanel(nb, theme, status, root)
+        nb.add(self.reckoner, text="  Reckoner  ")
+
         docs = ttk.Frame(nb)
+        self.docs_tab = docs
         dnb = ttk.Notebook(docs)
         dnb.pack(fill="both", expand=True)
         self.doc_register = CrudPanel(
@@ -480,6 +644,8 @@ class ProjectSection(ttk.Frame):
     def commands(self):
         return ([("Sync resolution board", "RFIs", self.board.sync),
                  ("Designer pickup sheet", "RFIs", self.board.pickup),
+                 ("Reckoner: run takeoff", "Project",
+                  self.reckoner.run_takeoff),
                  ("Parse submittal register", "Project",
                   self.submittals.browse),
                  ("Add change order", "Project",

@@ -27,8 +27,8 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Strata** | layer manager (visibility, color override, lock, filter) | geological layers |
 | **Horizon Slice** | 3D elevation view-range clip (animated section cut) | slicing the model at a horizon |
 | **Warp-Up** | animated boot splash | a loom's warp threads + warming up |
-| **Daybook** (roadmap) | progress journal: measurements, comments, photo refs | the foreman's daybook |
-| **Crewpass** (roadmap) | offline seat/device ledger + user reports | a crew's gate pass |
+| **Daybook** | progress journal: measurements, comments, photo refs | the foreman's daybook |
+| **Crewpass** | offline seat/device ledger + user reports | a crew's gate pass |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -66,24 +66,29 @@ All items below are BUILT, tested (19 suites green) and pushed:
 4. Tests for the engine + studio construct/export; screenshots; README/CLAUDE
    updates; commit + push.
 
-## Roadmap (owner's briefs, distilled — not yet built)
+## Round 2 (SHIPPED): Daybook · Extrude · Reckoner · Crewpass
 
-- **Daybook**: progress journal entries (date, crew, measurements, comments,
-  photo file refs) in the project store + PDF report; pairs with Reporting.
-  (Owner brief mentioned 360° panoramic views — treat as photo refs first;
-  true pano viewing is a stretch goal.)
-- **Crewpass**: offline seat ledger (assign users, move a seat between
-  devices, usage report PDF) — a local JSON registry, no server.
-- **Estimating/takeoff**: quantity takeoff from measure/count markups →
-  priced CSV (unit costs from a local price file). Natural extension of the
-  markups layer.
+- **daybook.py + Field Management → Daybook panel**: journal entries with
+  photo refs and measurements, PDF log via transmittal.
+- **extrude.py + Plans & BIM → "⌂ From plan…"**: vector linework of the
+  Fieldstitch plan extruded into 3D walls (multi-floor) in the SAME world
+  frame as the layout points — pins land inside the real building. Requires
+  the Fieldstitch scale; vector plans only (raster -> ValueError).
+- **reckoner.py + Project Management → Reckoner panel**: takeoff from markup
+  counts/lengths/areas (per-page scale sidecar respected), priced by a local
+  CSV price book (Reckoner name = "to reckon"), CSV + PDF exports.
+- **crewpass.py + Tools → Crewpass dialog**: offline seat ledger
+  (assign/transfer/release + report PDF), local JSON at ~/.planloom.
+
+## Roadmap (still open)
+
+- **Daybook 360°**: owner brief mentioned panoramic views — photo refs ship
+  today; an actual pano viewer is a stretch goal.
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
-- **BIM importers**: floor-plan extrusion from a plan PDF into the 3D model;
-  richer OBJ/level support; Strata driving BIM system visibility (partially
-  done via systems legend).
-- **Digital plans from paper**: already served by OCR + markup; surface the
-  story in docs/UI copy.
+- **Strata ↔ BIM systems**: layer panel driving 3D system visibility.
+- **Richer extrusion**: door/window gap detection, per-layer wall heights.
+- **Digital plans from paper**: served by OCR + markup; keep surfacing it.
 
 ## Session pickup checklist
 

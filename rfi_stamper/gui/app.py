@@ -75,7 +75,8 @@ class App:
                          "open": self.open_project},
             recent=self.prefs.get("recent", []), on_recent=self.open_recent)
         self.field = FieldSection(self.container, self.theme, self.status,
-                                  get_project, self.data_changed)
+                                  get_project, self.data_changed, root=root,
+                                  author=self.prefs.get("author", ""))
         self.projsec = ProjectSection(self.container, self.theme, self.status,
                                       root, get_project, self.data_changed)
         self.plans = PlansSection(self.container, self.theme, self.status,
@@ -275,7 +276,7 @@ class App:
             self.plans.markup.open_pdf(pdfs[0])
         elif len(pdfs) > 1 and not other:
             self.goto("project")
-            self.projsec.nb.select(5)      # Documents
+            self.projsec.nb.select(self.projsec.docs_tab)
             self.projsec.merge.add_paths(pdfs)
         elif paths:
             self.goto("project")
@@ -365,6 +366,9 @@ class App:
         toolsm = tk.Menu(m, tearoff=0)
         toolsm.add_command(label="Command palette\tCtrl+K",
                            command=self.palette.open)
+        toolsm.add_command(label="Crewpass seat ledger…",
+                           command=self.crewpass_dialog)
+        toolsm.add_separator()
         toolsm.add_command(label="Set author name…", command=self.set_author)
         toolsm.add_command(label="Toggle offline guard",
                            command=self.toggle_guard)
@@ -386,6 +390,7 @@ class App:
         p.register("Set author name (markups)", "Preferences",
                    self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
+        p.register("Crewpass seat ledger", "Tools", self.crewpass_dialog)
         for q in ("auto", "full", "reduced", "off"):
             p.register(f"Animation quality: {q}", "Preferences",
                        lambda qq=q: self.set_effects(qq))
@@ -431,6 +436,93 @@ class App:
             offline_guard.install()
             self.prefs["offline_guard"] = True
         self.status.set_offline(offline_guard.is_active())
+
+    def crewpass_dialog(self):
+        """Offline seat ledger: who runs Planloom on which device.  A local
+        JSON registry — no license server, no activation calls, ever."""
+        from .. import crewpass
+        from .widgets import make_tree, open_path, toast
+        ledger = crewpass.Ledger()
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Crewpass — seat ledger (offline)")
+        dlg.transient(self.root)
+        dlg.geometry("640x460")
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text="Crewpass", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frm, style="Muted.TLabel",
+                  text="Assign users to devices, transfer seats, print the "
+                       "report — all in one local file.").pack(anchor="w")
+        frame, tree = make_tree(
+            frm, self.theme,
+            [("user", "USER"), ("role", "ROLE"), ("device", "DEVICE"),
+             ("status", "STATUS")], (150, 80, 170, 90), height=9)
+        frame.pack(fill="both", expand=True, pady=8)
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            for s in ledger.seats:
+                tree.insert("", "end", iid=s.id, values=(
+                    s.user, s.role, s.device or "—",
+                    "Active" if s.device else "Released"))
+
+        row = ttk.Frame(frm)
+        row.pack(fill="x")
+        uv, dv = tk.StringVar(), tk.StringVar()
+        rv = tk.StringVar(value="field")
+        ttk.Entry(row, textvariable=uv, width=16).pack(side="left")
+        ttk.Entry(row, textvariable=dv, width=16).pack(side="left", padx=4)
+        ttk.Combobox(row, textvariable=rv, values=list(crewpass.ROLES),
+                     state="readonly", width=8).pack(side="left")
+        ttk.Label(row, text="  user · device · role",
+                  style="Muted.TLabel").pack(side="left")
+
+        def assign():
+            try:
+                ledger.assign(uv.get().strip(), dv.get().strip(), rv.get())
+            except (ValueError, Exception) as e:   # noqa: BLE001
+                messagebox.showwarning("Crewpass", str(e), parent=dlg)
+                return
+            refresh()
+
+        def transfer():
+            sel = tree.selection()
+            if not sel:
+                return
+            nd = simpledialog.askstring("Transfer seat", "New device:",
+                                        parent=dlg)
+            if nd:
+                try:
+                    ledger.transfer(sel[0], nd.strip())
+                except KeyError:
+                    pass
+                refresh()
+
+        def release():
+            for iid in tree.selection():
+                ledger.release(iid)
+            refresh()
+
+        def report():
+            out = filedialog.asksaveasfilename(
+                parent=dlg, defaultextension=".pdf",
+                initialfile="crewpass_report.pdf",
+                filetypes=[("PDF", "*.pdf")])
+            if out:
+                crewpass.report_pdf(ledger, out)
+                toast(self.root, self.theme, "Crewpass report ready")
+                open_path(out)
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(6, 0))
+        ttk.Button(btns, text="Assign", style="Accent.TButton",
+                   command=assign).pack(side="left")
+        ttk.Button(btns, text="Transfer…", command=transfer).pack(
+            side="left", padx=4)
+        ttk.Button(btns, text="Release", command=release).pack(side="left")
+        ttk.Button(btns, text="Report PDF…", command=report).pack(
+            side="right")
+        refresh()
 
     def set_author(self):
         name = simpledialog.askstring(
