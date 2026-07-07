@@ -168,12 +168,14 @@ class CompareTab(ttk.Frame):
             return
         self.auto_btn.configure(state="disabled")
         self.status.set("Auto-aligning…")
-        a, b = self.a, self.b
+        # snapshot tk-backed values on the UI thread; work() must be tk-free
+        a_path, a_pg = self.a.path, self.a.page_no
+        b_path, b_pg = self.b.path, self.b.page_no
         rot = self.rot_var.get()
 
         def work():
-            return align.auto_align(a.path, b.path, base_page=a.page_no,
-                                    overlay_page=b.page_no, try_rotation=rot)
+            return align.auto_align(a_path, b_path, base_page=a_pg,
+                                    overlay_page=b_pg, try_rotation=rot)
 
         def done(res, err):
             self.auto_btn.configure(state="normal")
@@ -203,12 +205,14 @@ class CompareTab(ttk.Frame):
     def preview(self):
         if not self._ready():
             return
-        a, b, r = self.a, self.b, self.align_result
+        a_path, a_pg = self.a.path, self.a.page_no
+        b_path, b_pg = self.b.path, self.b.page_no
+        r = self.align_result
         self.status.set("Rendering preview…")
 
         def work():
-            return align.comparison_image(a.path, b.path, base_page=a.page_no,
-                                          overlay_page=b.page_no, align=r, dpi=110)
+            return align.comparison_image(a_path, b_path, base_page=a_pg,
+                                          overlay_page=b_pg, align=r, dpi=110)
 
         def done(img, err):
             if err:
@@ -232,11 +236,13 @@ class CompareTab(ttk.Frame):
                                            filetypes=[("PDF", "*.pdf")])
         if not out:
             return
-        a, b, r = self.a, self.b, self.align_result
+        a_path, a_pg = self.a.path, self.a.page_no
+        b_path, b_pg = self.b.path, self.b.page_no
+        r = self.align_result
 
         def work():
-            align.make_comparison_pdf(a.path, b.path, out, base_page=a.page_no,
-                                      overlay_page=b.page_no, align=r,
+            align.make_comparison_pdf(a_path, b_path, out, base_page=a_pg,
+                                      overlay_page=b_pg, align=r,
                                       log=self.log.say)
             return out
 

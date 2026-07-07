@@ -84,10 +84,41 @@ def main():
     root.update()
     assert len(app.markup.mtree.get_children()) == 0
 
+    # poly-tool preview path (regression: _draw_poly_preview must exist and run)
+    app.markup.set_tool("measure_polylength")
+    app.markup._pts = [(50.0, 50.0), (120.0, 80.0)]
+    app.markup._draw_poly_preview()
+    root.update()
+    assert app.markup.viewer.canvas.find_withtag("preview")
+    # page navigation cancels the in-progress tool
+    app.markup.viewer.goto(1)
+    root.update()
+    assert app.markup._pts == [] and not \
+        app.markup.viewer.canvas.find_withtag("preview")
+    # Esc exits the count tool back to select
+    app.markup.set_tool("count")
+    app.markup.on_escape()
+    assert app.markup.tool == "select"
+    # cancel_tool clears the hover rubber-band too
+    app.markup.viewer.canvas.create_line(0, 0, 5, 5, tags="hoverseg")
+    app.markup.cancel_tool()
+    assert not app.markup.viewer.canvas.find_withtag("hoverseg")
+
     # merge tab accepts a file
     app.merge.add_paths([pdf])
     root.update()
     assert len(app.merge.items) == 1
+
+    # stamp guard: stamping a plan that was never scanned must be refused
+    assert app.stamp.scanned_plan is None and app.stamp._running is False
+
+    # CLI: top-level --help must not be swallowed by the legacy-flag rewrite
+    import subprocess
+    r = subprocess.run([sys.executable, "-m", "rfi_stamper", "--help"],
+                       capture_output=True, text=True,
+                       cwd=os.path.dirname(os.path.dirname(
+                           os.path.abspath(__file__))))
+    assert r.returncode == 0 and "merge" in r.stdout and "compare" in r.stdout
 
     # offline guard is active by default
     from rfi_stamper import offline_guard

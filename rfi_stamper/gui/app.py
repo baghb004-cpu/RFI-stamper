@@ -172,6 +172,12 @@ class App:
             parent=self.root)
 
     def on_close(self):
+        from .widgets import busy_count
+        if busy_count() > 0 and not messagebox.askyesno(
+                "RFI Stamper",
+                "Background work is still running (a stamp, combine, or "
+                "export could be mid-write).\n\nQuit anyway?"):
+            return
         prefs.save(self.prefs)
         self.root.destroy()
 

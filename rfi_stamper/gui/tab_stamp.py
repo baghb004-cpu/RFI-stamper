@@ -20,6 +20,8 @@ class StampTab(ttk.Frame):
         self.index = None
         self.rows = None
         self.out_path = None
+        self.scanned_plan = None     # the plan the current index/rows belong to
+        self._running = False        # guards re-entry via palette/keyboard
 
         # ---------------------------------------------------------- plan set
         r1 = ttk.Frame(self)
@@ -131,25 +133,31 @@ class StampTab(ttk.Frame):
 
     # ---------------------------------------------------------------- scan
     def scan(self):
+        if self._running:
+            return
         plan = self.plan_var.get().strip()
         rfis = list(self.rfi_list.get(0, "end"))
         if not plan or not rfis:
             messagebox.showwarning("RFI Stamper",
                                    "Pick a plan set PDF and add RFI files first.")
             return
+        self._running = True
         self.scan_btn.configure(state="disabled")
+        self.run_btn.configure(state="disabled")
         self.status.set("Scanning…")
 
         def work():
             return pipeline.scan(plan, rfis, log=self.log.say)
 
         def done(result, err):
+            self._running = False
             self.scan_btn.configure(state="normal")
             if err:
                 self.log.say(f"!! scan failed: {err}")
                 self.status.set("Scan failed — see log", "err")
                 return
             self.index, self.rows = result
+            self.scanned_plan = plan
             self.fill_tree()
             self.run_btn.configure(state="normal")
             self.csv_btn.configure(state="normal")
@@ -166,6 +174,8 @@ class StampTab(ttk.Frame):
                 "yes" if row.record.has_answer else "no"))
 
     def edit_cell(self, event):
+        if self._running:
+            return           # mapping is frozen while a scan/stamp is running
         item = self.tree.identify_row(event.y)
         if not item or self.tree.identify_column(event.x) != "#3" or not self.rows:
             return
@@ -202,21 +212,33 @@ class StampTab(ttk.Frame):
 
     # --------------------------------------------------------------- stamp
     def stamp(self):
-        if not self.rows:
+        if self._running or not self.rows:
             return
         plan = self.plan_var.get().strip()
+        if plan != self.scanned_plan:
+            # the index/rows describe the scanned plan's pages; stamping a
+            # different file with them would place notes on the wrong sheets
+            messagebox.showwarning(
+                "RFI Stamper", "The plan set changed since the scan — run "
+                               "'1  Scan & map' again first.")
+            return
+        self._running = True
         self.out_path = os.path.splitext(plan)[0] + "_RFI_overlay.pdf"
         self.run_btn.configure(state="disabled")
+        self.scan_btn.configure(state="disabled")
         self.open_btn.configure(state="disabled")
         self.status.set("Stamping…")
+        rows, index = self.rows, self.index    # frozen: edit_cell is blocked
 
         def work():
-            return pipeline.run(plan, out_path=self.out_path, rows=self.rows,
-                                index=self.index, summarizer=OfflineSummarizer(),
+            return pipeline.run(plan, out_path=self.out_path, rows=rows,
+                                index=index, summarizer=OfflineSummarizer(),
                                 log=self.log.say)
 
         def done(rep, err):
+            self._running = False
             self.run_btn.configure(state="normal")
+            self.scan_btn.configure(state="normal")
             if err:
                 self.log.say(f"!! run failed: {err}")
                 self.status.set("Run failed — see log", "err")

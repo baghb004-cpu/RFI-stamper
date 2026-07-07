@@ -145,7 +145,7 @@ def main(argv=None) -> int:
         from . import gui
         gui.main()
         return 0
-    if argv[0] not in SUBCOMMANDS:
+    if argv[0] not in SUBCOMMANDS and argv[0] not in ("-h", "--help"):
         # legacy flag style: rfi-stamper -p plans.pdf -r rfis/ [...]
         argv = ["stamp"] + argv
     args = build_parser().parse_args(argv)

@@ -168,17 +168,37 @@ class StatusBar(ttk.Frame):
         self.after(25000, self._rotate)
 
 
+_bg_lock = __import__("threading").Lock()
+_bg_active = 0
+
+
+def busy_count() -> int:
+    """Number of run_bg workers still running (used to warn before quit)."""
+    with _bg_lock:
+        return _bg_active
+
+
 def run_bg(widget, work, on_done):
-    """Run work() on a worker thread; deliver (result, error) on the UI thread."""
+    """Run work() on a worker thread; deliver (result, error) on the UI thread.
+
+    work() must not touch tk objects — snapshot every widget/StringVar value
+    into plain Python data BEFORE calling run_bg."""
     import threading
+    global _bg_active
     holder = {}
 
     def wrapped():
+        global _bg_active
         try:
             holder["r"] = work()
         except Exception as e:      # noqa: BLE001 -- surfaced via on_done
             holder["e"] = e
+        finally:
+            with _bg_lock:
+                _bg_active -= 1
 
+    with _bg_lock:
+        _bg_active += 1
     t = threading.Thread(target=wrapped, daemon=True)
     t.start()
 

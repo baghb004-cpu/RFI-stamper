@@ -104,7 +104,8 @@ class MarkupTab(ttk.Frame):
             self.tool_btns[name] = b
         ttk.Button(tb, text="Apply to PDF…", style="Accent.TButton",
                    command=self.apply_pdf).pack(side="right", padx=2)
-        self.viewer = PDFViewer(center, theme, on_render=self.redraw_markups)
+        self.viewer = PDFViewer(center, theme, on_render=self.redraw_markups,
+                                on_page_changed=lambda n: self.cancel_tool())
         self.viewer.pack(fill="both", expand=True, pady=(4, 0))
         cv = self.viewer.canvas
         cv.bind("<ButtonPress-1>", self.on_press)
@@ -156,6 +157,12 @@ class MarkupTab(ttk.Frame):
         Tooltip(rows[8][1], "Caption template for measurement text on the "
                             "drawing. Placeholders: {value} {unit} {subject} "
                             "{comment} {text} {page} {status}", theme)
+        # only push a status from 'Apply to selection' if the user actually
+        # picked one since the selection last changed (else it would reset
+        # every selected markup back to the combobox's stale value)
+        self._status_touched = False
+        rows[9][1].bind("<<ComboboxSelected>>",
+                        lambda e: setattr(self, "_status_touched", True))
         r = len(rows) + 1
         ttk.Button(props, text="Apply to selection", command=self.apply_props
                    ).grid(row=r, column=0, columnspan=2, sticky="ew", pady=(6, 1))
@@ -223,7 +230,7 @@ class MarkupTab(ttk.Frame):
                 root.bind(f"<Key-{key.lower()}>",
                           lambda e, n=name: self._kb(e, lambda: self.set_tool(n)))
         root.bind("<Delete>", lambda e: self._kb(e, self.delete_selection))
-        root.bind("<Escape>", lambda e: self.cancel_tool())
+        root.bind("<Escape>", lambda e: self.on_escape())
         root.bind("<Control-z>", lambda e: self._kb(e, self.undo))
         root.bind("<Control-y>", lambda e: self._kb(e, self.redo))
         root.bind("<Control-m>", lambda e: self._kb(e, self.multiply_dialog))
@@ -250,6 +257,7 @@ class MarkupTab(ttk.Frame):
         path = path or filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not path:
             return
+        self.cancel_tool()
         self.viewer.open(path)
         self.store = mk.MarkupStore(path)     # autoloads sidecar if present
         self.cal = self._load_cal(path)
@@ -323,6 +331,27 @@ class MarkupTab(ttk.Frame):
         self._pts = []
         self._start = None
         self.viewer.canvas.delete("preview")
+        self.viewer.canvas.delete("hoverseg")
+
+    def on_escape(self):
+        """Esc: finish a click-to-place tool, else cancel the pending shape."""
+        if self.tool == "count":
+            self.set_tool("select")
+        else:
+            self.cancel_tool()
+
+    def _draw_poly_preview(self):
+        """Committed vertices of the in-progress polyline/polygon."""
+        cv = self.viewer.canvas
+        cv.delete("preview")
+        pts = [self.viewer.page_to_canvas(x, y) for x, y in self._pts]
+        color = self.cur_style.color or "#D01414"
+        if len(pts) >= 2:
+            flat = [c for p in pts for c in p]
+            cv.create_line(*flat, fill=color, dash=(4, 3), tags="preview")
+        for x, y in pts:
+            cv.create_rectangle(x - 2, y - 2, x + 2, y + 2, outline=color,
+                                tags="preview")
 
     def _style_copy(self):
         self._read_props_into_style()
@@ -381,16 +410,24 @@ class MarkupTab(ttk.Frame):
     def _press_select(self, event, x, y):
         cv = self.viewer.canvas
         hit = None
-        for item in cv.find_overlapping(cv.canvasx(event.x) - 2,
-                                        cv.canvasy(event.y) - 2,
-                                        cv.canvasx(event.x) + 2,
-                                        cv.canvasy(event.y) + 2):
+        # canvas hit first — topmost item wins (find_overlapping is bottom-up)
+        for item in reversed(cv.find_overlapping(cv.canvasx(event.x) - 2,
+                                                 cv.canvasy(event.y) - 2,
+                                                 cv.canvasx(event.x) + 2,
+                                                 cv.canvasy(event.y) + 2)):
             tags = cv.gettags(item)
             if "mk" in tags:
-                hit = next((t for t in tags if t.startswith("id:")), None)
+                hit = next((t[3:] for t in tags if t.startswith("id:")), None)
                 if hit:
-                    hit = hit[3:]
-                break
+                    break
+        if not hit:
+            # unfilled shapes only hit on their outline; fall back to bbox so a
+            # click inside a rect/ellipse/cloud still selects it (topmost first)
+            for m in reversed(self.store.for_page(self.viewer.page_no)):
+                x0, y0, x1, y1 = m.bbox()
+                if x0 - 3 <= x <= x1 + 3 and y0 - 3 <= y <= y1 + 3:
+                    hit = m.id
+                    break
         if hit:
             if event.state & 0x1:            # shift extends
                 self.selection.symmetric_difference_update({hit})
@@ -401,6 +438,7 @@ class MarkupTab(ttk.Frame):
         else:
             self.selection = set()
             self._drag_from = None
+        self._status_touched = False
         self.redraw_markups()
 
     def on_motion(self, event):
@@ -417,7 +455,9 @@ class MarkupTab(ttk.Frame):
             self._drag_from = (x, y)
             for mid in self.selection:
                 m = self.store.get(mid)
-                if m:
+                # never move markups on other pages (list selection can span
+                # pages; dragging must only affect what the user can see)
+                if m and m.page == self.viewer.page_no:
                     m.points = [(px + dx, py + dy) for px, py in m.points]
             self.redraw_markups()
         elif t in TWOPT_TOOLS and self._start:
@@ -716,6 +756,7 @@ class MarkupTab(ttk.Frame):
         sel = set(self.mtree.selection())
         if sel:
             self.selection = sel
+            self._status_touched = False
             self.redraw_markups()
 
     def jump_to_markup(self, _e):
@@ -797,7 +838,7 @@ class MarkupTab(ttk.Frame):
                 m.text = self.textlbl_var.get()
             if self.caption_var.get():
                 m.caption_template = self.caption_var.get()
-            if self.status_var.get() != m.status:
+            if self._status_touched and self.status_var.get() != m.status:
                 self.store.set_status(m.id, self.status_var.get())
         self.after_change()
 
@@ -957,8 +998,13 @@ class MarkupTab(ttk.Frame):
         flatten = messagebox.askyesno(
             "Apply markups", "Flatten markups into page content?\n\n"
             "Yes = permanent (prints everywhere)\nNo = editable annotations")
-        src, markups = self.viewer.path, list(self.store.markups)
-        # resolve measurement captions into the markups before writing
+        if getattr(self, "_applying", False):
+            return
+        self._applying = True
+        src = self.viewer.path
+        # deep-copy so the worker never mutates the live store (thread safety,
+        # and the caption resolution below must not stick to saved markups)
+        markups = [mk.Markup.from_dict(m.to_dict()) for m in self.store.markups]
         cal = self.cal
 
         def work():
@@ -970,6 +1016,7 @@ class MarkupTab(ttk.Frame):
             return mk.apply_to_pdf(src, out, markups, flatten=flatten)
 
         def done(res, err):
+            self._applying = False
             if err:
                 self.status.set(f"apply failed: {err}", "err")
                 messagebox.showerror("Markup", f"Apply failed:\n{err}")

@@ -18,6 +18,7 @@ class MergeTab(ttk.Frame):
         self.status = status
         self.items: list[merge.MergeItem] = []
         self._drag_iid = None
+        self._running = False        # guards re-entry via palette/keyboard
 
         DropZone(self, theme,
                  "Drop PDFs here to combine — drag rows to reorder, "
@@ -220,6 +221,8 @@ class MergeTab(ttk.Frame):
             self.out_var.set(p)
 
     def combine(self):
+        if self._running:
+            return
         if not self.items:
             messagebox.showwarning("Combine", "Add at least one PDF first.")
             return
@@ -229,6 +232,7 @@ class MergeTab(ttk.Frame):
             out = self.out_var.get().strip()
             if not out:
                 return
+        self._running = True
         self.combine_btn.configure(state="disabled")
         self.status.set("Combining…")
         items = [merge.MergeItem(**vars(i)) for i in self.items]
@@ -238,6 +242,7 @@ class MergeTab(ttk.Frame):
             return merge.merge_pdfs(items, out, bookmarks=bm, log=self.log.say)
 
         def done(res, err):
+            self._running = False
             self.combine_btn.configure(state="normal")
             if err:
                 self.log.say(f"!! combine failed: {err}")
@@ -257,6 +262,8 @@ class MergeTab(ttk.Frame):
             self.split_var.set(p)
 
     def split(self):
+        if self._running:
+            return
         src = self.split_var.get().strip()
         if not src:
             messagebox.showwarning("Split", "Pick a PDF to split first.")
@@ -274,10 +281,13 @@ class MergeTab(ttk.Frame):
         else:
             kw["ranges"] = self.ranges_var.get().strip()
 
+        self._running = True
+
         def work():
             return merge.split_pdf(src, out_dir, log=self.log.say, **kw)
 
         def done(paths, err):
+            self._running = False
             if err:
                 self.log.say(f"!! split failed: {err}")
                 self.status.set("Split failed — see log", "err")

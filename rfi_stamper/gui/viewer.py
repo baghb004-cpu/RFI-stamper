@@ -67,6 +67,9 @@ class PDFViewer(ttk.Frame):
         theme.register(lambda c: theme.style_canvas(self.canvas))
 
         cv = self.canvas
+        # Windows/mac deliver <MouseWheel> to the focused widget, not the one
+        # under the cursor — grab focus on hover so wheel zoom/scroll works.
+        cv.bind("<Enter>", lambda e: cv.focus_set())
         cv.bind("<Control-MouseWheel>", self._wheel_zoom)
         cv.bind("<MouseWheel>", self._wheel_scroll)
         cv.bind("<Shift-MouseWheel>", self._wheel_scroll_h)
@@ -167,15 +170,18 @@ class PDFViewer(ttk.Frame):
     def fit_width(self):
         if not self.doc:
             return
-        w = self.canvas.winfo_width() or 800
+        w = self.canvas.winfo_width()
+        w = w if w > 2 else 800        # a never-mapped canvas reports width 1
         self.zoom = max(0.05, (w - 4) / self.page.rect.width)
         self.render()
 
     def fit_page(self):
         if not self.doc:
             return
-        w = self.canvas.winfo_width() or 800
-        h = self.canvas.winfo_height() or 600
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        w = w if w > 2 else 800
+        h = h if h > 2 else 600
         r = self.page.rect
         self.zoom = max(0.05, min((w - 4) / r.width, (h - 4) / r.height))
         self.render()
