@@ -389,6 +389,8 @@ def apply_to_pdf(pdf_path: str, out_path: str, markups: list,
             doc.bake()
         else:
             log("  note: this PyMuPDF cannot flatten; annotations left live")
-    doc.save(out_path, garbage=3, deflate=True)
+    tmp = out_path + ".part"          # atomic write via replace
+    doc.save(tmp, garbage=3, deflate=True)
     doc.close()
+    os.replace(tmp, out_path)
     return {"annots": n, "out_path": out_path}

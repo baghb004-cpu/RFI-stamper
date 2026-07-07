@@ -68,6 +68,17 @@ def _check_rotation(rotation: int) -> int:
     return rotation % 360
 
 
+def _atomic_write(writer, out_path: str) -> None:
+    """Write beside out_path, fsync, then atomically replace: a killed process
+    or crash can never leave a truncated PDF at the final path."""
+    tmp = out_path + ".part"
+    with open(tmp, "wb") as f:
+        writer.write(f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, out_path)
+
+
 def merge_pdfs(items: list[MergeItem], out_path: str, bookmarks: bool = True,
                log=print) -> dict:
     """Append selected pages of each item, in order, into one PDF."""
@@ -97,8 +108,7 @@ def merge_pdfs(items: list[MergeItem], out_path: str, bookmarks: bool = True,
     if bookmarks:
         for title, first in marks:
             writer.add_outline_item(title, first)
-    with open(out_path, "wb") as f:
-        writer.write(f)
+    _atomic_write(writer, out_path)
     log(f"  wrote {out_path} ({total} pages from {len(items)} files)")
     return {"files": len(items), "pages": total, "out_path": out_path}
 
@@ -126,8 +136,7 @@ def split_pdf(path: str, out_dir: str, ranges: str = "", every: int = 0,
         for pn in nums:
             writer.add_page(reader.pages[pn - 1])
         out = os.path.join(out_dir, f"{stem}_part{i:02d}.pdf")
-        with open(out, "wb") as f:
-            writer.write(f)
+        _atomic_write(writer, out)
         paths.append(out)
         log(f"  wrote {os.path.basename(out)} ({len(nums)} page(s))")
     return paths
@@ -144,6 +153,5 @@ def rotate_pdf(path: str, out_path: str, rotation: int, pages: str = "",
         added = writer.add_page(page)
         if rot and i in targets:
             added.rotate(rot)
-    with open(out_path, "wb") as f:
-        writer.write(f)
+    _atomic_write(writer, out_path)
     log(f"  wrote {out_path} ({len(targets)} page(s) rotated {rot}°)")

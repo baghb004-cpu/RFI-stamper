@@ -11,6 +11,7 @@ so that it lands on the base render.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 import numpy as np
 import fitz
@@ -213,7 +214,9 @@ def make_comparison_pdf(base_path: str, overlay_path: str, out_path: str,
     doc = fitz.open()
     page = doc.new_page(width=rect.width, height=rect.height)
     page.insert_image(page.rect, pixmap=pix)
-    doc.save(out_path)
+    tmp = out_path + ".part"          # atomic write via replace
+    doc.save(tmp)
     doc.close()
+    os.replace(tmp, out_path)
     log(f"  comparison written: {out_path} ({W}x{H}px @ {dpi}dpi, "
         f"page {rect.width:.0f}x{rect.height:.0f}pt)")

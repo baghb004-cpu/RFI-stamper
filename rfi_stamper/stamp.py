@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 
 from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.pdfgen import canvas
@@ -105,5 +106,10 @@ def stamp_pdf(plan_path, out_path, placements, index, appendix=None):
         for p in PdfReader(buf).pages:
             writer.add_page(p)
 
-    with open(out_path, "wb") as f:
+    # atomic write: never leave a truncated overlay at the final path
+    tmp = out_path + ".part"
+    with open(tmp, "wb") as f:
         writer.write(f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, out_path)
