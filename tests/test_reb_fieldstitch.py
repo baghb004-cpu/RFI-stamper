@@ -21,7 +21,8 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rfi_stamper.fieldstitch import (             # noqa: E402
-    LayoutJob, PointLayer, export_csv_pnezd, export_dxf, export_xlsx)
+    LayoutJob, LayoutPoint, PointLayer, export_csv_pnezd, export_dxf,
+    export_xlsx)
 from rfi_stamper.markups.measure import ScaleCal  # noqa: E402
 
 
@@ -31,6 +32,16 @@ def calibrated_job():
     job.base_world = (5000.0, 2000.0)
     job.scale = ScaleCal(real_per_pt=0.1, unit="ft").to_dict()
     return job
+
+
+def hostile_point(job, num, x, y, **kw):
+    """add_point() now hard-validates composed labels at creation, so a
+    hostile label can no longer enter through the public API — but it still
+    arrives via a hand-edited sidecar or a tolerant import.  Inject one the
+    way load() would, so the export guards stay covered."""
+    p = LayoutPoint.new(num=num, page=1, x=x, y=y, **kw)
+    job.points.append(p)
+    return p
 
 
 def _dxf_lines(path):
@@ -77,8 +88,8 @@ def test_dxf_label_injection(tmp):
     """A CR/LF in a composed point label (via prefix/suffix) must not inject
     a group code into the TEXT entity."""
     job = calibrated_job()
-    job.prefix = "CP\r\n0\r\nLINE\r\n"
-    job.add_point(1, 110.0, 680.0, elev=1.0)
+    hostile_point(job, 1, 110.0, 680.0, elev=1.0,
+                  prefix="CP\r\n0\r\nLINE\r\n")
     out = os.path.join(tmp, "inj_label.dxf")
     assert export_dxf(job, out) == 2
 
@@ -97,8 +108,8 @@ def test_csv_formula_injection(tmp):
     """Point name / description opening with a formula trigger get an
     apostrophe guard; numeric coordinate cells are untouched."""
     job = calibrated_job()
-    job.prefix = "=cmd"                                   # dangerous point id
-    job.add_point(1, 110.0, 680.0, elev=12.5,
+    hostile_point(job, 1, 110.0, 680.0, elev=12.5,        # dangerous point id
+                  prefix="=cmd",
                   desc="=HYPERLINK(\"http://x\")")        # dangerous desc
     job.add_point(1, 130.0, 720.0, desc="+1+1", prefix="")
     job.add_point(1, 140.0, 660.0, desc="@SUM(A1)", prefix="")

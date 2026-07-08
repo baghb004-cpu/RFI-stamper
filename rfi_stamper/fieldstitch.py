@@ -16,6 +16,22 @@ their tablet ingests.  This module owns the whole path:
 * a tolerant PNEZD CSV importer (:func:`import_csv`) for round-tripping
   points staked or edited in the field.
 
+Field-grade extensions (all additive; old sidecars load unchanged):
+
+* point ``kind`` (CONTROL / DESIGN / STAKED / CHECK) and a stake-out
+  ``status`` lifecycle (PENDING -> STAKED -> VERIFIED | REJECTED) with
+  ISO-dated transitions and never-downgrade bulk seeding (mirrors
+  :meth:`rfi_stamper.resolution.ResolutionStore.seed_from_records`);
+* composed-label validation (hard 16-char cap, collector charset);
+* :class:`Spool` reserved number ranges per layer, quarantine spool for
+  import collisions, tombstoned (retired) numbers that are never re-minted;
+* shadow/witness points hosted on a parent (host-parametric world coords,
+  cascade delete — same idiom as the Loft's doors);
+* PNEZD/PENZD export profiles (``options=``), ``.tag.txt`` sidecars with a
+  content checksum, a frame hash for as-staked round-trip gating, and
+  advisory import validators (:func:`validate_import_csv`) that never
+  modify anything — the human review table decides.
+
 Coordinate conventions (same as the markups layer): page coordinates are
 viewer page **points**, top-left origin, y **down**.  World coordinates are
 Northing (+north), Easting (+east) and Z elevation in the job's real units.
@@ -24,6 +40,7 @@ Fully offline; all writes are atomic (temp file + fsync + ``os.replace``).
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
@@ -31,13 +48,106 @@ import os
 import re
 import uuid
 import zipfile
-from dataclasses import dataclass, fields
+from dataclasses import MISSING, dataclass, fields
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
 from .markups.measure import ScaleCal
 
 _VERSION = 1
+
+# ------------------------------------------------------- kinds & statuses --
+
+#: Point kinds.  CONTROL is write-protected: coordinates are never
+#: overwritten by an import and renumber() skips it entirely.
+KINDS = ("CONTROL", "DESIGN", "STAKED", "CHECK")
+
+#: DESIGN-point stake-out lifecycle.  REJECTED re-arms to PENDING (or jumps
+#: straight to STAKED) on a re-stake.
+POINT_STATUSES = ("PENDING", "STAKED", "VERIFIED", "REJECTED")
+
+#: Rank order used by never-downgrade bulk seeding: a bulk operation may
+#: only move a point *up* this ladder; direct :meth:`LayoutJob.set_status`
+#: is unrestricted (that is how a human re-arms a REJECTED point).
+STATUS_RANK = {"PENDING": 0, "REJECTED": 1, "STAKED": 2, "VERIFIED": 3}
+
+#: Statuses whose point number is locked (plus kind CONTROL and the
+#: ``locked`` flag): renumber() never re-flows them.
+_NUM_LOCK_STATUSES = ("STAKED", "VERIFIED")
+
+# ------------------------------------------------------------ label rules --
+
+#: Hard cap on the composed label (prefix + zero-filled number + suffix) —
+#: a data-collector field-width fact, enforced at creation and on strict
+#: (options=) exports.
+LABEL_MAX = 16
+
+#: Collector-safe label charset.
+LABEL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+
+
+def validate_label(label: str) -> None:
+    """Raise ``ValueError`` when a composed point label breaks the collector
+    rules: hard cap of :data:`LABEL_MAX` characters, charset A-Z 0-9 - _ .
+    (uppercase only — lowercase silently fails on classic collectors)."""
+    s = str(label)
+    if len(s) > LABEL_MAX:
+        raise ValueError(
+            f"point label {s!r} is {len(s)} chars; composed labels are "
+            f"hard-capped at {LABEL_MAX} (collector field width) — shorten "
+            "the prefix/suffix or the pad")
+    bad = sorted({ch for ch in s if ch not in LABEL_CHARS})
+    if bad:
+        raise ValueError(
+            f"point label {s!r} carries unsupported character(s) "
+            f"{''.join(bad)!r}; allowed: A-Z 0-9 - _ . (uppercase only)")
+
+
+# ----------------------------------------------------------------- spools --
+
+#: Default reserved number ranges ("spools") per layer, all editable.
+#: (layer name, start, end) — control 1-99, then the classic survey blocks,
+#: then thousand-blocks per trade.
+DEFAULT_SPOOLS = (
+    ("Control", 1, 99),
+    ("Work", 100, 199),
+    ("Curve", 200, 399),
+    ("Benchmarks", 400, 499),
+    ("Ties", 500, 699),
+    ("Property", 700, 999),
+    ("Concrete", 1000, 1999),
+    ("Steel", 2000, 2999),
+    ("Mechanical", 3000, 3999),
+    ("Electrical", 4000, 4999),
+    ("Plumbing", 5000, 5999),
+    ("User", 6000, 8999),
+    ("AltControl", 9000, 9999),
+)
+
+#: Import collisions land here — never silently renumbered into a live block.
+QUARANTINE_LAYER = "Quarantine"
+QUARANTINE_START = 90000
+QUARANTINE_END = 99999
+
+
+@dataclass
+class Spool:
+    """A reserved point-number range owned by one layer.  ``next`` is the
+    mint counter; it never rewinds (deleted numbers are tombstoned in
+    ``LayoutJob.retired`` instead of being re-minted)."""
+    layer: str
+    start: int
+    end: int
+    next: int = 0                      # 0 -> start on first mint
+
+    def to_dict(self) -> dict:
+        return {"layer": self.layer, "start": self.start, "end": self.end,
+                "next": self.next}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Spool":
+        return cls(layer=str(d.get("layer", "")), start=int(d.get("start", 1)),
+                   end=int(d.get("end", 1)), next=int(d.get("next", 0)))
 
 
 def _now_iso() -> str:
@@ -128,7 +238,13 @@ class PointLayer:
 
 @dataclass
 class LayoutPoint:
-    """One stakeable point, placed on a plan page in viewer points."""
+    """One stakeable point, placed on a plan page in viewer points.
+
+    The pre-existing fields (through ``created``) are the version-1 sidecar
+    shape; everything after is the field-grade extension and is written to
+    the sidecar **only when it differs from its default**, so old files load
+    unchanged and new files stay lean.  ``elev`` may be ``None`` (a point
+    with no elevation) — never conflate ``None`` with ``0.0``."""
     id: str                            # uuid4 hex (use LayoutPoint.new())
     num: int = 1
     prefix: str = ""
@@ -136,11 +252,32 @@ class LayoutPoint:
     page: int = 1
     x: float = 0.0                     # page pts, top-left origin, y down
     y: float = 0.0
-    elev: float = 0.0                  # real units (job.units)
+    elev: float | None = 0.0           # real units (job.units); None = no Z
     desc: str = ""
     category: str = ""
     layer: str = "Layout"
     created: str = ""
+    # ---- field-grade extension (all optional; lean in the sidecar) ------
+    kind: str = "DESIGN"               # CONTROL | DESIGN | STAKED | CHECK
+    status: str = "PENDING"            # PENDING | STAKED | VERIFIED | REJECTED
+    status_log: list | None = None     # [{status, ts, note, by}] transitions
+    code: str = ""                     # Stitch Code (first token of desc)
+    z_ref: str = "FF"                  # FF | TOS | deck-above | datum
+    tol_class: str = ""                # tolerance class name ("" = by layer)
+    ref_num: int | None = None         # STAKED/CHECK: design point answered
+    staked_by: str = ""                # crew initials
+    staked_at: str = ""                # ISO-8601
+    parent_uid: str = ""               # witness / hosted child: parent's uid
+    offset_ft: float = 0.0             # witness offset distance (real units)
+    offset_azimuth: float = 0.0        # witness bearing, deg from north
+    provenance: dict | None = None     # generator id + rule + params
+    # ---- control extras (meaningful when kind == "CONTROL") -------------
+    monument: str = ""                 # hub+tack | nail | rebar+cap | ...
+    set_by: str = ""
+    date_set: str = ""
+    last_checked: str = ""             # drives fresh->stale aging
+    where_note: str = ""               # one-line "where to find it"
+    locked: bool = False               # write-protect (CONTROL default True)
 
     @classmethod
     def new(cls, **kw) -> "LayoutPoint":
@@ -149,27 +286,86 @@ class LayoutPoint:
         return cls(**kw)
 
     @property
+    def uid(self) -> str:
+        """Immutable internal identity (alias of ``id``) — ALL status/QA
+        bookkeeping keys on this, never on the display number."""
+        return self.id
+
+    @property
     def label(self) -> str:
         """Un-padded composed id (``CP-1-S``); zero-padded form is
         :meth:`LayoutJob.composed`."""
         return f"{self.prefix}{self.num}{self.suffix}"
 
+    @property
+    def is_witness(self) -> bool:
+        return bool(self.parent_uid) and self.offset_ft != 0.0
+
     def to_dict(self) -> dict:
-        return {f.name: getattr(self, f.name) for f in fields(self)}
+        """Version-1 fields always; extension fields only when non-default
+        (keeps sidecars lean and byte-stable for pre-extension jobs)."""
+        out: dict = {}
+        for f in fields(self):
+            v = getattr(self, f.name)
+            if f.name in _V1_FIELDS or f.default is MISSING or v != f.default:
+                out[f.name] = v
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> "LayoutPoint":
+        elev = d.get("elev", 0.0)
+        ref = d.get("ref_num")
+        prov = d.get("provenance")
+        slog = d.get("status_log")
         return cls(id=str(d.get("id") or uuid.uuid4().hex),
                    num=int(d.get("num", 1)),
                    prefix=str(d.get("prefix", "")),
                    suffix=str(d.get("suffix", "")),
                    page=int(d.get("page", 1)),
                    x=float(d.get("x", 0.0)), y=float(d.get("y", 0.0)),
-                   elev=float(d.get("elev", 0.0)),
+                   elev=None if elev is None else float(elev),
                    desc=str(d.get("desc", "")),
                    category=str(d.get("category", "")),
                    layer=str(d.get("layer", "Layout")),
-                   created=str(d.get("created", "")))
+                   created=str(d.get("created", "")),
+                   kind=str(d.get("kind", "DESIGN")),
+                   status=str(d.get("status", "PENDING")),
+                   status_log=([dict(e) for e in slog]
+                               if isinstance(slog, list) and slog else None),
+                   code=str(d.get("code", "")),
+                   z_ref=str(d.get("z_ref", "FF")),
+                   tol_class=str(d.get("tol_class", "")),
+                   ref_num=None if ref in (None, "") else int(ref),
+                   staked_by=str(d.get("staked_by", "")),
+                   staked_at=str(d.get("staked_at", "")),
+                   parent_uid=str(d.get("parent_uid", "")),
+                   offset_ft=float(d.get("offset_ft", 0.0)),
+                   offset_azimuth=float(d.get("offset_azimuth", 0.0)),
+                   provenance=dict(prov) if isinstance(prov, dict) else None,
+                   monument=str(d.get("monument", "")),
+                   set_by=str(d.get("set_by", "")),
+                   date_set=str(d.get("date_set", "")),
+                   last_checked=str(d.get("last_checked", "")),
+                   where_note=str(d.get("where_note", "")),
+                   locked=bool(d.get("locked", False)))
+
+
+#: The original sidecar shape — always written, so pre-extension jobs
+#: round-trip byte-identically.
+_V1_FIELDS = frozenset(("id", "num", "prefix", "suffix", "page", "x", "y",
+                        "elev", "desc", "category", "layer", "created"))
+
+_COMPASS_8 = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+
+def _compass(azimuth_deg: float) -> str:
+    """Nearest 8-wind compass letter for an azimuth (deg from north)."""
+    return _COMPASS_8[int(((azimuth_deg % 360.0) + 22.5) // 45.0) % 8]
+
+
+def _fmt_ft(v: float) -> str:
+    """2.0 -> '2'; 2.5 -> '2.5' (witness auto-description distances)."""
+    return f"{v:g}"
 
 
 # --------------------------------------------------------------------- job --
@@ -203,6 +399,10 @@ class LayoutJob:
         self.base_world: tuple = (1000.0, 1000.0)   # (N, E) at the basepoint
         self.rotation_deg: float = 0.0
         self.scale = None                         # ScaleCal dict or None
+        self.spools: list[Spool] = []             # reserved ranges per layer
+        self.retired: set[int] = set()            # tombstoned numbers
+        self.tolerances: dict = {}                # job tolerance overrides
+        self.stitch_codes: dict = {}              # job Stitch Code overrides
         if self.path and os.path.exists(self.path):
             self.load()
 
@@ -227,16 +427,55 @@ class LayoutJob:
         """Place a point: job prefix/suffix and the running number are
         applied (pass ``num=`` to override; ``next_num`` is bumped past it),
         the layer (default ``"Layout"``) is auto-created if missing, and the
-        sidecar autosaves."""
+        sidecar autosaves.
+
+        Field-grade rules: when the target layer owns a :class:`Spool`, the
+        number is minted from that spool (``ValueError`` when the spool is
+        full); an explicit ``num=`` may never reuse a live or retired
+        (tombstoned) number; the composed label is validated at creation
+        (:func:`validate_label`); ``kind="CONTROL"`` defaults ``locked``
+        to True."""
         kw.setdefault("prefix", self.prefix)
         kw.setdefault("suffix", self.suffix)
         kw.setdefault("layer", "Layout")
-        if "num" in kw:
+        kind = str(kw.get("kind", "DESIGN")).upper()
+        if kind not in KINDS:
+            raise ValueError(f"unknown point kind {kind!r}; expected one of "
+                             f"{KINDS}")
+        if "kind" in kw:
+            kw["kind"] = kind
+        if kind == "CONTROL":
+            kw.setdefault("locked", True)
+        sp = self.spool(kw["layer"])
+        explicit = "num" in kw
+        if explicit:
             num = int(kw.pop("num"))
-            self.next_num = max(self.next_num, num + 1)
+            if num in self.retired:
+                raise ValueError(
+                    f"point number {num} is retired (tombstoned) — numbers "
+                    "are never reused after deletion")
+            if any(q.num == num and not q.is_witness for q in self.points):
+                raise ValueError(f"point number {num} is already in use — "
+                                 "numbers are unique per job")
+        elif sp is not None:
+            num = self._peek(sp)
         else:
             num = self.next_num
-            self.next_num += 1
+            while num in self.retired or any(
+                    q.num == num and not q.is_witness for q in self.points):
+                num += 1
+        # validate BEFORE committing any counter: a refused point must not
+        # burn a number
+        validate_label(f"{kw['prefix']}{str(num).zfill(self.pad)}"
+                       f"{kw['suffix']}")
+        if explicit:
+            self.next_num = max(self.next_num, num + 1)
+            if sp is not None and sp.start <= num <= sp.end:
+                sp.next = max(sp.next, num + 1)
+        elif sp is not None:
+            sp.next = num + 1
+        else:
+            self.next_num = num + 1
         p = LayoutPoint.new(num=num, page=int(page), x=float(x), y=float(y),
                             **kw)
         if self.layer(p.layer) is None:
@@ -251,28 +490,274 @@ class LayoutJob:
                 return p
         return None
 
-    def remove(self, id) -> bool:
+    def find_by_num(self, num) -> LayoutPoint | None:
+        """First non-witness point with this number (zero-fill-aware: pass
+        an int or a digit string)."""
+        try:
+            n = int(str(num).strip())
+        except (TypeError, ValueError):
+            return None
+        for p in self.points:
+            if p.num == n and not p.is_witness:
+                return p
+        return None
+
+    def remove(self, id) -> int:
+        """Remove a point and every child hosted on it (witnesses cascade,
+        like deleting a Loft wall deletes its doors).  Deleted numbers are
+        tombstoned in ``retired`` and never re-minted.  Returns the total
+        count removed (0 when the id is unknown; truthy on success)."""
         p = self.get(id)
         if p is None:
-            return False
-        self.points.remove(p)
+            return 0
+        doomed = [p] + [c for c in self.points if c.parent_uid == p.id]
+        for d in doomed:
+            self.points.remove(d)
+            if not d.is_witness:       # a witness shares its parent's number
+                self.retired.add(d.num)
         self._autosave()
-        return True
+        return len(doomed)
 
     def points_on(self, page) -> list:
         return [p for p in self.points if p.page == int(page)]
 
-    def renumber(self, start: int = 1) -> None:
-        """Renumber every point, stable by (page, created) order."""
-        for i, p in enumerate(sorted(self.points,
-                                     key=lambda p: (p.page, p.created))):
-            p.num = start + i
-        self.next_num = start + len(self.points)
+    def renumber(self, start: int = 1) -> dict:
+        """Re-flow point numbers, stable by (page, created) order.
+
+        CONTROL points, number-locked points (status STAKED/VERIFIED or
+        ``locked``) and retired (tombstoned) numbers are never touched;
+        points on a spooled layer re-flow **within their own spool** and
+        everything else re-flows from ``start``.  Witness points follow
+        their parent's number.  Spool mint counters never rewind.  Returns
+        ``{"locked": n, "reflowed": m}``."""
+        witnesses = [p for p in self.points if p.parent_uid]
+        locked = [p for p in self.points
+                  if p not in witnesses and self._num_locked(p)]
+        movable = [p for p in self.points
+                   if p not in witnesses and not self._num_locked(p)]
+        taken = {p.num for p in locked} | set(self.retired)
+        reflowed = 0
+
+        def assign(seq, begin, end=None, what=""):
+            nonlocal reflowed
+            n = begin
+            for p in sorted(seq, key=lambda p: (p.page, p.created)):
+                while n in taken:
+                    n += 1
+                if end is not None and n > end:
+                    raise ValueError(
+                        f"spool full during renumber: {what} has no free "
+                        f"number left in {begin}-{end}")
+                p.num = n
+                taken.add(n)
+                n += 1
+                reflowed += 1
+
+        spooled_layers = set()
+        for sp in self.spools:
+            group = [p for p in movable if p.layer == sp.layer]
+            spooled_layers.add(sp.layer)
+            if group:
+                assign(group, sp.start, sp.end, f"layer {sp.layer!r}")
+                sp.next = max(sp.next, max(p.num for p in group) + 1)
+        assign([p for p in movable if p.layer not in spooled_layers], start)
+        for w in witnesses:                      # witnesses ride the parent
+            parent = self.get(w.parent_uid)
+            if parent is not None:
+                w.num = parent.num
+        nums = [p.num for p in self.points if not p.is_witness]
+        self.next_num = (max(nums) + 1) if nums else start
         self._autosave()
+        return {"locked": len(locked), "reflowed": reflowed}
 
     def composed(self, p: LayoutPoint) -> str:
         """Point label with the number zero-padded to ``pad``: ``CP-001-S``."""
         return f"{p.prefix}{str(p.num).zfill(self.pad)}{p.suffix}"
+
+    def _num_locked(self, p: LayoutPoint) -> bool:
+        return (p.kind == "CONTROL" or p.status in _NUM_LOCK_STATUSES
+                or bool(p.locked))
+
+    # ------------------------------------------------------------ spools --
+
+    def spool(self, layer) -> Spool | None:
+        for sp in self.spools:
+            if sp.layer == layer:
+                return sp
+        return None
+
+    def add_spool(self, layer: str, start: int, end: int) -> Spool:
+        """Reserve a number range for a layer; ranges may not overlap."""
+        start, end = int(start), int(end)
+        if start < 1 or end < start:
+            raise ValueError(f"bad spool range {start}-{end}")
+        if self.spool(layer) is not None:
+            raise ValueError(f"layer {layer!r} already owns a spool")
+        for sp in self.spools:
+            if start <= sp.end and sp.start <= end:
+                raise ValueError(
+                    f"spool {start}-{end} overlaps layer {sp.layer!r} "
+                    f"({sp.start}-{sp.end})")
+        sp = Spool(layer=str(layer), start=start, end=end)
+        self.spools.append(sp)
+        self._autosave()
+        return sp
+
+    def add_default_spools(self) -> int:
+        """Install the :data:`DEFAULT_SPOOLS` ranges (skipping layers that
+        already own one).  Returns how many were added."""
+        added = 0
+        for layer, start, end in DEFAULT_SPOOLS:
+            if self.spool(layer) is None:
+                self.spools.append(Spool(layer=layer, start=start, end=end))
+                added += 1
+        if added:
+            self._autosave()
+        return added
+
+    def quarantine_spool(self) -> Spool:
+        """The import-collision spool (created on first use, 90000+)."""
+        sp = self.spool(QUARANTINE_LAYER)
+        if sp is None:
+            sp = Spool(layer=QUARANTINE_LAYER, start=QUARANTINE_START,
+                       end=QUARANTINE_END)
+            self.spools.append(sp)
+        return sp
+
+    def _peek(self, sp: Spool) -> int:
+        """Lowest free number on a spool WITHOUT committing it; skips live
+        and retired numbers; never rewinds; raises ``ValueError`` when the
+        spool is exhausted."""
+        used = {p.num for p in self.points if not p.is_witness}
+        n = max(sp.next, sp.start)
+        while n in used or n in self.retired:
+            n += 1
+        if n > sp.end:
+            raise ValueError(
+                f"spool full: layer {sp.layer!r} has no free number left in "
+                f"{sp.start}-{sp.end} — widen the spool or use an overflow "
+                "block")
+        return n
+
+    def _mint(self, sp: Spool) -> int:
+        """:meth:`_peek` + commit the mint counter (which never rewinds)."""
+        n = self._peek(sp)
+        sp.next = n + 1
+        return n
+
+    # ----------------------------------------------------------- statuses --
+
+    def set_status(self, point_or_uid, status: str, note: str = "",
+                   by: str = "") -> LayoutPoint:
+        """Record a stake-out status transition with a UTC ISO timestamp in
+        the point's ``status_log``.  Direct sets are unrestricted within
+        :data:`POINT_STATUSES` (this is how a REJECTED point re-arms to
+        PENDING); bulk operations go through :meth:`seed_statuses`, which
+        never downgrades."""
+        p = self._resolve_point(point_or_uid)
+        if p is None:
+            raise ValueError(f"no such point: {point_or_uid!r}")
+        s = str(status or "").strip().upper()
+        if s not in POINT_STATUSES:
+            raise ValueError(f"unknown status {s!r}; expected one of "
+                             f"{POINT_STATUSES}")
+        ts = _now_iso()
+        p.status = s
+        p.status_log = (p.status_log or []) + [
+            {"status": s, "ts": ts, "note": str(note or ""),
+             "by": str(by or "")}]
+        if s == "STAKED":
+            p.staked_at = ts
+            if by:
+                p.staked_by = str(by)
+        self._autosave()
+        return p
+
+    def seed_statuses(self, mapping: dict, note: str = "bulk seed") -> int:
+        """Bulk status seeding that NEVER downgrades (mirror of
+        ``resolution.ResolutionStore.seed_from_records``): a point moves
+        only up the :data:`STATUS_RANK` ladder.  ``mapping`` keys may be
+        uids, numbers, or labels.  Returns how many points changed."""
+        applied = 0
+        for key, status in mapping.items():
+            p = self._resolve_point(key)
+            if p is None:
+                continue
+            s = str(status or "").strip().upper()
+            if s not in POINT_STATUSES:
+                continue
+            if STATUS_RANK[s] <= STATUS_RANK.get(p.status, 0):
+                continue                         # never downgrade (or churn)
+            p.status = s
+            p.status_log = (p.status_log or []) + [
+                {"status": s, "ts": _now_iso(), "note": note, "by": ""}]
+            if s == "STAKED" and not p.staked_at:
+                p.staked_at = p.status_log[-1]["ts"]
+            applied += 1
+        if applied:
+            self._autosave()
+        return applied
+
+    def _resolve_point(self, key) -> LayoutPoint | None:
+        """Point by object, uid, number (zero-fill-aware) or label."""
+        if isinstance(key, LayoutPoint):
+            return key if key in self.points else self.get(key.id)
+        p = self.get(key)
+        if p is not None:
+            return p
+        s = str(key).strip()
+        if s.isdigit():
+            return self.find_by_num(s)
+        _, num, _ = _split_label(s)
+        return self.find_by_num(num) if num is not None else None
+
+    # --------------------------------------------------------- witnesses --
+
+    def add_witness(self, parent_or_uid, offset_ft: float = 2.0,
+                    offset_azimuth: float = 0.0, **kw) -> LayoutPoint:
+        """Place a shadow/witness point hosted on a parent: world coords
+        derive from the parent (recomputed on every parent move; deleting
+        the parent cascades).  Name = parent number + ``W`` suffix; the
+        auto-description follows the lath grammar (``W 2FT N OF CP-001``)."""
+        parent = self._resolve_point(parent_or_uid)
+        if parent is None:
+            raise ValueError(f"no such parent point: {parent_or_uid!r}")
+        if parent.parent_uid:
+            raise ValueError("cannot host a witness on another witness")
+        offset_ft = float(offset_ft)
+        if offset_ft <= 0:
+            raise ValueError("witness offset must be a positive distance")
+        offset_azimuth = float(offset_azimuth) % 360.0
+        suffix = f"{parent.suffix}W"
+        validate_label(f"{parent.prefix}{str(parent.num).zfill(self.pad)}"
+                       f"{suffix}")
+        desc = kw.pop("desc", "") or (
+            f"W {_fmt_ft(offset_ft)}FT {_compass(offset_azimuth)} OF "
+            f"{self.composed(parent)}")
+        layer = kw.pop("layer", parent.layer)
+        if self.cal is not None:
+            pn, pe, _pz = self.to_world(parent)
+            az = math.radians(offset_azimuth)
+            x, y = self.from_world(pn + offset_ft * math.cos(az),
+                                   pe + offset_ft * math.sin(az))
+        else:
+            x, y = parent.x, parent.y
+        p = LayoutPoint.new(num=parent.num, prefix=parent.prefix,
+                            suffix=suffix, page=parent.page, x=x, y=y,
+                            elev=parent.elev, desc=desc, layer=layer,
+                            parent_uid=parent.id, offset_ft=offset_ft,
+                            offset_azimuth=offset_azimuth, **kw)
+        if self.layer(p.layer) is None:
+            self.layers.append(PointLayer(p.layer))
+        self.points.append(p)
+        self._autosave()
+        return p
+
+    def witnesses_of(self, parent_or_uid) -> list:
+        parent = self._resolve_point(parent_or_uid)
+        if parent is None:
+            return []
+        return [p for p in self.points if p.parent_uid == parent.id]
 
     # ------------------------------------------------------------ layers --
 
@@ -303,14 +788,25 @@ class LayoutJob:
 
     # -------------------------------------------------------- world math --
 
-    def to_world(self, p: LayoutPoint) -> tuple[float, float, float]:
+    def to_world(self, p: LayoutPoint) -> tuple:
         """Page point -> (Northing, Easting, Z) in real units.
 
         The page vector from the basepoint is flipped to survey axes
         (east' = +x, north' = -y since page y runs down), rotated by
         ``rotation_deg`` (CCW positive), scaled by the calibration, and
         offset by ``base_world``.  Z is the point's elevation, already in
-        real units."""
+        real units (``None`` when the point has no elevation).
+
+        Witness points are host-parametric: their world position is derived
+        from the parent's **current** position plus the stored offset, so a
+        parent move carries every witness with it."""
+        if p.is_witness:
+            parent = self.get(p.parent_uid)
+            if parent is not None:
+                n, e, z = self.to_world(parent)
+                az = math.radians(p.offset_azimuth)
+                return (n + p.offset_ft * math.cos(az),
+                        e + p.offset_ft * math.sin(az), z)
         cal = self.cal
         if cal is None:
             raise ValueError(
@@ -325,7 +821,7 @@ class LayoutJob:
         n_rot = east * s + north * c
         n = float(self.base_world[0]) + n_rot * cal.real_per_pt
         e = float(self.base_world[1]) + e_rot * cal.real_per_pt
-        return (n, e, float(p.elev))
+        return (n, e, None if p.elev is None else float(p.elev))
 
     def from_world(self, n: float, e: float) -> tuple[float, float]:
         """Inverse of :meth:`to_world`: world (N, E) -> page (x, y) pts."""
@@ -356,7 +852,7 @@ class LayoutJob:
     # ------------------------------------------------------- persistence --
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "version": _VERSION,
             "units": self.units, "next_num": self.next_num, "pad": self.pad,
             "prefix": self.prefix, "suffix": self.suffix,
@@ -367,6 +863,17 @@ class LayoutJob:
             "layers": [ly.to_dict() for ly in self.layers],
             "points": [p.to_dict() for p in self.points],
         }
+        # field-grade extension keys ride only when used (lean sidecars,
+        # byte-stable for pre-extension jobs)
+        if self.spools:
+            out["spools"] = [sp.to_dict() for sp in self.spools]
+        if self.retired:
+            out["retired"] = sorted(self.retired)
+        if self.tolerances:
+            out["tolerances"] = dict(self.tolerances)
+        if self.stitch_codes:
+            out["stitch_codes"] = dict(self.stitch_codes)
+        return out
 
     def save(self, path: str | None = None) -> None:
         """Atomically write the versioned JSON sidecar."""
@@ -399,7 +906,7 @@ class LayoutJob:
         self.rotation_deg = float(data.get("rotation_deg", 0.0))
         scale = data.get("scale")
         self.scale = dict(scale) if isinstance(scale, dict) else None
-        layers, points = [], []
+        layers, points, spools = [], [], []
         for d in data.get("layers") or []:
             try:
                 layers.append(PointLayer.from_dict(d))
@@ -410,11 +917,70 @@ class LayoutJob:
                 points.append(LayoutPoint.from_dict(d))
             except Exception:
                 continue
-        self.layers, self.points = layers, points
+        for d in data.get("spools") or []:
+            try:
+                spools.append(Spool.from_dict(d))
+            except Exception:
+                continue
+        self.layers, self.points, self.spools = layers, points, spools
+        retired = set()
+        for v in data.get("retired") or []:
+            try:
+                retired.add(int(v))
+            except (TypeError, ValueError):
+                continue
+        self.retired = retired
+        tol = data.get("tolerances")
+        self.tolerances = dict(tol) if isinstance(tol, dict) else {}
+        codes = data.get("stitch_codes")
+        self.stitch_codes = dict(codes) if isinstance(codes, dict) else {}
 
     def _autosave(self) -> None:
         if self.path:
             self.save()
+
+
+# -------------------------------------------------------------- frame hash --
+
+def frame_hash(job: LayoutJob) -> str:
+    """8-hex digest of the job's georeference frame (basepoint, page anchor,
+    rotation, scale, units).  Embedded in exports (comment header and
+    ``.tag.txt`` sidecar) so an as-staked file coming back can prove it was
+    shot against the same frame — otherwise imported deltas would contain
+    the frame edit, not crew error."""
+    cal = job.cal
+    basis = "|".join((
+        f"{float(job.base_world[0]):.6f}", f"{float(job.base_world[1]):.6f}",
+        f"{float(job.base_page_xy[0]):.6f}",
+        f"{float(job.base_page_xy[1]):.6f}",
+        f"{float(job.rotation_deg):.6f}",
+        f"{cal.real_per_pt:.10f}" if cal else "none",
+        str(job.units)))
+    return hashlib.sha256(basis.encode("ascii")).hexdigest()[:8]
+
+
+_FRAME_RE = re.compile(r"frame:\s*([0-9a-f]{8})", re.IGNORECASE)
+
+
+def _find_frame_hash(comments, path=None) -> str:
+    """Frame hash from '#' comment lines and/or a .tag.txt sidecar beside
+    ``path``; '' when none is declared."""
+    for line in comments or []:
+        m = _FRAME_RE.search(line)
+        if m:
+            return m.group(1).lower()
+    if path:
+        for cand in (os.path.splitext(path)[0] + ".tag.txt",
+                     path + ".tag.txt"):
+            if os.path.exists(cand):
+                try:
+                    with open(cand, encoding="utf-8", errors="replace") as f:
+                        m = _FRAME_RE.search(f.read())
+                    if m:
+                        return m.group(1).lower()
+                except OSError:
+                    continue
+    return ""
 
 
 # --------------------------------------------------------------- exporters --
@@ -427,6 +993,23 @@ def _export_points(job: LayoutJob, points=None) -> list:
         return list(points)
     hidden = {ly.name for ly in job.layers if not ly.visible}
     return [p for p in job.points if p.layer not in hidden]
+
+
+def lint_witness_offsets(job: LayoutJob, points) -> list:
+    """Witness-offset consistency lint: within one layer, every witness must
+    sit on the SAME side at the SAME distance (an offset stake mistaken for
+    the point itself is a classic bust).  Returns human-readable problem
+    strings; empty list = clean.  Exporters refuse when non-empty."""
+    per_layer: dict[str, set] = {}
+    for p in points:
+        if p.is_witness:
+            per_layer.setdefault(p.layer, set()).add(
+                (round(p.offset_ft, 4), round(p.offset_azimuth, 2)))
+    return [
+        f"layer {layer!r} mixes witness offsets: "
+        + "; ".join(f"{_fmt_ft(d)} ft @ {a:g} deg"
+                    for d, a in sorted(combos))
+        for layer, combos in sorted(per_layer.items()) if len(combos) > 1]
 
 
 def _pnezd_desc(p: LayoutPoint) -> str:
@@ -445,22 +1028,153 @@ def _csv_safe(v) -> str:
     return s
 
 
+def _apply_desc_commas(desc: str, policy: str) -> str:
+    """Comma policy for the D field — many controllers do NOT honor quote
+    escaping, so wire profiles strip or replace commas instead."""
+    if policy == "keep":
+        return desc
+    if policy == "strip":
+        return desc.replace(",", "")
+    if policy == "semicolon":
+        return desc.replace(",", ";")
+    if policy == "space":
+        return desc.replace(",", " ")
+    raise ValueError(f"unknown desc_commas policy {policy!r}; expected "
+                     "keep | strip | semicolon | space")
+
+
 def export_csv_pnezd(job: LayoutJob, out_path: str, points=None,
-                     header: bool = True, delimiter: str = ",") -> int:
-    """PNEZD CSV: composed point id, Northing, Easting, Elevation (3
-    decimals), description.  Returns the data-row count."""
+                     header: bool = True, delimiter: str = ",",
+                     options: dict | None = None) -> int:
+    """PNEZD CSV: composed point id, Northing, Easting, Elevation,
+    description.  Returns the data-row count.  Defaults reproduce the
+    original export exactly; ``options`` selects a wire profile:
+
+    ``order``          "PNEZD" (default) or "PENZD" (the classic legacy
+                       office swap — E before N)
+    ``delimiter``      overrides the ``delimiter`` argument
+    ``header``         overrides the ``header`` argument (controllers want
+                       headerless files — every line is a point)
+    ``decimals``       N/E decimals, 3 (default) or 4
+    ``z_decimals``     elevation decimals (default 3)
+    ``include_code``   insert a Code column between Z and Description
+    ``comment_header`` '#'-prefixed metadata lines (units, basepoint,
+                       rotation, count, frame hash) — collectors skip them
+    ``desc_commas``    "keep" (default) | "strip" | "semicolon" | "space"
+    ``tag_sidecar``    write ``<name>.tag.txt`` beside the CSV (units,
+                       basepoint, rotation, scale, count, min/max, frame
+                       hash, 6-hex content checksum)
+    ``strict_labels``  validate every composed label (:func:`validate_label`)
+                       — defaults ON whenever ``options`` is passed
+
+    Wire discipline whenever ``options`` is passed: ASCII, CRLF, no BOM.
+    Always on (both paths): a ``None`` elevation writes an EMPTY field
+    (never 0), duplicate exported ids raise ``ValueError`` listing them,
+    and mixed witness offsets within a layer refuse the export
+    (:func:`lint_witness_offsets`)."""
+    opt = dict(options or {})
+    order = str(opt.get("order", "PNEZD")).upper()
+    if order not in ("PNEZD", "PENZD"):
+        raise ValueError(f"unknown order {order!r}; expected PNEZD | PENZD")
+    delimiter = str(opt.get("delimiter", delimiter))
+    if "header" in opt:
+        header = bool(opt["header"])
+    nd = int(opt.get("decimals", 3))
+    if nd not in (3, 4):
+        raise ValueError("decimals must be 3 or 4 (0.001 ft is instrument "
+                         "precision; 0.0001 ft is the tight profile)")
+    zd = int(opt.get("z_decimals", 3))
+    include_code = bool(opt.get("include_code", False))
+    desc_commas = str(opt.get("desc_commas", "keep"))
+    strict = bool(opt.get("strict_labels", options is not None))
+
     pts = _export_points(job, points)
+    labels = [job.composed(p) for p in pts]
+    seen: dict[str, int] = {}
+    for lb in labels:
+        seen[lb] = seen.get(lb, 0) + 1
+    dupes = sorted(lb for lb, c in seen.items() if c > 1)
+    if dupes:
+        raise ValueError("duplicate point id(s) in export: "
+                         + ", ".join(dupes))
+    if strict:
+        for lb in labels:
+            validate_label(lb)
+    problems = lint_witness_offsets(job, pts)
+    if problems:
+        raise ValueError("witness offsets disagree — refusing export: "
+                         + " | ".join(problems))
+
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=delimiter, lineterminator="\r\n")
+    if opt.get("comment_header"):
+        for line in (
+                "layout points",
+                f"date: {_now_iso()}",
+                f"units: {job.units}",
+                f"order: {order}",
+                f"basepoint: N {float(job.base_world[0]):.4f} "
+                f"E {float(job.base_world[1]):.4f}",
+                f"rotation_deg: {float(job.rotation_deg):.6f}",
+                f"count: {len(pts)}",
+                f"frame: {frame_hash(job)}"):
+            buf.write(f"# {line}\r\n")
     if header:
-        w.writerow(["Point", "Northing", "Easting", "Elevation",
-                    "Description"])
-    for p in pts:
+        ne_cols = (["Northing", "Easting"] if order == "PNEZD"
+                   else ["Easting", "Northing"])
+        w.writerow(["Point"] + ne_cols + ["Elevation"]
+                   + (["Code"] if include_code else []) + ["Description"])
+    world = []
+    for p, lb in zip(pts, labels):
         n, e, z = job.to_world(p)
-        w.writerow([_csv_safe(job.composed(p)), f"{n:.3f}", f"{e:.3f}",
-                    f"{z:.3f}", _csv_safe(_pnezd_desc(p))])
-    _atomic_bytes(buf.getvalue().encode("utf-8"), out_path)
+        world.append((n, e, z))
+        ne = ([f"{n:.{nd}f}", f"{e:.{nd}f}"] if order == "PNEZD"
+              else [f"{e:.{nd}f}", f"{n:.{nd}f}"])
+        zs = "" if z is None else f"{z:.{zd}f}"
+        desc = _apply_desc_commas(_pnezd_desc(p), desc_commas)
+        row = [_csv_safe(lb)] + ne + [zs]
+        if include_code:
+            row.append(_csv_safe(p.code))
+        row.append(_csv_safe(desc))
+        w.writerow(row)
+    encoding = "ascii" if options is not None else "utf-8"
+    data = buf.getvalue().encode(encoding, errors="replace")
+    _atomic_bytes(data, out_path)
+    if opt.get("tag_sidecar"):
+        _write_tag_sidecar(job, data, out_path, order, world)
     return len(pts)
+
+
+def _write_tag_sidecar(job: LayoutJob, csv_bytes: bytes, out_path: str,
+                       order: str, world: list) -> None:
+    """Paired ``<name>.tag.txt`` for the strict-collector preset: all the
+    metadata the headerless CSV cannot carry, plus a 6-hex content checksum
+    so the office can prove which file the crew loaded."""
+    ns = [t[0] for t in world]
+    es = [t[1] for t in world]
+    zs = [t[2] for t in world if t[2] is not None]
+    cal = job.cal
+    lines = [
+        "planloom point-file tag",
+        f"file: {os.path.basename(out_path)}",
+        f"units: {job.units}",
+        f"order: {order}",
+        f"basepoint: N {float(job.base_world[0]):.4f} "
+        f"E {float(job.base_world[1]):.4f}",
+        f"rotation_deg: {float(job.rotation_deg):.6f}",
+        f"scale_real_per_pt: {cal.real_per_pt:.10f}" if cal
+        else "scale_real_per_pt: none",
+        f"count: {len(world)}",
+        (f"min: N {min(ns):.4f} E {min(es):.4f} "
+         + (f"Z {min(zs):.4f}" if zs else "Z -")) if world else "min: -",
+        (f"max: N {max(ns):.4f} E {max(es):.4f} "
+         + (f"Z {max(zs):.4f}" if zs else "Z -")) if world else "max: -",
+        f"frame: {frame_hash(job)}",
+        f"checksum: {hashlib.sha256(csv_bytes).hexdigest()[:6]}",
+    ]
+    tag_path = os.path.splitext(out_path)[0] + ".tag.txt"
+    _atomic_bytes(("\r\n".join(lines) + "\r\n").encode("ascii", "replace"),
+                  tag_path)
 
 
 # -- XLSX (hand-rolled minimal OOXML; stdlib zipfile, no new dependencies) ---
@@ -504,7 +1218,9 @@ def export_xlsx(job: LayoutJob, out_path: str, points=None) -> int:
         cells = [
             (job.composed(p), False), (p.prefix, False), (p.num, True),
             (p.suffix, False), (f"{e:.3f}", True), (f"{n:.3f}", True),
-            (f"{z:.3f}", True), (p.desc, False), (p.category, False),
+            # None elevation -> empty text cell, never a fake 0
+            (f"{z:.3f}", True) if z is not None else ("", False),
+            (p.desc, False), (p.category, False),
             (p.layer, False),
         ]
         rows_xml.append("<row r=\"%d\">%s</row>" % (
@@ -582,6 +1298,7 @@ def export_dxf(job: LayoutJob, out_path: str, points=None) -> int:
     entities = 0
     for p in pts:
         n, e, z = job.to_world(p)
+        z = 0.0 if z is None else z            # DXF group 30 has no null form
         layer = _dxf_clean(p.layer)
         pairs += [(0, "POINT"), (8, layer),
                   (10, f"{e:.4f}"), (20, f"{n:.4f}"), (30, f"{z:.4f}")]
@@ -629,6 +1346,12 @@ def _header_map(row: list) -> dict | None:
         for fieldname, aliases in _IMPORT_ALIASES.items():
             if key in aliases and fieldname not in hits:
                 hits[fieldname] = i
+    # a file carrying BOTH a Code and a Description column: the description
+    # wins the d slot ("code" is also a d alias and may have hit first)
+    for i, cell in enumerate(row):
+        if _canon_header(cell) in ("description", "desc"):
+            hits["d"] = i
+            break
     return hits if "n" in hits and "e" in hits else None
 
 
@@ -641,65 +1364,261 @@ def _split_label(label: str) -> tuple[str, int | None, str]:
     return m.group(1), int(m.group(2)), m.group(3)
 
 
-def import_csv(job: LayoutJob, path: str, log=print) -> int:
-    """Tolerant PNEZD CSV reader: header detected and mapped when present
-    (point/name, n/northing/y, e/easting/x, z/elev, d/desc), positional
-    P-N-E-Z-D otherwise.  World coordinates are converted back to page points
-    through the inverse of :meth:`LayoutJob.to_world` (a scale must be set);
-    imported points land on page 1 — PNEZD files carry no page.  Rows that
-    do not parse are logged and skipped.  Returns how many points were
-    added."""
-    if job.cal is None:
-        raise ValueError(
-            "no scale set: calibrate the plan (ScaleCal) and store it in "
-            "job.scale before importing world coordinates")
+#: Null-elevation sentinel spellings (case-insensitive) and magic values —
+#: a null staked as 0.00 sets sleeves at datum zero, a real recurring
+#: incident, so these map to ``None`` and export back as an EMPTY field.
+_NULL_Z_TEXT = {"", "?", "NULL"}
+_NULL_Z_VALUES = (-99999.0, 9999.999)
+
+
+def _parse_z(cell: str, zero_is_null: bool = False):
+    """Elevation cell -> float | None (sentinels and, optionally, 0.0 map
+    to None; unparseable junk keeps the legacy 0.0 fallback)."""
+    s = str(cell or "").strip()
+    if s.upper() in _NULL_Z_TEXT:
+        return None
+    try:
+        z = float(s)
+    except ValueError:
+        return 0.0                              # legacy tolerant fallback
+    if z in _NULL_Z_VALUES or (zero_is_null and z == 0.0):
+        return None
+    return z
+
+
+_POSITIONAL_COLS = {
+    "PNEZD": {"point": 0, "n": 1, "e": 2, "z": 3, "d": 4},
+    "PENZD": {"point": 0, "e": 1, "n": 2, "z": 3, "d": 4},
+}
+
+
+def read_point_csv(path: str, order: str = "PNEZD") -> dict:
+    """Low-level tolerant point-CSV reader shared by :func:`import_csv`,
+    :func:`validate_import_csv` and the QA layer's as-staked import.
+
+    Strips a BOM, skips ``#`` comment lines (collecting them), sniffs the
+    delimiter, maps a header row when present (any column order) and falls
+    back to positional columns per ``order`` (PNEZD default, PENZD for the
+    classic swapped dialect).  Returns::
+
+        {"rows": [{"id", "n", "e", "z", "desc"}...],   # z may be None
+         "bad": [(lineno, row), ...],                  # unparseable N/E
+         "comments": [...], "frame": "8-hex or ''"}
+    """
+    order = str(order or "PNEZD").upper()
+    if order not in _POSITIONAL_COLS:
+        raise ValueError(f"unknown order {order!r}; expected PNEZD | PENZD")
     with open(path, encoding="utf-8-sig", newline="") as f:
-        sample = f.read(4096)
-        f.seek(0)
-        try:
-            reader = csv.reader(f, csv.Sniffer().sniff(sample,
-                                                       delimiters=",;\t"))
-        except csv.Error:
-            reader = csv.reader(f)          # default comma dialect
-        rows = [r for r in reader if any(str(c).strip() for c in r)]
-    if not rows:
-        return 0
-    cols = _header_map(rows[0])
+        raw = f.read()
+    lines = raw.splitlines()
+    comments = [ln for ln in lines if ln.lstrip().startswith("#")]
+    body = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+    try:
+        dialect = csv.Sniffer().sniff(body[:4096], delimiters=",;\t")
+        reader = csv.reader(io.StringIO(body), dialect)
+    except csv.Error:
+        reader = csv.reader(io.StringIO(body))     # default comma dialect
+    rows = [r for r in reader if any(str(c).strip() for c in r)]
+    cols = _header_map(rows[0]) if rows else None
     if cols is not None:
         rows = rows[1:]
     else:
-        cols = {"point": 0, "n": 1, "e": 2, "z": 3, "d": 4}
+        cols = dict(_POSITIONAL_COLS[order])
 
     def cell(row, fieldname):
         i = cols.get(fieldname)
         return row[i].strip() if i is not None and i < len(row) else ""
 
-    added = 0
+    parsed, bad = [], []
     for lineno, row in enumerate(rows, 1):
         try:
             n = float(cell(row, "n"))
             e = float(cell(row, "e"))
         except ValueError:
-            log(f"  !! row {lineno}: bad N/E {row!r}, skipped")
+            bad.append((lineno, row))
             continue
-        try:
-            z = float(cell(row, "z") or 0.0)
-        except ValueError:
-            z = 0.0
-        prefix, num, suffix = _split_label(cell(row, "point"))
+        parsed.append({"id": cell(row, "point"), "n": n, "e": e,
+                       "z": _parse_z(cell(row, "z")),
+                       "desc": cell(row, "d")})
+    return {"rows": parsed, "bad": bad, "comments": comments,
+            "frame": _find_frame_hash(comments, path)}
+
+
+def import_csv(job: LayoutJob, path: str, log=print, *,
+               order: str = "PNEZD", on_collision: str = "quarantine",
+               zero_elev_is_null: bool = False) -> int:
+    """Tolerant PNEZD CSV reader: header detected and mapped when present
+    (point/name, n/northing/y, e/easting/x, z/elev, d/desc), positional
+    P-N-E-Z-D otherwise (``order="PENZD"`` for the swapped dialect).  World
+    coordinates are converted back to page points through the inverse of
+    :meth:`LayoutJob.to_world` (a scale must be set); imported points land
+    on page 1 — PNEZD files carry no page.  Rows that do not parse are
+    logged and skipped.  Null-elevation sentinels ('', ?, NULL, -99999,
+    9999.999 — and 0.0 with ``zero_elev_is_null=True``) become ``None``.
+
+    Incoming ids matching a live point number (zero-fill-aware: '001' ==
+    '1') follow ``on_collision``:
+
+    * ``"quarantine"`` (default) — the row lands on the Quarantine layer
+      with a fresh number minted from the 90000+ quarantine spool, logged;
+      never silently renumbered into a live block;
+    * ``"keep"`` — keep the job's point, skip the row (logged);
+    * ``"replace"`` — take the incoming coordinates/elevation/description —
+      EXCEPT for CONTROL or locked points, whose coordinates are never
+      overwritten by an import (those rows quarantine instead);
+    * ``"refuse"`` — raise ``ValueError`` listing every colliding id.
+
+    Returns how many rows were applied (added + replaced + quarantined)."""
+    if job.cal is None:
+        raise ValueError(
+            "no scale set: calibrate the plan (ScaleCal) and store it in "
+            "job.scale before importing world coordinates")
+    if on_collision not in ("quarantine", "keep", "replace", "refuse"):
+        raise ValueError(f"unknown on_collision {on_collision!r}; expected "
+                         "quarantine | keep | replace | refuse")
+    data = read_point_csv(path, order=order)
+    for lineno, row in data["bad"]:
+        log(f"  !! row {lineno}: bad N/E {row!r}, skipped")
+
+    if on_collision == "refuse":
+        colliding = sorted({r["id"] for r in data["rows"]
+                            if _split_label(r["id"])[1] is not None
+                            and job.find_by_num(_split_label(r["id"])[1])})
+        if colliding:
+            raise ValueError("import collides with live point number(s): "
+                             + ", ".join(colliding))
+
+    added = 0
+    for rec in data["rows"]:
+        n, e = rec["n"], rec["e"]
+        z = rec["z"]
+        if zero_elev_is_null and z == 0.0:
+            z = None
+        prefix, num, suffix = _split_label(rec["id"])
         if num is None:
             num, prefix, suffix = job.next_num, prefix or job.prefix, ""
         x, y = job.from_world(n, e)
-        if job.layer("Layout") is None:
-            job.layers.append(PointLayer("Layout"))
+        target = job.find_by_num(num)
+        layer = "Layout"
+        if target is not None:
+            protected = target.kind == "CONTROL" or target.locked
+            if on_collision == "keep":
+                log(f"  !! id {rec['id']!r} collides with live point "
+                    f"{num} — kept ours, row skipped")
+                continue
+            if on_collision == "replace" and not protected:
+                target.x, target.y, target.elev = x, y, z
+                if rec["desc"]:
+                    target.desc = rec["desc"]
+                added += 1
+                continue
+            if on_collision == "replace":
+                log(f"  !! id {rec['id']!r} collides with protected "
+                    f"{target.kind} point {num} — coordinates are never "
+                    "overwritten; quarantined instead")
+            qnum = job._mint(job.quarantine_spool())
+            log(f"  !! id {rec['id']!r} collides with live point {num} — "
+                f"quarantined as {qnum} on layer {QUARANTINE_LAYER!r}")
+            num, layer = qnum, QUARANTINE_LAYER
+        if job.layer(layer) is None:
+            job.layers.append(PointLayer(layer))
         job.points.append(LayoutPoint.new(
             num=num, prefix=prefix, suffix=suffix, page=1, x=x, y=y,
-            elev=z, desc=cell(row, "d"), layer="Layout"))
+            elev=z, desc=rec["desc"], layer=layer))
         job.next_num = max(job.next_num, num + 1)
         added += 1
     if added:
         job._autosave()
     return added
+
+
+def _median(values):
+    vs = sorted(values)
+    if not vs:
+        return None
+    mid = len(vs) // 2
+    return vs[mid] if len(vs) % 2 else (vs[mid - 1] + vs[mid]) / 2.0
+
+
+def validate_import_csv(job: LayoutJob, path: str,
+                        order: str = "PNEZD") -> dict:
+    """Advisory pre-import validators — a report dict for the human review
+    table; NOTHING is applied or modified (same philosophy as the stamper's
+    mapping review).  Keys:
+
+    ``rows``            parseable point-row count
+    ``ids``             ids in file order
+    ``duplicate_ids``   ids appearing more than once in the file
+    ``collisions``      ids whose number is live in the job
+    ``range_ok``/``foreign``  ids outside 10x the job bbox ("foreign grid?")
+    ``swap_suggested``  True when medians fit better with N/E swapped
+                        (PENZD reinterpretation) — suggestion only
+    ``unit_hint``       "" or a meters-vs-feet magnitude hint (~3.2808x)
+    ``elev_outliers``   ids more than 500 units from the file's median Z
+    ``frame_hash``/``frame_hash_ok``  declared frame hash vs this job's
+                        (None when the file declares none)
+    """
+    data = read_point_csv(path, order=order)
+    rows = data["rows"]
+    ids = [r["id"] for r in rows]
+    seen: dict[str, int] = {}
+    for i in ids:
+        seen[i] = seen.get(i, 0) + 1
+    collisions = sorted({r["id"] for r in rows
+                         if _split_label(r["id"])[1] is not None
+                         and job.find_by_num(_split_label(r["id"])[1])})
+    report = {
+        "rows": len(rows), "ids": ids,
+        "duplicate_ids": sorted(i for i, c in seen.items() if c > 1),
+        "collisions": collisions,
+        "range_ok": True, "foreign": [],
+        "swap_suggested": False, "unit_hint": "",
+        "elev_outliers": [],
+        "frame_hash": data["frame"], "frame_hash_ok": None,
+    }
+    if not rows:
+        return report
+    ns = [r["n"] for r in rows]
+    es = [r["e"] for r in rows]
+    # range check vs 10x the job bbox (fall back to the basepoint alone)
+    bounds = job.bounds_world()
+    if bounds is not None:
+        min_n, min_e, max_n, max_e = bounds
+    else:
+        min_n = max_n = float(job.base_world[0])
+        min_e = max_e = float(job.base_world[1])
+    cn, ce = (min_n + max_n) / 2.0, (min_e + max_e) / 2.0
+    half_n = max((max_n - min_n) / 2.0, 100.0) * 10.0
+    half_e = max((max_e - min_e) / 2.0, 100.0) * 10.0
+    report["foreign"] = [r["id"] for r in rows
+                         if abs(r["n"] - cn) > half_n
+                         or abs(r["e"] - ce) > half_e]
+    report["range_ok"] = not report["foreign"]
+    # swap detector: do the medians fit better mirrored about N=E?
+    med_n, med_e = _median(ns), _median(es)
+    err = abs(med_n - cn) + abs(med_e - ce)
+    err_swapped = abs(med_e - cn) + abs(med_n - ce)
+    report["swap_suggested"] = err_swapped * 2.0 < err
+    # unit sniff: ~3.2808x magnitude mismatch smells like meters vs feet
+    mag_file = (abs(med_n) + abs(med_e)) / 2.0
+    mag_job = (abs(cn) + abs(ce)) / 2.0
+    if mag_job > 0 and mag_file > 0:
+        ratio = mag_file / mag_job
+        if 0.28 <= ratio <= 0.34:
+            report["unit_hint"] = ("file coordinates are ~0.3048x the job "
+                                   "frame — meters in a feet job?")
+        elif 3.0 <= ratio <= 3.6:
+            report["unit_hint"] = ("file coordinates are ~3.2808x the job "
+                                   "frame — feet in a metric job?")
+    zs = [r["z"] for r in rows if r["z"] is not None]
+    med_z = _median(zs)
+    if med_z is not None:
+        report["elev_outliers"] = [r["id"] for r in rows
+                                   if r["z"] is not None
+                                   and abs(r["z"] - med_z) > 500.0]
+    if data["frame"]:
+        report["frame_hash_ok"] = (data["frame"] == frame_hash(job))
+    return report
 
 
 # --------------------------------------------------------------- field kits --

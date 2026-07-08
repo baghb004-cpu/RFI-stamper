@@ -1,0 +1,1193 @@
+"""Fieldpro: the layout QA layer — tolerance classes, Stitch Codes, delta
+math, as-staked round-trip, check-shot brackets, the As-Staked Ledger.
+
+Rides on :mod:`rfi_stamper.fieldstitch` (the point engine) and closes the
+loop offline: design points go out as CSV, staked shots come back as CSV,
+and this module pairs them (human review table first, same idiom as the
+stamper's mapping review), computes deltas against job tolerance classes,
+advances point statuses (never downgrading in bulk), and prints the signed
+As-Staked Ledger PDF — the deliverable, not a nicety: a large share of
+construction delays trace to layout disputes, and the signed ledger is what
+settles them.
+
+Doctrine baked into the defaults (all editable, all labeled "verify against
+project spec"):
+
+* layout budget <= 1/3 (at most 1/2) of the construction tolerance it
+  serves — the presets encode the layout share, not the code limit;
+* bolts laid out at top-of-concrete are often checked at top-of-bolt — a
+  5 deg lean on a 6 in projection reads as 1/2 in of position error that
+  isn't real, so every delta record carries ``measured_at``
+  (surface | projection);
+* verdicts are computed on UNROUNDED values, then rounded for display
+  (compare-then-round) — stated in the ledger footer;
+* check shots are compared, never averaged, and never overwrite control.
+
+Fully offline; stdlib + reportlab only; all writes are atomic.
+"""
+from __future__ import annotations
+
+import io
+import json
+import math
+import os
+import re
+from dataclasses import dataclass, fields
+from datetime import datetime, timezone
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape, letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.platypus import (
+    HRFlowable,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+from . import transmittal
+from .fieldstitch import (
+    LayoutJob,
+    LayoutPoint,
+    POINT_STATUSES,
+    STATUS_RANK,
+    _atomic_bytes,
+    _split_label,
+    frame_hash,
+    read_point_csv,
+)
+
+_VERSION = 1
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ------------------------------------------------------- tolerance classes --
+
+#: The brief's ft-per-inch-fraction conversions (decimal feet, as shipped).
+SIXTEENTH_IN_FT = 0.0052
+EIGHTH_IN_FT = 0.0104
+QUARTER_IN_FT = 0.0208
+THREE_EIGHTHS_IN_FT = 0.0313
+HALF_IN_FT = 0.0417
+INCH_FT = 0.0833
+
+#: Printed in the class editor and on reports.
+TOLERANCE_DISCLAIMER = ("Editable defaults — verify against project spec.")
+LAYOUT_BUDGET_NOTE = (
+    "Layout budget <= 1/3 (at most 1/2) of the construction tolerance it "
+    "serves — these presets encode the layout share, not the code limit.")
+TOP_OF_BOLT_NOTE = (
+    "Bolts laid out at top-of-concrete are often checked at top-of-bolt: a "
+    "5 deg lean on a 6 in projection reads as 1/2 in of position error "
+    "that isn't real.  Delta records carry measured_at "
+    "(surface | projection).")
+
+
+@dataclass
+class ToleranceClass:
+    """One job-editable tolerance row.  ``h_ft``/``v_ft`` are decimal feet
+    (display converts to ft-in fractions); ``None`` = that axis is not
+    judged by this class."""
+    name: str
+    h_ft: float | None = None
+    v_ft: float | None = None
+    basis: str = ""
+    note: str = ""
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "h_ft": self.h_ft, "v_ft": self.v_ft,
+                "basis": self.basis, "note": self.note}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ToleranceClass":
+        def _f(v):
+            return None if v is None else float(v)
+        return cls(name=str(d.get("name", "")), h_ft=_f(d.get("h_ft")),
+                   v_ft=_f(d.get("v_ft")), basis=str(d.get("basis", "")),
+                   note=str(d.get("note", "")))
+
+
+def _tc(name, h, v, basis, note=""):
+    return ToleranceClass(name=name, h_ft=h, v_ft=v, basis=basis, note=note)
+
+
+#: Ship-with defaults (decimal feet).  Values marked practice/agency are
+#: editable defaults labeled "verify against project spec", never hardcoded
+#: truths — see :data:`TOLERANCE_DISCLAIMER`.
+DEFAULT_TOLERANCES = {tc.name: tc for tc in (
+    _tc("CONTROL", 0.005, 0.02,
+        "control-network practice (closes 1:20,000+); H 1/16 in (1.6 mm)"),
+    _tc("GRIDLINE", EIGHTH_IN_FT, None,
+        "working-point practice (gridline / structural line, 1/8 in)"),
+    _tc("ANCHOR-S", QUARTER_IN_FT, HALF_IN_FT,
+        "bolts <= 7/8 in dia: +/-1/4 in, rod top +/-1/2 in — "
+        "diameter-banded, harmonized concrete/steel table"),
+    _tc("ANCHOR-M", THREE_EIGHTHS_IN_FT, HALF_IN_FT,
+        "bolts 1-1.5 in dia: +/-3/8 in, rod top +/-1/2 in — same table"),
+    _tc("ANCHOR-L", HALF_IN_FT, HALF_IN_FT,
+        "bolts 1.75-2.5 in dia: +/-1/2 in, rod top +/-1/2 in — same table"),
+    _tc("BOLT-IN-GROUP", EIGHTH_IN_FT, None,
+        "steel code of standard practice sec 7.5: 1/8 in between any two "
+        "rods in a group; 1/4 in between adjacent group centers; 1/4 in "
+        "group-to-column-line; accumulation <= 1/4 in per 100 ft, max 1 in "
+        "total; column plumb 1:500",
+        note="group tolerances are a lineage: judge point-to-point AND "
+             "cumulative along the gridline chain"),
+    _tc("EMBED", INCH_FT, None,
+        "concrete tolerance spec: +/-1 in; 'practical' variant +/-1/4 in "
+        "(specs routinely tighten)"),
+    _tc("SLEEVE", HALF_IN_FT, None,
+        "sleeve / outlet: +/-1/2 in; common spec override +/-1/4 in"),
+    _tc("MEP-HANGER", QUARTER_IN_FT, None,
+        "practice: +/-1/4 to 3/8 in"),
+    _tc("TRACK", QUARTER_IN_FT, None,
+        "gypsum standard: track / partition +/-1/4 in (some hold 1/8; "
+        "plane 1/8 in in 10 ft)"),
+    _tc("SLAB-OPENING-EDGE", HALF_IN_FT, None,
+        "opening size +1 / -1/2 in"),
+    _tc("SAWCUT", 0.0625, None, "sawcut / joint +/-3/4 in"),
+    _tc("SLAB-ELEVATION", None, 0.0625, "slab elevation +/-3/4 in"),
+    _tc("FORMWORK-PLUMB", INCH_FT, None,
+        "lesser of 0.3% of height or 1 in (1 in up to ~83 ft-4 in, then "
+        "H/1000)"),
+    _tc("CURTAIN-WALL-EMBED", QUARTER_IN_FT, EIGHTH_IN_FT,
+        "facade spec practice: +/-1/4 in H, +/-1/8 in V"),
+    _tc("ELEVATOR-RAIL", EIGHTH_IN_FT, None, "rail line +/-1/8 in H"),
+    _tc("FINISH-GRADE", None, 0.01,
+        "blue top practice +/-0.01 ft (agency ladders 0.02-0.03 ft)"),
+    _tc("ROUGH-GRADE", 0.1, 0.1,
+        "rough pads: 1.0 ft station / 0.1 ft offset / 0.1 ft elev for cuts "
+        "under 10 ft; V +/-0.05-0.1 ft"),
+    _tc("CURB-GUTTER", 0.02, 0.02,
+        "curb & gutter +/-0.02 ft H, +/-0.01-0.02 ft V"),
+)}
+
+#: Fallback class when a point declares none and its code has no default.
+DEFAULT_CLASS = "GRIDLINE"
+
+
+def job_tolerances(job: LayoutJob) -> dict:
+    """The effective tolerance table: :data:`DEFAULT_TOLERANCES` overlaid
+    with the job's own edits (``job.tolerances``, persisted in the
+    sidecar)."""
+    out = {name: tc for name, tc in DEFAULT_TOLERANCES.items()}
+    for name, d in (job.tolerances or {}).items():
+        try:
+            out[str(name)] = ToleranceClass.from_dict(d)
+        except Exception:
+            continue
+    return out
+
+
+def set_job_tolerance(job: LayoutJob, tc: ToleranceClass) -> None:
+    """Store a job-level tolerance class (override or new); autosaves."""
+    job.tolerances[tc.name] = tc.to_dict()
+    job._autosave()
+
+
+def tolerance_for(job: LayoutJob, p: LayoutPoint) -> ToleranceClass:
+    """Resolve a point's tolerance class: its own ``tol_class``, else its
+    Stitch Code's default, else :data:`DEFAULT_CLASS`."""
+    classes = job_tolerances(job)
+    name = p.tol_class
+    if not name and p.code:
+        sc = job_codes(job).get(str(p.code).upper())
+        if sc is not None:
+            name = sc.default_tol_class
+    return classes.get(name) or classes[DEFAULT_CLASS]
+
+
+# ------------------------------------------------------------ stitch codes --
+
+#: The 8 utility-marking paint colors (plus doctrine: blue keel marks
+#: finish-grade hubs).
+PAINT_COLORS = {
+    "WHITE": "proposed excavation / layout",
+    "PINK": "temporary survey",
+    "RED": "electric",
+    "YELLOW": "gas / oil / steam",
+    "ORANGE": "communications",
+    "BLUE": "potable water",
+    "GREEN": "sewer / storm",
+    "PURPLE": "reclaimed water",
+}
+
+
+@dataclass
+class StitchCode:
+    """One code-library entry.  ``prompts`` is a tuple of typed attribute
+    prompts ``(name, kind, unit, joiner)`` — kind int|decimal|choice|text —
+    consumed in order by :func:`compose`.  Grammar: ``CODE [size]
+    [reference]`` (e.g. ``AB 1.25 C4``); exports always lead the D field
+    with the code."""
+    code: str
+    meaning: str
+    default_layer: str = ""
+    default_tol_class: str = ""
+    paint_color: str = "WHITE"
+    prompts: tuple = ()
+
+    def to_dict(self) -> dict:
+        return {"code": self.code, "meaning": self.meaning,
+                "default_layer": self.default_layer,
+                "default_tol_class": self.default_tol_class,
+                "paint_color": self.paint_color,
+                "prompts": [list(p) for p in self.prompts]}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StitchCode":
+        return cls(code=str(d.get("code", "")).upper(),
+                   meaning=str(d.get("meaning", "")),
+                   default_layer=str(d.get("default_layer", "")),
+                   default_tol_class=str(d.get("default_tol_class", "")),
+                   paint_color=str(d.get("paint_color", "WHITE")),
+                   prompts=tuple(tuple(p) for p in d.get("prompts") or ()))
+
+
+def _sc(code, meaning, layer="", tol="", paint="WHITE", prompts=()):
+    return StitchCode(code=code, meaning=meaning, default_layer=layer,
+                      default_tol_class=tol, paint_color=paint,
+                      prompts=prompts)
+
+
+#: Seed library (app-level defaults; the job stores overrides/additions in
+#: ``job.stitch_codes``).
+SEED_CODES = {sc.code: sc for sc in (
+    _sc("CP", "control point", "Control", "CONTROL", "PINK"),
+    _sc("CTRL", "control point", "Control", "CONTROL", "PINK"),
+    _sc("BM", "benchmark", "Benchmarks", "CONTROL", "PINK"),
+    _sc("WP", "work point", "Work", "GRIDLINE", "WHITE"),
+    _sc("GL", "gridline intersection", "Work", "GRIDLINE", "WHITE",
+        (("grid cell", "text", "", "-"),)),
+    _sc("COL", "column centerline", "Steel", "GRIDLINE", "WHITE",
+        (("grid cell", "text", "", "-"),)),
+    _sc("AB", "anchor bolt", "Steel", "ANCHOR-M", "WHITE",
+        (("diameter", "decimal", "in", " "), ("reference", "text", "", " "))),
+    _sc("ABOLT", "anchor bolt", "Steel", "ANCHOR-M", "WHITE",
+        (("diameter", "decimal", "in", " "), ("reference", "text", "", " "))),
+    _sc("EMB", "embed plate", "Concrete", "EMBED", "WHITE"),
+    _sc("SLV", "sleeve", "Plumbing", "SLEEVE", "GREEN",
+        (("diameter", "int", "in", "-"),)),
+    _sc("HGR", "hanger", "Mechanical", "MEP-HANGER", "WHITE",
+        (("rod diameter", "decimal", "in", "-"),)),
+    _sc("TRK", "wall track", "User", "TRACK", "WHITE"),
+    _sc("PEN", "penetration", "User", "SLEEVE", "WHITE"),
+    _sc("CJ", "control joint", "Concrete", "SAWCUT", "WHITE"),
+    _sc("FD", "floor drain", "Plumbing", "SLEEVE", "GREEN"),
+    _sc("BOX", "electrical box", "Electrical", "SLEEVE", "RED"),
+    _sc("UG", "underground utility", "User", "ROUGH-GRADE", "WHITE"),
+    _sc("TBC", "top back of curb", "Property", "CURB-GUTTER", "WHITE"),
+    _sc("OS", "offset stake", "Work", "GRIDLINE", "PINK",
+        (("distance", "decimal", "ft", " "),)),
+)}
+
+
+def job_codes(job: LayoutJob) -> dict:
+    """Effective Stitch Code library: :data:`SEED_CODES` overlaid with the
+    job's own entries (``job.stitch_codes``)."""
+    out = dict(SEED_CODES)
+    for code, d in (job.stitch_codes or {}).items():
+        try:
+            sc = StitchCode.from_dict(d)
+            out[sc.code or str(code).upper()] = sc
+        except Exception:
+            continue
+    return out
+
+
+def set_job_code(job: LayoutJob, sc: StitchCode) -> None:
+    """Store a job-level Stitch Code (override or new); autosaves."""
+    job.stitch_codes[sc.code] = sc.to_dict()
+    job._autosave()
+
+
+def compose(code: str, args=(), codes: dict | None = None) -> str:
+    """Compose a code-first description: each argument joins with its
+    prompt's joiner (``SLV`` + 4 -> ``SLV-4``; ``COL`` + A1 -> ``COL-A1``;
+    ``AB`` + 1.25 + C4 -> ``AB 1.25 C4``).  Unknown codes join with
+    spaces."""
+    code = str(code or "").strip().upper()
+    sc = (codes or SEED_CODES).get(code)
+    prompts = sc.prompts if sc is not None else ()
+    out = code
+    for i, arg in enumerate(args):
+        joiner = prompts[i][3] if i < len(prompts) and len(prompts[i]) > 3 \
+            else " "
+        out += f"{joiner}{arg}"
+    return out
+
+
+def apply_code(job: LayoutJob, p: LayoutPoint, code: str, args=()) -> None:
+    """Stamp a Stitch Code onto a point: sets ``code``, the composed
+    ``desc``, and fills ``tol_class`` (and layer, when still the default)
+    from the code's defaults; autosaves."""
+    codes = job_codes(job)
+    sc = codes.get(str(code).upper())
+    p.code = str(code).upper()
+    p.desc = compose(code, args, codes)
+    if sc is not None:
+        if not p.tol_class:
+            p.tol_class = sc.default_tol_class
+        if p.layer == "Layout" and sc.default_layer:
+            if job.layer(sc.default_layer) is None:
+                from .fieldstitch import PointLayer
+                job.layers.append(PointLayer(sc.default_layer))
+            p.layer = sc.default_layer
+    job._autosave()
+
+
+# -------------------------------------------------------------- delta math --
+
+VERDICTS = ("TIGHT", "SNUG", "LOOSE")
+
+
+@dataclass
+class DeltaRecord:
+    """One staked attempt judged against its design point.  Every attempt is
+    kept; the latest governs status; the ledger prints them all."""
+    point_uid: str = ""
+    label: str = ""
+    design_n: float = 0.0
+    design_e: float = 0.0
+    design_z: float | None = None
+    staked_n: float = 0.0
+    staked_e: float = 0.0
+    staked_z: float | None = None
+    dn: float = 0.0
+    de: float = 0.0
+    dz: float | None = None
+    hd: float = 0.0
+    azimuth: float = 0.0               # miss azimuth, deg from north, 0-360
+    tol_h: float | None = None
+    tol_v: float | None = None
+    tol_class: str = ""
+    verdict: str = ""                  # TIGHT | SNUG | LOOSE
+    passed: bool = False
+    cut_fill: str = ""                 # "C 1.25" | "F 0.10" | "GRADE" | ""
+    measured_at: str = "surface"       # surface | projection
+    session_id: str = ""
+    ts: str = ""
+    staked_by: str = ""
+    note: str = ""                     # rod/target height note etc.
+    via: str = ""                      # pairing rung that matched
+
+    def to_dict(self) -> dict:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DeltaRecord":
+        kw = {}
+        for f in fields(cls):
+            if f.name in d:
+                kw[f.name] = d[f.name]
+        return cls(**kw)
+
+
+def cut_fill(dz: float | None) -> str:
+    """Cut/Fill string, DERIVED, never typed separately: dz > 0 -> C, dz < 0
+    -> F, |dz| < 0.005 ft -> GRADE, None -> ''.  Hundredths."""
+    if dz is None:
+        return ""
+    if abs(dz) < 0.005:
+        return "GRADE"
+    return ("C" if dz > 0 else "F") + f" {abs(dz):.2f}"
+
+
+def deltas(design, staked, tol_h: float | None = None,
+           tol_v: float | None = None, **meta) -> DeltaRecord:
+    """The single source of truth for delta math (pure function).
+
+    ``design``/``staked`` are ``(N, E, Z-or-None)`` triples.  dN/dE/dZ are
+    staked minus design; ``HD = sqrt(dN^2 + dE^2)``; miss azimuth =
+    ``atan2(dE, dN)`` normalized 0-360 from north.  PASS iff ``HD <= tol_h``
+    AND ``|dZ| <= tol_v`` — ``<=`` passes, computed on UNROUNDED values
+    (compare-then-round).  Verdict: TIGHT <= 50% of tolerance, SNUG <= 100%,
+    LOOSE beyond (worst axis governs).  An axis with no tolerance (or no
+    dZ) is not judged.  Extra keyword args land on the record
+    (``session_id=``, ``staked_by=``, ``measured_at=``, ...)."""
+    dn = float(staked[0]) - float(design[0])
+    de = float(staked[1]) - float(design[1])
+    dz = None
+    if len(design) > 2 and len(staked) > 2 \
+            and design[2] is not None and staked[2] is not None:
+        dz = float(staked[2]) - float(design[2])
+    hd = math.hypot(dn, de)
+    azimuth = math.degrees(math.atan2(de, dn)) % 360.0
+    ratios = []
+    if tol_h is not None:
+        ratios.append(hd / tol_h if tol_h > 0 else math.inf)
+    if tol_v is not None and dz is not None:
+        ratios.append(abs(dz) / tol_v if tol_v > 0 else math.inf)
+    if ratios:
+        worst = max(ratios)
+        verdict = ("TIGHT" if worst <= 0.5
+                   else "SNUG" if worst <= 1.0 else "LOOSE")
+        passed = worst <= 1.0
+    else:
+        verdict, passed = "", False
+    return DeltaRecord(
+        design_n=float(design[0]), design_e=float(design[1]),
+        design_z=None if len(design) < 3 or design[2] is None
+        else float(design[2]),
+        staked_n=float(staked[0]), staked_e=float(staked[1]),
+        staked_z=None if len(staked) < 3 or staked[2] is None
+        else float(staked[2]),
+        dn=dn, de=de, dz=dz, hd=hd, azimuth=azimuth,
+        tol_h=tol_h, tol_v=tol_v, verdict=verdict, passed=passed,
+        cut_fill=cut_fill(dz), ts=meta.pop("ts", "") or _now_iso(), **meta)
+
+
+def two_state(rec: DeltaRecord) -> str:
+    """PASS / NEAR / FAIL banding for the summary strip: PASS <= 1x
+    tolerance, NEAR 1x-2x, FAIL beyond (worst axis governs)."""
+    ratios = []
+    if rec.tol_h:
+        ratios.append(rec.hd / rec.tol_h)
+    if rec.tol_v and rec.dz is not None:
+        ratios.append(abs(rec.dz) / rec.tol_v)
+    if not ratios:
+        return "FAIL"
+    worst = max(ratios)
+    return "PASS" if worst <= 1.0 else "NEAR" if worst <= 2.0 else "FAIL"
+
+
+# ------------------------------------------------------------- check shots --
+
+#: Default check-shot acceptance (building work).  Sitework ledger variant
+#: 0.02/0.03; structural 0.01/0.01.  Compared, never averaged.
+CHECK_TOL_H = 0.01
+CHECK_TOL_V = 0.02
+
+
+@dataclass
+class CheckShot:
+    """One shot on a known point: observed vs record.  Never overwrites
+    control."""
+    date_iso: str = ""
+    control: str = ""                  # control point label/number
+    n: float = 0.0
+    e: float = 0.0
+    z: float | None = None             # observed
+    dn: float = 0.0
+    de: float = 0.0
+    dz: float | None = None
+    hd: float = 0.0
+    tol_h: float = CHECK_TOL_H
+    tol_v: float = CHECK_TOL_V
+    passed: bool = False
+    note: str = ""
+
+    def to_dict(self) -> dict:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CheckShot":
+        kw = {f.name: d[f.name] for f in fields(cls) if f.name in d}
+        return cls(**kw)
+
+
+def check_shot(job: LayoutJob, control_key, observed,
+               tol_h: float = CHECK_TOL_H, tol_v: float = CHECK_TOL_V,
+               note: str = "", ts: str = "") -> CheckShot:
+    """Judge an observed (N, E, Z-or-None) against a control/known point.
+    Pure comparison — the control's coordinates are never touched."""
+    p = job._resolve_point(control_key)
+    if p is None:
+        raise ValueError(f"no such control point: {control_key!r}")
+    n, e, z = job.to_world(p)
+    dn = float(observed[0]) - n
+    de = float(observed[1]) - e
+    oz = observed[2] if len(observed) > 2 else None
+    dz = None if (z is None or oz is None) else float(oz) - z
+    hd = math.hypot(dn, de)
+    passed = hd <= tol_h and (dz is None or abs(dz) <= tol_v)
+    return CheckShot(date_iso=ts or _now_iso(), control=job.composed(p),
+                     n=float(observed[0]), e=float(observed[1]),
+                     z=None if oz is None else float(oz),
+                     dn=dn, de=de, dz=dz, hd=hd,
+                     tol_h=tol_h, tol_v=tol_v, passed=passed, note=note)
+
+
+def brackets(checks, records) -> list:
+    """Group staked records chronologically between consecutive check shots.
+
+    Returns one dict per bracket: ``{"open": CheckShot|None, "close":
+    CheckShot|None, "records": [...], "points": [labels], "flagged": bool,
+    "unclosed": bool}``.  A failed CLOSING check flags the whole bracket —
+    the report prints the exact point ids to re-shoot; re-importing a
+    corrected file clears the flag with history retained."""
+    checks = sorted(checks, key=lambda c: c.date_iso)
+    records = sorted(records, key=lambda r: r.ts)
+    out = []
+    ri = 0
+    prev = None
+    for chk in checks:
+        grp = []
+        while ri < len(records) and records[ri].ts <= chk.date_iso:
+            grp.append(records[ri])
+            ri += 1
+        out.append({"open": prev, "close": chk, "records": grp,
+                    "points": [r.label for r in grp],
+                    "flagged": not chk.passed, "unclosed": False})
+        prev = chk
+    tail = records[ri:]
+    if tail or not checks:
+        out.append({"open": prev, "close": None, "records": tail,
+                    "points": [r.label for r in tail],
+                    "flagged": False, "unclosed": True})
+    return out
+
+
+# ---------------------------------------------------------------- QA store --
+
+class QAStore:
+    """Per-plan QA sidecar (``<plan.pdf>.fieldqa.json``): every staked
+    attempt per point uid (chronological — kept forever, latest governs)
+    plus the check-shot ledger.  Same conventions as the other sidecars:
+    versioned JSON, atomic writes, tolerant load."""
+
+    SUFFIX = ".fieldqa.json"
+
+    def __init__(self, pdf_path: str | None = None):
+        self.pdf_path = pdf_path
+        self.path = (pdf_path + self.SUFFIX) if pdf_path else None
+        self.records: dict[str, list] = {}       # uid -> [DeltaRecord...]
+        self.checks: list = []                    # [CheckShot...]
+        if self.path and os.path.exists(self.path):
+            self.load()
+
+    # ------------------------------------------------------------ deltas --
+
+    def add_delta(self, rec: DeltaRecord) -> None:
+        if not rec.point_uid:
+            raise ValueError("DeltaRecord.point_uid must be set")
+        self.records.setdefault(rec.point_uid, []).append(rec)
+        self._autosave()
+
+    def attempts(self, uid: str) -> list:
+        return list(self.records.get(uid, []))
+
+    def latest(self, uid: str) -> DeltaRecord | None:
+        recs = self.records.get(uid)
+        return recs[-1] if recs else None
+
+    def governing(self) -> list:
+        """Latest attempt per point, chronological by timestamp."""
+        return sorted((recs[-1] for recs in self.records.values() if recs),
+                      key=lambda r: r.ts)
+
+    def all_records(self) -> list:
+        """Every attempt, chronological."""
+        return sorted((r for recs in self.records.values() for r in recs),
+                      key=lambda r: r.ts)
+
+    # ------------------------------------------------------------ checks --
+
+    def add_check(self, cs: CheckShot) -> None:
+        self.checks.append(cs)
+        self.checks.sort(key=lambda c: c.date_iso)
+        self._autosave()
+
+    # ------------------------------------------------------- persistence --
+
+    def to_dict(self) -> dict:
+        return {"version": _VERSION,
+                "records": {uid: [r.to_dict() for r in recs]
+                            for uid, recs in self.records.items()},
+                "checks": [c.to_dict() for c in self.checks]}
+
+    def save(self, path: str | None = None) -> None:
+        path = path or self.path
+        if not path:
+            raise ValueError("no sidecar path; construct with pdf_path or "
+                             "pass an explicit path")
+        blob = json.dumps(self.to_dict(), indent=2,
+                          sort_keys=True).encode("utf-8")
+        _atomic_bytes(blob, path)
+
+    def load(self, path: str | None = None) -> None:
+        path = path or self.path
+        if not path:
+            raise ValueError("no sidecar path; construct with pdf_path or "
+                             "pass an explicit path")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        records: dict[str, list] = {}
+        for uid, recs in (data.get("records") or {}).items():
+            entries = []
+            for d in recs if isinstance(recs, list) else []:
+                try:
+                    entries.append(DeltaRecord.from_dict(d))
+                except Exception:
+                    continue
+            if entries:
+                records[str(uid)] = entries
+        checks = []
+        for d in data.get("checks") or []:
+            try:
+                checks.append(CheckShot.from_dict(d))
+            except Exception:
+                continue
+        checks.sort(key=lambda c: c.date_iso)
+        self.records, self.checks = records, checks
+
+    def _autosave(self) -> None:
+        if self.path:
+            self.save()
+
+
+# --------------------------------------------------------- as-staked import --
+
+#: Pairing rungs, in ladder order.  ``manual`` is set by the reviewer;
+#: ``unmatched`` rows land in the review bucket and are never guessed.
+PAIR_VIAS = ("id", "block", "desc", "proximity", "manual", "unmatched")
+
+#: Rungs the commit step takes without a human click.
+_AUTO_COMMIT_VIAS = ("id", "block", "desc", "manual")
+
+_STAKE_TOKENS = ("STK", "AS")
+
+
+def pair_asstaked(job: LayoutJob, path: str, *, order: str = "PNEZD",
+                  block_offsets=(1000, 10000),
+                  proximity_factor: float = 2.0) -> dict:
+    """Pair a field CSV of staked shots against the job's DESIGN points and
+    return a review table — nothing commits until :func:`commit_asstaked`.
+
+    The pairing ladder (best rung wins, per shot):
+
+    1. ``id`` — exact number match after prefix/suffix strip, zero-fill
+       aware ('001' == '1'); NEVER substring ('1' must not match '1001');
+    2. ``block`` — design number +/- a block offset (1000 / 10000);
+    3. ``desc`` — a STK/AS token in the id suffix or description names the
+       design number;
+    4. ``proximity`` — nearest design point within ``proximity_factor``
+       (default 2x) of its horizontal tolerance — SUGGESTION ONLY: the row
+       carries ``confirmed=False`` and commit skips it until a human
+       confirms;
+    5. ``unmatched`` — review bucket.
+
+    Each row: ``{"shot_id", "n", "e", "z", "desc", "via", "uid", "label",
+    "note", "confirmed"}`` (``via`` as in the stamper's mapping review).
+
+    Frame-hash gate: when the file (comment lines or its .tag.txt sidecar)
+    declares a frame hash and it mismatches this job's, the report carries
+    ``frame_hash_ok=False`` and a LOUD ``frame_warning`` — deltas computed
+    across a frame edit measure the edit, not the crew."""
+    data = read_point_csv(path, order=order)
+    targets = [p for p in job.points
+               if p.kind == "DESIGN" and not p.is_witness]
+    by_num: dict[int, LayoutPoint] = {}
+    for p in targets:
+        by_num.setdefault(p.num, p)
+
+    rows = []
+    for shot in data["rows"]:
+        pre, num, suf = _split_label(shot["id"])
+        via, target, note = "unmatched", None, ""
+        suf_token = suf.strip().upper().strip("-_.")
+        known_suffix = suf in ("", job.suffix) or any(
+            suf == p.suffix for p in targets)
+        # 1. id exact (zero-fill aware; suffix must be a known one, so
+        #    '101STK' falls through to the desc rung)
+        if num is not None and known_suffix and num in by_num:
+            via, target = "id", by_num[num]
+        # 2. block offset — as-staked shots are numbered UP into the block
+        #    (shot = design + offset); never downward, or '1' would "block-
+        #    match" design 1001
+        if target is None and num is not None and known_suffix:
+            for off in block_offsets:
+                if num - off >= 1 and num - off in by_num:
+                    via, target, note = "block", by_num[num - off], f"-{off}"
+                    break
+        # 3. STK/AS token in the id suffix or the description
+        if target is None:
+            if suf_token in _STAKE_TOKENS and num is not None \
+                    and num in by_num:
+                via, target, note = "desc", by_num[num], suf_token
+            else:
+                tokens = [t for t in re.split(r"[\s,;/]+",
+                                              shot["desc"].upper()) if t]
+                if any(t in _STAKE_TOKENS for t in tokens):
+                    for t in tokens:
+                        if t.isdigit() and int(t) in by_num:
+                            via, target, note = "desc", by_num[int(t)], t
+                            break
+        # 4. proximity suggestion (needs a click)
+        if target is None and job.cal is not None and targets:
+            best, best_d = None, None
+            for p in targets:
+                n, e, _z = job.to_world(p)
+                d = math.hypot(shot["n"] - n, shot["e"] - e)
+                if best_d is None or d < best_d:
+                    best, best_d = p, d
+            if best is not None:
+                tol = tolerance_for(job, best)
+                if tol.h_ft and best_d <= proximity_factor * tol.h_ft:
+                    via, target = "proximity", best
+                    note = f"{best_d:.3f} ft away"
+        rows.append({
+            "shot_id": shot["id"], "n": shot["n"], "e": shot["e"],
+            "z": shot["z"], "desc": shot["desc"], "via": via,
+            "uid": target.id if target is not None else "",
+            "label": job.composed(target) if target is not None else "",
+            "note": note,
+            "confirmed": via in _AUTO_COMMIT_VIAS,
+        })
+
+    declared = data["frame"]
+    ok = None if not declared else (declared == frame_hash(job))
+    warning = ""
+    if ok is False:
+        warning = (f"FRAME MISMATCH: file was exported against frame "
+                   f"{declared}, this job is {frame_hash(job)} — the "
+                   "basepoint/rotation/scale changed since export; deltas "
+                   "would measure the frame edit, not the staking. "
+                   "Re-export or restore the frame before committing.")
+    return {"rows": rows,
+            "unmatched": [r for r in rows if r["via"] == "unmatched"],
+            "count": len(rows),
+            "frame_hash": declared, "frame_hash_ok": ok,
+            "frame_warning": warning}
+
+
+def commit_asstaked(job: LayoutJob, qa: QAStore, rows, *,
+                    session_id: str = "", staked_by: str = "",
+                    measured_at: str = "surface",
+                    verify_on_pass: bool = False, ts: str = "") -> dict:
+    """Commit reviewed pairing rows: create the STAKED delta records,
+    judge them against each point's tolerance class, and advance statuses.
+
+    Committed rows: ``via`` in id/block/desc/manual, plus proximity rows a
+    human ``confirmed``.  Unmatched/unconfirmed rows are skipped and
+    reported.  Every attempt is KEPT (the ledger prints them all); the
+    latest attempt governs status: PASS -> STAKED (or VERIFIED with
+    ``verify_on_pass``), FAIL -> REJECTED (re-arms on the next stake) —
+    but a VERIFIED point is never bulk-downgraded; a later failed attempt
+    is recorded and reported without touching the status.
+
+    Returns ``{"committed", "passed", "failed", "skipped": [rows],
+    "kept_verified": [labels], "records": [DeltaRecord...]}``."""
+    committed = passed = failed = 0
+    skipped, kept_verified, out_records = [], [], []
+    for row in rows:
+        uid = row.get("uid") or ""
+        via = row.get("via", "unmatched")
+        ok_via = via in _AUTO_COMMIT_VIAS or (
+            via == "proximity" and row.get("confirmed"))
+        if not uid or not ok_via:
+            skipped.append(row)
+            continue
+        p = job.get(uid)
+        if p is None:
+            skipped.append(row)
+            continue
+        design = job.to_world(p)
+        tol = tolerance_for(job, p)
+        rec = deltas(design, (row["n"], row["e"], row.get("z")),
+                     tol.h_ft, tol.v_ft,
+                     point_uid=p.id, label=job.composed(p),
+                     tol_class=tol.name, measured_at=measured_at,
+                     session_id=session_id, staked_by=staked_by,
+                     via=via, ts=ts)
+        qa.add_delta(rec)
+        out_records.append(rec)
+        committed += 1
+        if rec.passed:
+            passed += 1
+            target_status = "VERIFIED" if verify_on_pass else "STAKED"
+        else:
+            failed += 1
+            target_status = "REJECTED"
+        if p.status == "VERIFIED" \
+                and STATUS_RANK[target_status] < STATUS_RANK["VERIFIED"]:
+            kept_verified.append(job.composed(p))    # never bulk-downgrade
+            continue
+        job.set_status(p, target_status,
+                       note=f"as-staked import (via {via})", by=staked_by)
+    return {"committed": committed, "passed": passed, "failed": failed,
+            "skipped": skipped, "kept_verified": kept_verified,
+            "records": out_records}
+
+
+# ---------------------------------------------------------- ledger outputs --
+
+#: Compare-then-round rule, printed in the ledger footer.
+ROUNDING_FOOTNOTE = (
+    "Verdicts are computed on unrounded values, then rounded for display "
+    "(compare-then-round): a 0.1251 ft miss displayed as 0.13 against a "
+    "displayed 0.13 tolerance is still a FAIL.")
+
+
+def _fmt(v, nd=3, empty="-"):
+    return empty if v is None else f"{v:.{nd}f}"
+
+
+def _fmt_tol(tc_h, tc_v):
+    return f"{_fmt(tc_h)} / {_fmt(tc_v)}"
+
+
+def summarize(records) -> dict:
+    """Footer summary strip over the GOVERNING records: staked / passed /
+    near / failed counts, max HD, RMS HD, max |dZ|."""
+    recs = list(records)
+    bands = [two_state(r) for r in recs]
+    hds = [r.hd for r in recs]
+    dzs = [abs(r.dz) for r in recs if r.dz is not None]
+    return {
+        "staked": len(recs),
+        "passed": sum(1 for b in bands if b == "PASS"),
+        "near": sum(1 for b in bands if b == "NEAR"),
+        "failed": sum(1 for b in bands if b == "FAIL"),
+        "max_hd": max(hds) if hds else 0.0,
+        "rms_hd": math.sqrt(sum(h * h for h in hds) / len(hds))
+        if hds else 0.0,
+        "max_abs_dz": max(dzs) if dzs else 0.0,
+    }
+
+
+_LEDGER_HEADERS = ["Pt", "Description", "Class", "Design N/E/Z",
+                   "Staked N/E/Z", "dN", "dE", "dZ", "HD", "Az", "C/F",
+                   "Tol H/V", "Verdict", "At", "Time"]
+_LEDGER_WEIGHTS = [5.2, 8.0, 6.0, 8.4, 8.4, 4.6, 4.6, 4.6, 4.6, 4.4, 5.0,
+                   6.4, 5.2, 4.6, 8.0]
+_MARGIN = 40.0
+
+
+def _ledger_styles():
+    title = ParagraphStyle(
+        "LedgerTitle", fontName="Helvetica-Bold", fontSize=20, leading=23,
+        textColor=transmittal.ACCENT, spaceAfter=2)
+    meta = ParagraphStyle(
+        "LedgerMeta", fontName="Helvetica", fontSize=8, leading=10.5,
+        textColor=colors.Color(0.24, 0.24, 0.24))
+    session = ParagraphStyle(
+        "LedgerSession", fontName="Helvetica-Bold", fontSize=9, leading=12,
+        textColor=transmittal.ACCENT, spaceBefore=8, spaceAfter=2)
+    header = ParagraphStyle(
+        "LedgerHeader", fontName="Helvetica-Bold", fontSize=6.8, leading=8.4,
+        textColor=colors.white)
+    body = ParagraphStyle(
+        "LedgerCell", fontName="Helvetica", fontSize=6.8, leading=8.4,
+        textColor=colors.Color(0.12, 0.12, 0.12))
+    foot = ParagraphStyle(
+        "LedgerFoot", fontName="Helvetica-Oblique", fontSize=7, leading=9,
+        textColor=colors.Color(0.34, 0.34, 0.34))
+    return title, meta, session, header, body, foot
+
+
+def _ledger_table(rows, header_style, body_style, usable):
+    total_w = sum(_LEDGER_WEIGHTS)
+    widths = [usable * w / total_w for w in _LEDGER_WEIGHTS]
+    data = [[Paragraph(transmittal._cell_text(h), header_style)
+             for h in _LEDGER_HEADERS]]
+    for row in rows:
+        data.append([Paragraph(transmittal._cell_text(c), body_style)
+                     for c in row])
+    style = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), transmittal.ACCENT),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("GRID", (0, 1), (-1, -1), 0.35, colors.Color(0.80, 0.80, 0.82)),
+        ("BOX", (0, 0), (-1, -1), 0.7, colors.Color(0.70, 0.70, 0.72)),
+    ])
+    for i in range(2, len(data), 2):
+        style.add("BACKGROUND", (0, i), (-1, i),
+                  colors.Color(0.960, 0.960, 0.962))
+    return Table(data, colWidths=widths, repeatRows=1, style=style)
+
+
+def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
+               title: str = "AS-STAKED LEDGER", project: str = "",
+               area: str = "", crew: str = "", instrument: str = "",
+               control_held: str = "", datum: str = "", foot: str = "",
+               tolerance_note: str = "", log=print) -> dict:
+    """Render the signed staking report (reportlab, landscape letter, same
+    visual language as :func:`rfi_stamper.transmittal.table_pdf`).
+
+    Rows are EVERY staked attempt, grouped by Station-Log session id so a
+    bad setup visibly quarantines exactly the points it touched.  Header =
+    the provenance strip (project, area/sheet, date, crew, instrument
+    profile, control held, datum/units INCLUDING which foot, tolerance
+    statement, frame hash); footer = the check-shot/bracket ledger, the
+    summary strip (staked/passed/near/failed, max HD, RMS HD, max |dZ|),
+    dated signature blocks and the compare-then-round footnote.
+
+    Returns ``{"out_path", "rows", "pages", "summary"}``."""
+    (title_style, meta_style, session_style, header_style, body_style,
+     foot_style) = _ledger_styles()
+    usable = landscape(letter)[0] - 2 * _MARGIN
+
+    all_recs = qa.all_records()
+    if not foot:
+        foot = ("international foot (0.3048 m exactly)"
+                if job.units == "ft" else "meters" if job.units == "m"
+                else job.units)
+    prov = [
+        ("Project", project or "-"), ("Area / sheet", area or "-"),
+        ("Date", _now_iso()), ("Crew", crew or "-"),
+        ("Instrument", instrument or "-"),
+        ("Control held", control_held or "-"),
+        ("Datum / units", f"{datum or 'project datum'}; units: {job.units} "
+                          f"— {foot}"),
+        ("Tolerances", tolerance_note or
+         f"{TOLERANCE_DISCLAIMER} {LAYOUT_BUDGET_NOTE}"),
+        ("Frame hash", frame_hash(job)),
+    ]
+    story: list = [Paragraph(transmittal._cell_text(title), title_style)]
+    for k, v in prov:
+        story.append(Paragraph(
+            f"<b>{transmittal._cell_text(k)}:</b> "
+            f"{transmittal._cell_text(v)}", meta_style))
+    story.append(HRFlowable(width="100%", thickness=1.5,
+                            color=transmittal.ACCENT, spaceBefore=4,
+                            spaceAfter=6))
+
+    # ---- per-session point tables (every attempt) -----------------------
+    sessions: dict[str, list] = {}
+    order: list[str] = []
+    for r in all_recs:
+        sid = r.session_id or "(no session)"
+        if sid not in sessions:
+            sessions[sid] = []
+            order.append(sid)
+        sessions[sid].append(r)
+    total_rows = 0
+    for sid in order:
+        recs = sessions[sid]
+        story.append(Paragraph(
+            f"Session {transmittal._cell_text(sid)} — {len(recs)} "
+            "attempt(s)", session_style))
+        rows = []
+        for r in recs:
+            rows.append([
+                r.label, r.note or "", r.tol_class,
+                f"{r.design_n:.2f}\n{r.design_e:.2f}\n"
+                + _fmt(r.design_z, 2),
+                f"{r.staked_n:.2f}\n{r.staked_e:.2f}\n"
+                + _fmt(r.staked_z, 2),
+                f"{r.dn:.3f}", f"{r.de:.3f}", _fmt(r.dz),
+                f"{r.hd:.3f}", f"{r.azimuth:.0f}", r.cut_fill or "-",
+                _fmt_tol(r.tol_h, r.tol_v), r.verdict or "-",
+                r.measured_at[:4], r.ts,
+            ])
+        total_rows += len(rows)
+        story.append(_ledger_table(rows, header_style, body_style, usable))
+
+    # ---- check-shot / bracket ledger ------------------------------------
+    brs = brackets(qa.checks, qa.governing())
+    if qa.checks:
+        story.append(Paragraph("Check-shot ledger (compared, never "
+                               "averaged)", session_style))
+        for c in qa.checks:
+            story.append(Paragraph(
+                f"{transmittal._cell_text(c.date_iso)} — "
+                f"{transmittal._cell_text(c.control)}: dN {c.dn:.3f}  "
+                f"dE {c.de:.3f}  dZ {_fmt(c.dz)}  HD {c.hd:.3f}  "
+                f"(tol {c.tol_h:.3f}/{c.tol_v:.3f})  "
+                f"{'PASS' if c.passed else 'FAIL'}"
+                + (f" — {transmittal._cell_text(c.note)}" if c.note else ""),
+                meta_style))
+        for b in brs:
+            if b["flagged"] and b["points"]:
+                story.append(Paragraph(
+                    "<b>BRACKET FLAGGED</b> — closing check failed; "
+                    "re-shoot: "
+                    + transmittal._cell_text(", ".join(b["points"])),
+                    meta_style))
+
+    # ---- summary strip + signatures + footnote ---------------------------
+    summary = summarize(qa.governing())
+    story.append(Spacer(0, 8))
+    story.append(HRFlowable(width="100%", thickness=1.0,
+                            color=transmittal.ACCENT, spaceBefore=2,
+                            spaceAfter=4))
+    story.append(Paragraph(
+        f"<b>Summary:</b> staked {summary['staked']} — "
+        f"passed {summary['passed']} / near {summary['near']} / "
+        f"failed {summary['failed']} — max HD {summary['max_hd']:.3f} ft — "
+        f"RMS HD {summary['rms_hd']:.3f} ft — "
+        f"max |dZ| {summary['max_abs_dz']:.3f} ft", meta_style))
+    story.append(Spacer(0, 14))
+    sig = Table(
+        [[Paragraph("Party chief: ______________________    "
+                    "Date: ____________", meta_style),
+          Paragraph("Reviewer: ______________________    "
+                    "Date: ____________", meta_style)]],
+        colWidths=[usable / 2.0, usable / 2.0])
+    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(sig)
+    story.append(Spacer(0, 6))
+    story.append(Paragraph(transmittal._cell_text(ROUNDING_FOOTNOTE),
+                           foot_style))
+
+    holder: dict = {}
+
+    def _canvasmaker(*args, **kwargs):
+        return transmittal._NumberedCanvas(
+            *args, footer_note=title.strip(), count_holder=holder, **kwargs)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=landscape(letter), leftMargin=_MARGIN,
+        rightMargin=_MARGIN, topMargin=_MARGIN, bottomMargin=_MARGIN + 18,
+        title=title or "As-Staked Ledger")
+    doc.build(story, canvasmaker=_canvasmaker)
+    transmittal._atomic_write_bytes(buf.getvalue(), out_path)
+    pages = int(holder.get("pages", 1))
+    log(f"  wrote {out_path} ({total_rows} attempt row(s), {pages} page(s))")
+    return {"out_path": out_path, "rows": total_rows, "pages": pages,
+            "summary": summary}
+
+
+#: The _qa.csv companion columns (day-bundle delta file).
+QA_CSV_HEADERS = ["point_id", "layer", "status", "design_n", "design_e",
+                  "design_z", "dn", "de", "dhz", "dz", "tolerance_ft",
+                  "pass", "reason", "staked_by", "staked_at"]
+
+
+def export_ledger_csv(job: LayoutJob, qa: QAStore, out_path: str) -> int:
+    """The ``_qa.csv`` companion: one row per staked point (the GOVERNING —
+    latest — attempt; the PDF ledger prints every attempt).  ASCII, CRLF,
+    no BOM, atomic.  Returns the row count."""
+    lines = [",".join(QA_CSV_HEADERS)]
+    count = 0
+    for rec in qa.governing():
+        p = job.get(rec.point_uid)
+        layer = p.layer if p is not None else ""
+        status = p.status if p is not None else ""
+        reason = ""
+        if not rec.passed:
+            parts = []
+            if rec.tol_h is not None and rec.hd > rec.tol_h:
+                parts.append(f"HD {rec.hd:.3f} > {rec.tol_h:.3f}")
+            if rec.tol_v is not None and rec.dz is not None \
+                    and abs(rec.dz) > rec.tol_v:
+                parts.append(f"|dZ| {abs(rec.dz):.3f} > {rec.tol_v:.3f}")
+            reason = f"{rec.verdict}: " + "; ".join(parts) if parts \
+                else rec.verdict
+        cells = [
+            rec.label, layer, status,
+            f"{rec.design_n:.3f}", f"{rec.design_e:.3f}",
+            "" if rec.design_z is None else f"{rec.design_z:.3f}",
+            f"{rec.dn:.3f}", f"{rec.de:.3f}", f"{rec.hd:.3f}",
+            "" if rec.dz is None else f"{rec.dz:.3f}",
+            "" if rec.tol_h is None else f"{rec.tol_h:.3f}",
+            "1" if rec.passed else "0",
+            reason.replace(",", ";"),
+            rec.staked_by, rec.ts,
+        ]
+        lines.append(",".join(cells))
+        count += 1
+    _atomic_bytes(("\r\n".join(lines) + "\r\n").encode("ascii", "replace"),
+                  out_path)
+    return count
+
+
+# ------------------------------------------------------- walking-route sort --
+
+def route_order(coords, start: int = 0) -> list:
+    """Visit order (list of indices) over ``[(n, e), ...]``: greedy
+    nearest-neighbor from ``start`` plus ONE 2-opt improvement pass.
+    Pure function; O(n^2) — fine for crew-day point counts."""
+    n = len(coords)
+    if n == 0:
+        return []
+    start = max(0, min(int(start), n - 1))
+    unvisited = set(range(n))
+    unvisited.discard(start)
+    order = [start]
+    cur = start
+    while unvisited:
+        nxt = min(unvisited, key=lambda i: (
+            (coords[i][0] - coords[cur][0]) ** 2
+            + (coords[i][1] - coords[cur][1]) ** 2))
+        unvisited.discard(nxt)
+        order.append(nxt)
+        cur = nxt
+
+    def dist(a, b):
+        return math.hypot(coords[a][0] - coords[b][0],
+                          coords[a][1] - coords[b][1])
+
+    # one 2-opt pass: uncross any pair of legs that shortens the walk
+    for i in range(1, n - 1):
+        for j in range(i + 1, n):
+            a, b = order[i - 1], order[i]
+            c, d = order[j], order[j + 1] if j + 1 < n else None
+            if d is None:
+                if dist(a, c) < dist(a, b):     # tail reversal
+                    order[i:] = reversed(order[i:])
+                continue
+            if dist(a, c) + dist(b, d) < dist(a, b) + dist(c, d):
+                order[i:j + 1] = reversed(order[i:j + 1])
+    return order
+
+
+def route_length(coords, order) -> float:
+    return sum(math.hypot(coords[order[k + 1]][0] - coords[order[k]][0],
+                          coords[order[k + 1]][1] - coords[order[k]][1])
+               for k in range(len(order) - 1))
+
+
+def walk_route(job: LayoutJob, points=None, start=None,
+               band_ft: float | None = None) -> list:
+    """Walking-route proposal: the given points (default: all), reordered
+    by greedy nearest-neighbor + one 2-opt pass in world XY from ``start``
+    (a point / uid / label / (N, E) tuple; default: the first point).
+
+    Elevation-band aware: with ``band_ft``, points group into bands of
+    ``band_ft`` (by elevation; None banded as 0) and bands route lowest
+    first, chaining from the previous band's last point — a straight-line
+    nearest route through walls/shafts/levels is worse than useless.
+
+    Returns ORDER ONLY — a new list; stored numbers and the job's point
+    list are NEVER mutated (crews deeply distrust renumbering)."""
+    pts = list(points) if points is not None else list(job.points)
+    if not pts:
+        return []
+    world = [job.to_world(p) for p in pts]
+    start_ne = None
+    if start is not None:
+        if isinstance(start, (tuple, list)):
+            start_ne = (float(start[0]), float(start[1]))
+        else:
+            sp = job._resolve_point(start)
+            if sp is None:
+                raise ValueError(f"no such start point: {start!r}")
+            start_ne = job.to_world(sp)[:2]
+
+    if band_ft:
+        bands: dict[int, list] = {}
+        for i, (_n, _e, z) in enumerate(world):
+            bands.setdefault(int(math.floor((z or 0.0) / band_ft)),
+                             []).append(i)
+        band_keys = sorted(bands)
+    else:
+        band_keys = [0]
+        bands = {0: list(range(len(pts)))}
+
+    result: list = []
+    anchor = start_ne
+    for key in band_keys:
+        idxs = bands[key]
+        coords = [(world[i][0], world[i][1]) for i in idxs]
+        if anchor is None:
+            s = 0
+        else:
+            s = min(range(len(idxs)), key=lambda k: (
+                (coords[k][0] - anchor[0]) ** 2
+                + (coords[k][1] - anchor[1]) ** 2))
+        order = route_order(coords, start=s)
+        result.extend(pts[idxs[k]] for k in order)
+        last = coords[order[-1]]
+        anchor = last
+    return result

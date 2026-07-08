@@ -80,9 +80,16 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
                               drop-folder scan — NEVER network
     rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
-    rfi_stamper/fieldstitch.py layout points: layers, numbering, world coords,
-                              PNEZD CSV / XLSX (hand-rolled OOXML) / DXF R12
-                              exporters, kits (bowline/clovehitch/fullspool)
+    rfi_stamper/fieldstitch.py layout points: layers, numbering (spools +
+                              tombstones), statuses, witness points, world
+                              coords, PNEZD/PENZD CSV (+.tag.txt, frame hash) /
+                              XLSX (hand-rolled OOXML) / DXF R12 exporters,
+                              kits (bowline/clovehitch/fullspool), advisory
+                              import validators
+    rfi_stamper/fieldpro.py   layout QA: tolerance classes, Stitch Codes,
+                              delta math, as-staked pairing/commit, check-shot
+                              brackets, As-Staked Ledger PDF + _qa.csv,
+                              walking-route sort
     rfi_stamper/extrude.py    plan PDF vector linework -> extruded 3D wall model
                               in the Fieldstitch world frame
     rfi_stamper/draft.py      The Loft engine: 2D drafting model (decimal feet,
