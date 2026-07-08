@@ -85,6 +85,17 @@ hand it to whichever tablet the crew carries:
   tablets
 * **Full Spool** — everything at once, plus the re-loadable job JSON
 
+And the loop closes: import the crew's **as-staked shots**, review the
+pairing in a human-confirmation table, and Planloom judges every point
+against its trade tolerance class (anchor bolts, embeds, sleeves, track —
+19 editable presets with their code basis) — TIGHT / SNUG / LOOSE, cut/fill
+derived, never typed. The **As-Staked Ledger PDF** prints the signed QA
+deliverable: deltas grouped by instrument session, check-shot brackets,
+datum and *which foot* declared, signature blocks. Control points live in a
+locked number spool, witness stakes tether visibly to their parents, and a
+one-tap **walk order** sorts the stake list by route without ever touching
+a point number.
+
 Points placed on sheets also show up as 3D pins on those sheets in the BIM
 viewer, and the **Horizon Slice** control cuts the 3D model at any elevation
 band — an animated section cut for coordination reviews; the systems legend

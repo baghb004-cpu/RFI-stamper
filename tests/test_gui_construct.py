@@ -212,6 +212,65 @@ def main():
     exts = sorted(os.path.splitext(f)[1] for f in res["files"])
     assert exts == [".csv", ".dxf", ".json", ".xlsx"], exts
 
+    # ---- Fieldstitch Pro (A1): status glyphs, witness, walk order, QA loop
+    import rfi_stamper.fieldpro as fp
+    # a bad prefix must land in the status bar, never a traceback
+    fst.prefix_var.set("BAD PREFIX WAY TOO LONG!!")
+    fst.set_tool("place")
+    fst.on_press(_Ev())
+    root.update()
+    assert len(fst.job.points) == 1, "invalid label must not place a point"
+    fst.prefix_var.set("CP-")
+    # witness point rides its parent and draws a tether
+    fst.selection = p0.id
+    import tkinter.simpledialog as _sd
+    _ask0 = _sd.askstring
+    _sd.askstring = lambda *a, **k: "2, 0"
+    try:
+        fst.add_witness_sel()
+    finally:
+        _sd.askstring = _ask0
+    root.update()
+    wits = [p for p in fst.job.points if p.is_witness]
+    assert len(wits) == 1 and wits[0].parent_uid == p0.uid
+    n0, e0, _ = fst.job.to_world(p0)
+    nw, ew, _ = fst.job.to_world(wits[0])
+    assert abs((nw - n0) - 2.0) < 1e-6 and abs(ew - e0) < 1e-6
+    # status lifecycle drives the table chip and pin shape
+    fst.job.set_status(p0, "STAKED", by="QA")
+    fst.fill_table()
+    fst.redraw_points()
+    root.update()
+    assert fst.ptree.set(p0.id, "st") == "S"
+    fst.job.set_status(p0, "VERIFIED")
+    assert fst.job.seed_statuses({p0.num: "PENDING"}) == 0, \
+        "seeding must never downgrade"
+    # walk order proposes an order without touching numbers
+    for i in range(3):
+        fst.on_press(_Ev())
+    root.update()
+    nums_before = [p.num for p in fst.job.points]
+    fst.toggle_walk_order()
+    root.update()
+    assert fst._route is not None
+    assert [p.num for p in fst.job.points] == nums_before
+    fst.toggle_walk_order()
+    # as-staked QA loop through the engine the dialogs call
+    qa = fp.QAStore(fst.job.pdf_path)
+    design_n, design_e, _z0 = fst.job.to_world(p0)
+    shots = os.path.join(tmp, "shots.csv")
+    with open(shots, "w", newline="") as fh:
+        fh.write(f"{p0.num},{design_n + 0.004:.4f},"
+                 f"{design_e - 0.003:.4f},0.00,STK\r\n")
+    paired = fp.pair_asstaked(fst.job, shots)
+    assert paired["count"] == 1 and paired["rows"][0]["via"] == "id"
+    out = fp.commit_asstaked(fst.job, qa, paired["rows"],
+                             session_id="S1", staked_by="QA")
+    assert out["committed"] == 1 and out["passed"] == 1, out
+    ledger = os.path.join(tmp, "ledger.pdf")
+    lres = fp.ledger_pdf(fst.job, qa, ledger, foot="international foot")
+    assert os.path.exists(ledger) and lres["rows"] >= 1
+
     # ---- 3D: pins land in the viewer and Horizon Slice culls geometry
     fst.push_pins()
     root.update()

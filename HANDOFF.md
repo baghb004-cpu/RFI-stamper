@@ -159,6 +159,40 @@ KB as "the heart, engine and soul — the instruction book, the bible."
 - TradeForge side shipped separately on its repo branch
   `claude/tradeforge-journeyman` (154 selftest checks green).
 
+## Round 7 (SHIPPED, v3.4.0): Fieldstitch Pro A1 — the QA loop
+
+Phase A1 of ROADMAP.md, built from the 8-agent point-layout research brief
+(the brief lives at the session task output; its content is condensed into
+the implementation):
+
+- **fieldstitch.py extended** (backward compatible): point kinds
+  (CONTROL/DESIGN/STAKED/CHECK) + status lifecycle (PENDING→STAKED→
+  VERIFIED/REJECTED, ISO-dated, bulk seeding never downgrades), label
+  cap 16 + charset validation, number Spools per layer (control 1-99 …,
+  quarantine 90000+, tombstoned retirees, mint never rewinds), witness/
+  offset points (host-parametric, cascade, one-side-per-layer lint),
+  wire-CSV export options (PNEZD/PENZD order, 3/4 decimals, code column,
+  # header, .tag.txt sidecar w/ frame hash + checksum), import upgrades
+  (sniffing, null-Z sentinels, collision policies, advisory validators).
+- **fieldpro.py (new)**: 19 tolerance classes w/ basis strings ("verify
+  against project spec"), Stitch Codes library (+ the 8 utility paint
+  colors), delta math (TIGHT/SNUG/LOOSE on unrounded values, cut/fill),
+  as-staked pairing ladder (id/block/desc/proximity/manual — '1' can
+  never match '1001'), commit w/ never-downgrade, QAStore sidecar
+  (.fieldqa.json), check-shot brackets, As-Staked Ledger PDF + _qa.csv,
+  walking-route sort (NN + 2-opt, order only).
+- **GUI**: QA bar (stitch code + kind on placement, Witness, Walk order,
+  Wire CSV dialog w/ live first-3-lines preview, As-staked review dialog
+  w/ human confirmation + frame-mismatch warning, Ledger PDF, QA CSV);
+  pins now shape-code status (control=triangle, witness=tethered hollow,
+  staked=square, verified=green tick square, rejected=orange X) —
+  color-blind-safe verdict trio #009E73/#D55E00/#E69F00; table ST chips.
+- tests/test_fieldstitch_pro.py: 243 checks; construct test drives the
+  whole loop. Old sidecars load unchanged.
+- Deferred to A2: LandXML/GSI/SP-record wire formats, DXF attribute
+  blocks, Harvest generators, two-feet/CSF/Helmert coordinate upgrades,
+  error-budget preflight, stake packages, Field Mode + gun profiles.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

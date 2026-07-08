@@ -14,7 +14,7 @@ from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 import fitz
 
-from .. import fieldstitch as fs
+from .. import fieldpro, fieldstitch as fs
 from ..markups import measure
 from . import dnd, fx
 from .theme import FAMILY, mix, section_color
@@ -44,6 +44,8 @@ class FieldstitchTab(ttk.Frame):
         self.root = root
         self.on_pins = on_pins          # app hook: pins ready for the 3D view
         self.job: fs.LayoutJob | None = None
+        self.qa: fieldpro.QAStore | None = None
+        self._route = None            # walk-order display list (never stored)
         self.tool = "place"
         self.selection: str | None = None
         self._drag_id = None
@@ -100,6 +102,44 @@ class FieldstitchTab(ttk.Frame):
                               command=lambda l=label, r=rpp, u=unit:
                               self.set_scale(l, r, u))
         self.scale_btn.configure(menu=smenu)
+
+        # --------------------------------------------- QA bar (Fieldstitch Pro)
+        qa = ttk.Frame(self, padding=(6, 0, 6, 4))
+        qa.pack(fill="x")
+        ttk.Label(qa, text="Stitch code", style="Muted.TLabel"
+                  ).pack(side="left")
+        self.code_var = tk.StringVar(value="")
+        self.code_cb = ttk.Combobox(
+            qa, width=7, textvariable=self.code_var,
+            values=[""] + list(fieldpro.SEED_CODES))
+        self.code_cb.pack(side="left", padx=(2, 6))
+        Tooltip(self.code_cb, "Code stamped on new points — sets layer and "
+                              "tolerance class automatically", theme)
+        ttk.Label(qa, text="kind", style="Muted.TLabel").pack(side="left")
+        self.kind_var = tk.StringVar(value="DESIGN")
+        ttk.Combobox(qa, width=9, state="readonly", textvariable=self.kind_var,
+                     values=["DESIGN", "CONTROL"]).pack(side="left",
+                                                        padx=(2, 6))
+        for label, cmd, tip in (
+                ("Witness", self.add_witness_sel,
+                 "Offset stake tied to the selected point — hollow pin, "
+                 "one side per layer"),
+                ("Walk order", self.toggle_walk_order,
+                 "Sort the table by walking route (numbers never change)"),
+                ("Wire CSV…", self.wire_csv_dialog,
+                 "Point CSV with full control: order, decimals, code "
+                 "column, tag sidecar"),
+                ("As-staked…", self.asstaked_dialog,
+                 "Import field shots, review the pairing, judge against "
+                 "tolerance"),
+                ("Ledger PDF", self.ledger_pdf,
+                 "The signed As-Staked Ledger — the QA deliverable"),
+                ("QA CSV", self.qa_csv, "The _qa.csv delta companion")):
+            b = ttk.Button(qa, text=label, style="Tool.TButton", command=cmd)
+            b.pack(side="left", padx=1)
+            Tooltip(b, tip, theme)
+        self.route_lbl = ttk.Label(qa, text="", style="Muted.TLabel")
+        self.route_lbl.pack(side="right")
 
         # --------------------------------------------------------- panes
         body = ttk.Panedwindow(self, orient="horizontal")
@@ -161,9 +201,9 @@ class FieldstitchTab(ttk.Frame):
         self.filter_var.trace_add("write", lambda *_: self.fill_table())
         frame, self.ptree = make_tree(
             right, theme,
-            [("label", "POINT"), ("pg", "PG"), ("n", "N"), ("e", "E"),
-             ("z", "Z"), ("desc", "DESC"), ("layer", "LAYER")],
-            (80, 34, 76, 76, 56, 120, 76), height=14)
+            [("label", "POINT"), ("st", "ST"), ("pg", "PG"), ("n", "N"),
+             ("e", "E"), ("z", "Z"), ("desc", "DESC"), ("layer", "LAYER")],
+            (80, 36, 34, 76, 76, 56, 110, 70), height=14)
         frame.pack(fill="both", expand=True, pady=4)
         self.ptree.bind("<<TreeviewSelect>>", self._table_select)
         self.ptree.bind("<Delete>", lambda e: self.delete_sel())
@@ -191,6 +231,8 @@ class FieldstitchTab(ttk.Frame):
             return
         self.viewer.open(path)
         self.job = fs.LayoutJob(path)      # sidecar autoload
+        self.qa = fieldpro.QAStore(path)   # .fieldqa.json sidecar autoload
+        self._route = None
         self._sync_from_job()
         self.fill_layers()
         self.fill_table()
@@ -317,12 +359,25 @@ class FieldstitchTab(ttk.Frame):
                 elev = float(self.elev_var.get() or 0)
             except ValueError:
                 elev = 0.0
-            p = self.job.add_point(self.viewer.page_no, x, y, elev=elev)
+            try:
+                p = self.job.add_point(self.viewer.page_no, x, y, elev=elev,
+                                       kind=self.kind_var.get())
+            except ValueError as e:     # label cap / charset / spool full
+                self.status.set(str(e), "err")
+                return
+            code = self.code_var.get().strip().upper()
+            if code:
+                try:
+                    fieldpro.apply_code(self.job, p, code, [])
+                except Exception:   # noqa: BLE001 -- unknown code = desc only
+                    p.code, p.desc = code, code
+                self.job.save()
             self.num_var.set(str(self.job.next_num))
             self.redraw_points()
             self.fill_table()
             self._pulse(p)
-            self.status.set(f"placed {self.job.composed(p)}", "ok")
+            self.status.set(f"placed {self.job.composed(p)}"
+                            + (f"  [{code}]" if code else ""), "ok")
         elif self.tool == "basepoint":
             ans = simpledialog.askstring(
                 "Basepoint", "World coordinates at this point —  N,E "
@@ -420,7 +475,9 @@ class FieldstitchTab(ttk.Frame):
         s = self.viewer.scale
         vis = {ly.name for ly in self.job.layers if ly.visible}
         colors = {ly.name: ly.color for ly in self.job.layers}
-        for p in self.job.points_on(self.viewer.page_no):
+        pts_on = self.job.points_on(self.viewer.page_no)
+        by_uid = {p.id: p for p in pts_on}
+        for p in pts_on:
             if p.layer not in vis:
                 continue
             col = colors.get(p.layer, "#d84c3f")
@@ -430,8 +487,41 @@ class FieldstitchTab(ttk.Frame):
             cv.create_oval(cx - r - 3, cy - r - 3, cx + r + 3, cy + r + 3,
                            outline=col, width=2 if sel else 1,
                            tags=("pt",))                     # halo ring
-            cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col,
-                           outline="white", width=1.2, tags=("pt",))
+            # status is shape + fill, never color alone (sunlight +
+            # color-blind crews): control = triangle pin, witness = hollow
+            # tethered pin, pending = hollow circle, staked = filled square,
+            # verified = square + tick, rejected = X-slash
+            if p.kind == "CONTROL":
+                cv.create_polygon(cx, cy - r - 2, cx - r, cy + r, cx + r,
+                                  cy + r, fill=col, outline="white",
+                                  width=1.2, tags=("pt",))
+            elif p.is_witness:
+                host = by_uid.get(p.parent_uid)
+                if host is not None:
+                    cv.create_line(cx, cy, host.x * s, host.y * s, fill=col,
+                                   dash=(2, 3), tags=("pt",))
+                cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill="",
+                               outline=col, width=1.6, tags=("pt",))
+            elif p.status == "STAKED":
+                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, fill=col,
+                                    outline="white", width=1.2, tags=("pt",))
+            elif p.status == "VERIFIED":
+                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r,
+                                    fill="#009E73", outline="white",
+                                    width=1.2, tags=("pt",))
+                cv.create_line(cx - r * .6, cy, cx - r * .1, cy + r * .5,
+                               cx + r * .7, cy - r * .5, fill="white",
+                               width=2, tags=("pt",))
+            elif p.status == "REJECTED":
+                cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill="",
+                               outline="#D55E00", width=1.6, tags=("pt",))
+                cv.create_line(cx - r, cy - r, cx + r, cy + r,
+                               fill="#D55E00", width=2, tags=("pt",))
+                cv.create_line(cx - r, cy + r, cx + r, cy - r,
+                               fill="#D55E00", width=2, tags=("pt",))
+            else:                                   # PENDING design point
+                cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col,
+                               outline="white", width=1.2, tags=("pt",))
             cv.create_line(cx - r - 5, cy, cx + r + 5, cy, fill=col,
                            tags=("pt",))
             cv.create_line(cx, cy - r - 5, cx, cy + r + 5, fill=col,
@@ -516,24 +606,34 @@ class FieldstitchTab(ttk.Frame):
             self.redraw_points()
 
     # -------------------------------------------------------------- table
+    _ST_CHIP = {"PENDING": "·", "STAKED": "S", "VERIFIED": "✓",
+                "REJECTED": "✗"}
+
     def fill_table(self):
         self.ptree.delete(*self.ptree.get_children())
         if not self.job:
             return
         q = self.filter_var.get().strip().lower()
+        pts = list(self.job.points)
+        if self._route is not None:           # walk order: display only
+            order = {p.id: i for i, p in enumerate(self._route)}
+            pts.sort(key=lambda p: order.get(p.id, 1 << 30))
         n_shown = 0
-        for p in self.job.points:
+        for p in pts:
             label = self.job.composed(p)
             hay = f"{label} {p.layer} {p.desc} {p.category}".lower()
             if q and q not in hay:
                 continue
+            chip = "▲" if p.kind == "CONTROL" else \
+                self._ST_CHIP.get(p.status, "·")
+            z_val = p.elev if p.elev is not None else 0.0
             try:
                 n, e, z = self.job.to_world(p)
-                vals = (label, p.page, f"{n:,.3f}", f"{e:,.3f}",
+                vals = (label, chip, p.page, f"{n:,.3f}", f"{e:,.3f}",
                         f"{z:,.2f}", p.desc, p.layer)
             except Exception:   # noqa: BLE001 -- no scale yet
-                vals = (label, p.page, f"({p.x:.0f}pt)", f"({p.y:.0f}pt)",
-                        f"{p.elev:,.2f}", p.desc, p.layer)
+                vals = (label, chip, p.page, f"({p.x:.0f}pt)",
+                        f"({p.y:.0f}pt)", f"{z_val:,.2f}", p.desc, p.layer)
             self.ptree.insert("", "end", iid=p.id, values=vals)
             n_shown += 1
         self.count_lbl.configure(text=f"{n_shown} shown / "
@@ -654,6 +754,292 @@ class FieldstitchTab(ttk.Frame):
             toast(self.root, self.theme,
                   f"{len(pins)} pin(s) sent to the BIM viewer")
 
+    # ------------------------------------------------- Fieldstitch Pro (A1)
+    def add_witness_sel(self):
+        """Offset stake for the selected point — visually unmistakable so a
+        crew never stakes the witness thinking it's the point."""
+        if not self.job or not self.selection:
+            self.status.set("Select a point first (Select tool)", "err")
+            return
+        ans = simpledialog.askstring(
+            "Witness point", "Offset distance ft, azimuth deg  "
+                             "(e.g.  2, 0  = 2 ft north):",
+            initialvalue="2, 0", parent=self)
+        if not ans:
+            return
+        try:
+            parts = [float(v.strip()) for v in ans.split(",")]
+            off, az = parts[0], parts[1] if len(parts) > 1 else 0.0
+        except (ValueError, IndexError):
+            messagebox.showwarning("Witness", "Format:  distance, azimuth")
+            return
+        try:
+            w = self.job.add_witness(self.selection, offset_ft=off,
+                                     offset_azimuth=az)
+        except ValueError as e:
+            self.status.set(str(e), "err")
+            return
+        self.job.save()
+        self.fill_table()
+        self.redraw_points()
+        self._pulse(w)
+        self.status.set(f"witness {self.job.composed(w)} — {w.desc}", "ok")
+
+    def toggle_walk_order(self):
+        if not self.job or not self.job.points:
+            return
+        if self._route is not None:
+            self._route = None
+            self.route_lbl.configure(text="")
+        else:
+            try:
+                self._route = fieldpro.walk_route(self.job)
+            except Exception as e:   # noqa: BLE001 -- no scale yet
+                self.status.set(f"Walk order needs the scale set: {e}",
+                                "err")
+                return
+            self.route_lbl.configure(
+                text=f"walking route · {len(self._route)} stop(s) — "
+                     f"numbers unchanged")
+        self.fill_table()
+
+    def wire_csv_dialog(self):
+        """Point CSV with full control — and a live first-3-lines preview,
+        because a swapped N/E order imports without any error."""
+        if not self.job or not self.job.points:
+            messagebox.showinfo("Fieldstitch", "Place some points first.")
+            return
+        try:
+            self.job.to_world(self.job.points[0])
+        except Exception:   # noqa: BLE001
+            messagebox.showwarning("Fieldstitch", "Set the scale and "
+                                                  "basepoint first.")
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Wire CSV — point export")
+        dlg.transient(self.root)
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+        ov = {"order": tk.StringVar(value="PNEZD"),
+              "decimals": tk.StringVar(value="3"),
+              "include_code": tk.BooleanVar(value=False),
+              "comment_header": tk.BooleanVar(value=False),
+              "tag_sidecar": tk.BooleanVar(value=True),
+              "desc_commas": tk.StringVar(value="semicolon")}
+        row = ttk.Frame(frm)
+        row.pack(fill="x")
+        ttk.Label(row, text="Order").pack(side="left")
+        ttk.Combobox(row, width=7, state="readonly", values=["PNEZD",
+                     "PENZD"], textvariable=ov["order"]).pack(side="left",
+                                                              padx=(2, 8))
+        ttk.Label(row, text="Decimals").pack(side="left")
+        ttk.Combobox(row, width=3, state="readonly", values=["3", "4"],
+                     textvariable=ov["decimals"]).pack(side="left",
+                                                       padx=(2, 8))
+        ttk.Label(row, text="Commas in desc").pack(side="left")
+        ttk.Combobox(row, width=9, state="readonly",
+                     values=["keep", "strip", "semicolon", "space"],
+                     textvariable=ov["desc_commas"]).pack(side="left",
+                                                          padx=2)
+        row2 = ttk.Frame(frm)
+        row2.pack(fill="x", pady=4)
+        for key, cap in (("include_code", "Code column"),
+                         ("comment_header", "# header lines"),
+                         ("tag_sidecar", ".tag.txt sidecar (units, frame "
+                                         "hash, checksum)")):
+            ttk.Checkbutton(row2, text=cap, variable=ov[key]
+                            ).pack(side="left", padx=(0, 8))
+        ttk.Label(frm, text="First lines out the door:",
+                  style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        prev = tk.Text(frm, height=4, width=72, state="disabled")
+        self.theme.style_text(prev)
+        prev.pack(fill="x")
+        job = self.job
+
+        def options():
+            return {"order": ov["order"].get(),
+                    "decimals": int(ov["decimals"].get()),
+                    "include_code": ov["include_code"].get(),
+                    "comment_header": ov["comment_header"].get(),
+                    "tag_sidecar": ov["tag_sidecar"].get(),
+                    "desc_commas": ov["desc_commas"].get()}
+
+        def refresh_preview(*_a):
+            import tempfile
+            tmp = os.path.join(tempfile.mkdtemp(prefix="wire_"), "p.csv")
+            try:
+                opts = dict(options())
+                opts["tag_sidecar"] = False
+                fs.export_csv_pnezd(job, tmp, options=opts)
+                lines = [ln for ln in
+                         open(tmp, encoding="ascii").read().splitlines()
+                         if ln and not ln.startswith("#")][:3]
+            except Exception as e:      # noqa: BLE001 -- preview only
+                lines = [f"(preview failed: {e})"]
+            prev.configure(state="normal")
+            prev.delete("1.0", "end")
+            prev.insert("1.0", "\n".join(lines))
+            prev.configure(state="disabled")
+
+        for v in ov.values():
+            if isinstance(v, tk.Variable):
+                v.trace_add("write", refresh_preview)
+        refresh_preview()
+
+        def go():
+            out = filedialog.asksaveasfilename(
+                parent=dlg, defaultextension=".csv",
+                initialfile="points.csv", filetypes=[("CSV", "*.csv")])
+            if not out:
+                return
+            opts = options()
+            dlg.destroy()
+
+            def done(n, err):
+                if err:
+                    self.status.set(f"Wire CSV failed: {err}", "err")
+                    return
+                toast(self.root, self.theme, f"Wire CSV — {n} point(s)")
+
+            run_bg(self, lambda: fs.export_csv_pnezd(job, out,
+                                                     options=opts), done)
+
+        ttk.Button(frm, text="Export…", style="Accent.TButton",
+                   command=go).pack(anchor="e", pady=(8, 0))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    def asstaked_dialog(self):
+        """Field shots come home: pair, review, judge against tolerance."""
+        if not self.job or not self.job.points:
+            messagebox.showinfo("Fieldstitch", "Place design points first.")
+            return
+        path = filedialog.askopenfilename(
+            title="As-staked shots CSV", filetypes=[("CSV", "*.csv *.txt")])
+        if not path:
+            return
+        job, qa = self.job, self.qa
+
+        def done(res, err):
+            if err:
+                self.status.set(f"As-staked pairing failed: {err}", "err")
+                return
+            self._asstaked_review(job, qa, res)
+
+        run_bg(self, lambda: fieldpro.pair_asstaked(job, path), done)
+
+    def _asstaked_review(self, job, qa, res):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("As-staked review — nothing commits until you say so")
+        dlg.transient(self.root)
+        dlg.geometry("760x480")
+        frm = ttk.Frame(dlg, padding=10)
+        frm.pack(fill="both", expand=True)
+        head = f"{res['count']} shot(s) · {len(res['unmatched'])} unmatched"
+        if res.get("frame_warning"):
+            head += "   ⚠ FRAME MISMATCH — these shots were taken against " \
+                    "a different basepoint/scale"
+        ttk.Label(frm, text=head, style="Title.TLabel").pack(anchor="w")
+        frame, tree = make_tree(
+            frm, self.theme,
+            [("shot", "SHOT"), ("via", "VIA"), ("target", "DESIGN PT"),
+             ("note", "NOTE"), ("ok", "USE")],
+            (90, 80, 110, 260, 50), height=12)
+        frame.pack(fill="both", expand=True, pady=6)
+        rows = res["rows"]
+        for i, r in enumerate(rows):
+            tree.insert("", "end", iid=str(i), values=(
+                r["shot_id"], r["via"], r.get("label", "—"),
+                r.get("note", ""), "yes" if r.get("confirmed", True)
+                else "CLICK TO CONFIRM"))
+
+        def toggle(_e):
+            sel = tree.selection()
+            if not sel:
+                return
+            i = int(sel[0])
+            rows[i]["confirmed"] = not rows[i].get("confirmed", True)
+            tree.set(sel[0], "ok", "yes" if rows[i]["confirmed"]
+                     else "CLICK TO CONFIRM")
+        tree.bind("<Double-Button-1>", toggle)
+        row = ttk.Frame(frm)
+        row.pack(fill="x")
+        ttk.Label(row, text="Crew initials").pack(side="left")
+        by = tk.StringVar()
+        ttk.Entry(row, width=8, textvariable=by).pack(side="left", padx=4)
+        ttk.Label(row, text="Session").pack(side="left")
+        sess = tk.StringVar(value=datetime.now().strftime("S%m%d-%H%M"))
+        ttk.Entry(row, width=12, textvariable=sess).pack(side="left", padx=4)
+
+        def commit():
+            use = [r for r in rows if r.get("confirmed", True)
+                   and r["via"] != "unmatched"]
+            dlg.destroy()
+
+            def done(out, err):
+                if err:
+                    self.status.set(f"Commit failed: {err}", "err")
+                    return
+                qa.save()
+                job.save()
+                toast(self.root, self.theme,
+                      f"As-staked: {out['committed']} committed — "
+                      f"{out['passed']} passed, {out['failed']} failed")
+                self.fill_table()
+                self.redraw_points()
+
+            run_bg(self, lambda: fieldpro.commit_asstaked(
+                job, qa, use, session_id=sess.get(),
+                staked_by=by.get().strip()), done)
+
+        ttk.Button(row, text="Commit & judge", style="Accent.TButton",
+                   command=commit).pack(side="right")
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    def ledger_pdf(self):
+        if not self.qa or not self.qa.all_records():
+            messagebox.showinfo("Ledger", "Import as-staked shots first — "
+                                          "the ledger reports field QA.")
+            return
+        out = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile="asstaked_ledger.pdf",
+            filetypes=[("PDF", "*.pdf")])
+        if not out:
+            return
+        job, qa = self.job, self.qa
+        foot = {"ft": "international foot", "usft": "US survey foot",
+                "m": "meter"}.get(getattr(job, "units", "ft"), "ft")
+
+        def done(res, err):
+            if err:
+                self.status.set(f"Ledger failed: {err}", "err")
+                return
+            toast(self.root, self.theme,
+                  f"As-Staked Ledger — {res['rows']} row(s), "
+                  f"{res['pages']} page(s)")
+            open_path(out)
+
+        run_bg(self, lambda: fieldpro.ledger_pdf(job, qa, out, foot=foot),
+               done)
+
+    def qa_csv(self):
+        if not self.qa or not self.qa.all_records():
+            messagebox.showinfo("QA CSV", "Import as-staked shots first.")
+            return
+        out = filedialog.asksaveasfilename(
+            defaultextension=".csv", initialfile="points_qa.csv",
+            filetypes=[("CSV", "*.csv")])
+        if not out:
+            return
+        job, qa = self.job, self.qa
+
+        def done(n, err):
+            if err:
+                self.status.set(f"QA CSV failed: {err}", "err")
+                return
+            toast(self.root, self.theme, f"QA CSV — {n} row(s)")
+
+        run_bg(self, lambda: fieldpro.export_ledger_csv(job, qa, out), done)
+
     def commands(self):
         return [
             ("Fieldstitch: open PDF", "Fieldstitch", self.open_pdf),
@@ -663,4 +1049,12 @@ class FieldstitchTab(ttk.Frame):
             ("Fieldstitch: export Clovehitch kit", "Fieldstitch",
              lambda: self.export_kit("clovehitch")),
             ("Fieldstitch: pins to 3D", "Fieldstitch", self.push_pins),
+            ("Fieldstitch: as-staked import + judge", "Fieldstitch",
+             self.asstaked_dialog),
+            ("Fieldstitch: As-Staked Ledger PDF", "Fieldstitch",
+             self.ledger_pdf),
+            ("Fieldstitch: wire CSV export", "Fieldstitch",
+             self.wire_csv_dialog),
+            ("Fieldstitch: walk order", "Fieldstitch",
+             self.toggle_walk_order),
         ]
