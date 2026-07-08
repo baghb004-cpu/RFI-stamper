@@ -295,6 +295,26 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   ask→answer placement, refusal safety, cap, single-undo revert).
 - Next: C2 Squawk Box (voice deck feeding the same bar), then Phase D.
 
+## Round 11 (SHIPPED, v3.8.0): the Squawk Box — speaker-trained voice deck
+## (ROADMAP Phase C2)
+
+- **squawk.py**: winmm wave-in capture via ctypes (HAS_CAPTURE honest on
+  non-Windows; Recorder w/ rotating buffers + live level), WAV store,
+  from-scratch DSP (MFCC: pre-emphasis/mel filterbank/DCT-II/CMS;
+  trim_silence) + banded vectorized DTW matcher; Deck (takes per phrase,
+  deck.json, cached templates, fail-closed confident(): score < 1.8 AND
+  gap > 0.4, per-call overridable); 22 suggested day-one phrases.
+- **gui/squawk_deck.py**: device picker + level meter (poll only while
+  recording), hold-to-talk button + F9, confident match fires the Weave
+  bar, otherwise "did you mean…" buttons (never auto-fires); training
+  pane (record takes, play, delete). Loft Weave bar gains 🎙 Squawk….
+- tests/test_squawk.py: 120 checks on synthesized audio. 42 suites green.
+- HONEST: the winmm call path itself is untested until the owner smokes
+  it on real Windows hardware + mic; thresholds calibrated on synthetic
+  tones (per-call overrides exist for field tuning); "zoom fit" phrase
+  awaits a Weaver zoom verb (refuses honestly). Construct flake seen once
+  more, unreproduced across 5 runs — xvfb race suspected, keep watching.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

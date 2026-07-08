@@ -170,6 +170,16 @@ only draw what it can justify. It even learns your phrasing through the
 Heartwood — new field words you confirm become proposed synonyms, gated
 by you.
 
+Prefer to say it out loud? The **🎙 Squawk Box** (on the Weave bar) is a
+mic/headset deck like a meeting app's — pick your input device, watch the
+live level meter, hold the button (or F9) to talk. Recognition is built
+entirely from scratch and trained by *you*: record each command phrase two
+or three times and those recordings are the model, stored locally,
+growable phrase by phrase. A confident match fires the Weave bar; anything
+uncertain shows "did you mean…" and never auto-fires a drawing command.
+It's a trained phrase deck, not open dictation — the honest trade for
+running 100% offline with nothing embedded.
+
 A draft saves as one `.loft.json` file, and leaves the Loft three ways:
 
 * **Plate PDF** — a titled, bordered sheet (title block, north arrow,
