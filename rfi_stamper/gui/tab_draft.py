@@ -107,12 +107,17 @@ class LoftTab(ttk.Frame):
                         for k in ("end", "mid", "x", "perp", "grid")}
         self.ortho = tk.BooleanVar(value=False)
 
+        self.hw_path_provider = None     # app wires the Heartwood store in
+        self._weave_pending = None       # the Weaver's open question, if any
+        self._last_click = None
+
         self._build_bars()
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
         self._build_binder(body)
         self._build_canvas(body)
         self._build_traits(body)
+        self._build_weave()
         self._build_strip()
 
         theme.register(self._on_theme)
@@ -402,6 +407,8 @@ class LoftTab(ttk.Frame):
             cv.bind(f"<Key-{short}>", lambda e, k=key: self._select_tool(k))
         cv.bind("<Escape>", lambda e: self._escape())
         cv.bind("<Return>", lambda e: self._finish_poly())
+        cv.bind("<Key-slash>", lambda e: (self.weave_entry.focus_set(),
+                                          "break")[-1])
         cv.bind("<space>", self._on_space)
         cv.bind("<Tab>", self._on_tab)
         cv.bind("<Delete>", lambda e: self.delete_selection())
@@ -657,6 +664,7 @@ class LoftTab(ttk.Frame):
             return
         anchor = self._pts[-1] if self._pts else None
         x, y = self._snapped(e, anchor)
+        self._last_click = (x, y)      # the Weaver's "here"
         getattr(self, f"_click_{self.tool}")(x, y, e)
         self._draw_overlay()
 
@@ -1314,6 +1322,79 @@ class LoftTab(ttk.Frame):
                 self._tally_labels = {}
                 return
             counter.to(float(vals.get(key, 0)), dur=420)
+
+    # ----------------------------------------------------------- the Weaver
+    def _build_weave(self):
+        """Type to the board: 'run 4\" sanitary from the wc to the main at
+        1/8 per foot' — the Weaver parses, asks when unsure, draws, and
+        answers in plain feet-and-inches.  One undo per command."""
+        bar = ttk.Frame(self, padding=(8, 2, 8, 0))
+        bar.pack(fill="x", side="bottom")
+        ttk.Label(bar, text="⟐ Weave", font=("Segoe UI", 10, "bold")
+                  ).pack(side="left")
+        self.weave_var = tk.StringVar()
+        self.weave_entry = ttk.Entry(bar, textvariable=self.weave_var)
+        self.weave_entry.pack(side="left", fill="x", expand=True, padx=6)
+        self.weave_entry.bind("<Return>", lambda e: self.weave())
+        self.weave_entry.bind("<Escape>", lambda e: self._weave_reset())
+        ttk.Button(bar, text="Weave it", style="Accent.TButton",
+                   command=self.weave).pack(side="left")
+        self.weave_say = ttk.Label(self, style="Muted.TLabel", text="type "
+                                   "/ on the board to command the Weaver — "
+                                   "it only draws what it can justify",
+                                   padding=(10, 0, 8, 2), wraplength=900)
+        self.weave_say.pack(fill="x", side="bottom")
+
+    def _weave_reset(self):
+        self._weave_pending = None
+        self.weave_var.set("")
+        self.weave_say.configure(text="")
+
+    def weave(self, text=None):
+        from .. import weaver
+        q = (text or self.weave_var.get()).strip()
+        if not q:
+            return
+        self.weave_var.set("")
+        hw = None
+        if self.hw_path_provider:
+            try:
+                hw = self.hw_path_provider()
+            except Exception:   # noqa: BLE001 -- learning is optional
+                hw = None
+        ctx = {"selection": list(self.sel)}
+        if self._last_click:
+            ctx["last_point"] = self._last_click
+        if self._weave_pending:
+            ctx["pending"] = self._weave_pending
+        try:
+            res = weaver.Weaver(self.model, heartwood=hw).command(q, ctx)
+        except Exception as e:      # noqa: BLE001 -- never crash the board
+            self.weave_say.configure(text=f"the Weaver stumbled: {e}")
+            self._weave_pending = None
+            return
+        say = res.get("say", "")
+        if res.get("status") == "ask":
+            self._weave_pending = res
+            opts = res.get("options") or []
+            hintline = res.get("question", "")
+            if opts:
+                hintline += "   [" + " · ".join(opts[:4]) + "]"
+            self.weave_say.configure(text="? " + hintline)
+            self.weave_entry.focus_set()
+            return
+        self._weave_pending = None
+        if res.get("status") == "refused":
+            self.weave_say.configure(text="✋ " + say)
+            return
+        if res.get("warnings"):
+            say += "   ⚠ " + "; ".join(res["warnings"][:3])
+        self.weave_say.configure(text="✓ " + say)
+        if res.get("changed"):
+            self.sel = set(res.get("ents") or [])
+            self._after_mutate()
+            self._traits_refresh()
+            toast(self.root, self.theme, say[:120])
 
     # ---------------------------------------------------------- status strip
     def _build_strip(self):

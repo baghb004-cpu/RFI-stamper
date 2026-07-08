@@ -269,6 +269,32 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
 - Known flake (once, unreproduced): construct test failed one run_all pass
   then passed twice — watch under the next round's runs.
 
+## Round 10 (SHIPPED, v3.7.0): the Weaver — type to the board, it draws
+## (ROADMAP Phase C1)
+
+- **weaver.py**: from-scratch command parser — fixed verb table (the
+  Corral: no eval, mutations only through draft/pipewright APIs), verb
+  frames w/ slot filling, ONE clarifying question at a time (ask/answer
+  pending flow the GUI round-trips opaquely), target references (this/
+  selected, "the wc" nearest-fixture, "the main" largest-dia run, "the
+  open ends", grid addresses B-2, bare coordinates, entity ids, "here"),
+  size/slope/system/fixture-slang lexicons, plain-words say strings in
+  feet-inches, honest refusals naming the 3 closest verbs, one undo per
+  command, optional Heartwood lane-1 learning (phrase memory + PROPOSED
+  synonyms, never auto-approved). tests/test_weaver.py: 126 phrasings
+  incl. the owner's verbatim: 'run 4" sanitary from the wc to the main at
+  1/8 per foot' / 'slope this run at 1/4' / 'cap the open ends' /
+  'replace that wye with a combo'.
+- **Loft GUI**: the Weave bar (bottom of the board; "/" focuses it):
+  Enter runs the command with context {selection, last click}; asks render
+  as "? question [options]" answered in the same box (Esc clears);
+  ✓ say echoed + toasted, ⚠ warnings appended, ✋ refusals; results
+  selected + Traits refreshed. App wires the Old Hand's Heartwood store
+  into the Weaver for phrasing memory.
+- Construct test drives the flagship command end to end (draw-by-typing,
+  ask→answer placement, refusal safety, cap, single-undo revert).
+- Next: C2 Squawk Box (voice deck feeding the same bar), then Phase D.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

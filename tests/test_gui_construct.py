@@ -774,6 +774,46 @@ def main():
     assert any(t.kind == "length" and abs(t.qty - 28.0) < 0.1
                for t in tl_pipe), [(t.subject, t.qty) for t in tl_pipe]
 
+    # ---- The Weaver: type to the board, it draws — the owner's command
+    n_pipes0 = len([e for e in loft.model.ents if e.kind == "pipe"])
+    loft.weave_var.set('run 4" sanitary from the wc to the main '
+                       'at 1/8 per foot')
+    loft.weave()
+    root.update()
+    saytext = loft.weave_say.cget("text")
+    assert saytext.startswith("✓"), saytext
+    pipes_now = [e for e in loft.model.ents if e.kind == "pipe"]
+    assert len(pipes_now) == n_pipes0 + 1, "the Weaver should run new pipe"
+    assert "'" in saytext, "say must speak feet-and-inches"
+    # one undo reverts the whole command
+    assert loft.model.undo()
+    assert len([e for e in loft.model.ents if e.kind == "pipe"]) == n_pipes0
+    assert loft.model.redo()
+    # ask flow: missing slot -> one question -> answer -> done
+    loft.weave_var.set("add a drinking fountain")
+    loft.weave()
+    root.update()
+    assert loft._weave_pending is not None
+    assert loft.weave_say.cget("text").startswith("?")
+    loft.weave_var.set("at 12, 20")
+    loft.weave()
+    root.update()
+    assert loft._weave_pending is None
+    assert any(e.kind == "fixture" and e.props.get("stencil") == "df"
+               for e in loft.model.ents), "answered ask should place the df"
+    # refusals never touch the model
+    n_ents = len(loft.model.ents)
+    loft.weave_var.set("order me a pizza")
+    loft.weave()
+    root.update()
+    assert loft.weave_say.cget("text").startswith("✋")
+    assert len(loft.model.ents) == n_ents
+    # cap through the bar
+    loft.weave_var.set("cap the open ends")
+    loft.weave()
+    root.update()
+    assert loft.weave_say.cget("text").startswith("✓")
+
     # ---- Harvest: Loft grids -> ghost pins -> committed layout points
     fsth = app.plans.fieldstitch
     app.plans.nb.select(fsth)

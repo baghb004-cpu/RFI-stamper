@@ -155,6 +155,21 @@ slopes, drainage reductions, uncapped ends — and never silently "fixes"
 anything. Every command is one undo. Pipe footage and fitting counts land
 in the Tally, and **To 3D** carries the runs at their true inverts.
 
+And you can simply *tell* the board what to draw. The **Weave bar** (press
+`/`) takes trade English: `run 4" sanitary from the wc to the main at 1/8
+per foot` — the **Weaver** finds your water closet, routes to the biggest
+sanitary main, derives the fittings, slopes the run, and answers in plain
+feet-and-inches: *"Ran 22'-6" of 4" sanitary at 1/8"/ft — IE drops
+0'-2 13/16"."* `cap the open ends` · `replace that wye with a combo` ·
+`slope this run at 1/4` · `add a drinking fountain` (it asks *"Where does
+it go?"* — answer in the same box). Missing information gets ONE pointed
+question, out-of-trade requests get an honest refusal, every command is a
+single undo, and there is no AI guesswork anywhere in the chain: a
+fixed verb table feeds deterministic drafting engines, so the Weaver can
+only draw what it can justify. It even learns your phrasing through the
+Heartwood — new field words you confirm become proposed synonyms, gated
+by you.
+
 A draft saves as one `.loft.json` file, and leaves the Loft three ways:
 
 * **Plate PDF** — a titled, bordered sheet (title block, north arrow,
