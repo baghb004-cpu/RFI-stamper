@@ -335,6 +335,24 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   top of faces. 43 suites green twice (+ the rare xvfb construct flake
   seen once, unreproduced x5).
 
+## Round 13 (SHIPPED, v4.0.0): Weaver v2 — rooms by conversation (Phase E)
+
+- Room macro: '<W> by <D> <noun> [at anchor] [with fixtures]' → 4 chained
+  walls, hosted 3'-0" door, auto-numbered room tag, fixtures on the wall
+  opposite the door (1'-6" end + 3'-0" o.c., documented constants), ONE
+  undo, itemized say. Unknown fixture word refuses BEFORE any mutation.
+- Multi-turn memory on the model (_weaver_memory): "make it 14 wide" /
+  "move it 2' north" / "add another lav" / "delete that"; reshape
+  recomputes the layout from the stored frame; no memory → honest ask.
+- View verbs → result "view" key ({fit|in|out|goto, point}) handled
+  append-only in the GUI weave(); closes the Squawk "zoom fit" gap.
+- Questions answered while drafting: slope minimums deterministically
+  from pipewright.MIN_SLOPE; anything else via Heartwood ask() with
+  citations (unverified flagged) or the Old Hand referral.
+- Pattern macros lane-2: save_macro(name) → UNVERIFIED origin-"macro"
+  note; replay fires ONLY once trusted in the Old Hand Manage screen.
+- tests/test_weaver.py: 168 phrasings total. 43 suites green.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

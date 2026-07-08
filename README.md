@@ -174,6 +174,15 @@ only draw what it can justify. It even learns your phrasing through the
 Heartwood — new field words you confirm become proposed synonyms, gated
 by you.
 
+And it holds a conversation. `draw a 12 by 10 restroom at B-2 with two
+lavs, a wc and a floor drain` → four walls, a hung door, a numbered room
+tag, and fixtures spaced along the back wall — one undo for the lot. Then
+`make it 14 wide` reshapes it, `add another lav` extends the row, `zoom
+fit` frames it, and `minimum slope for 4"?` gets answered mid-draft from
+the piping tables (or from your Heartwood, with citations). Room layouts
+you like can be saved as named macros — which only replay after you trust
+them, because nothing self-taught ever fires without your sign-off.
+
 Prefer to say it out loud? The **🎙 Squawk Box** (on the Weave bar) is a
 mic/headset deck like a meeting app's — pick your input device, watch the
 live level meter, hold the button (or F9) to talk. Recognition is built
