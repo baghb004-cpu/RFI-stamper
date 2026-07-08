@@ -173,10 +173,15 @@ def auto_align(base_path: str, overlay_path: str, base_page: int = 1,
 def comparison_image(base_path: str, overlay_path: str, base_page: int = 1,
                      overlay_page: int = 1, align: AlignResult | None = None,
                      dpi: int = 110, base_color=(200, 30, 30),
-                     overlay_color=(30, 80, 200)) -> np.ndarray:
+                     overlay_color=(30, 80, 200), log=None) -> np.ndarray:
     """HxWx3 uint8 diff on the base render's canvas: white background, base-only
     linework in base_color, overlay-only (after align) in overlay_color, and
-    pixels dark in both near-black."""
+    pixels dark in both near-black.
+
+    The canvas is the base page's size; overlay content shifted (partly) off
+    that canvas is clipped and cannot appear in the diff.  When ``log`` is
+    given and clipping drops any overlay linework, a visible warning is emitted
+    so a reviewer knows the diff is incomplete."""
     a = align or AlignResult()
     base = render_page_gray(base_path, base_page, dpi)
     over = render_page_gray(overlay_path, overlay_page, dpi, rotation=a.rotation)
@@ -189,6 +194,18 @@ def comparison_image(base_path: str, overlay_path: str, base_page: int = 1,
     x0, x1 = max(0, sx), min(W, w + sx)
     if y1 > y0 and x1 > x0:
         canvas[y0:y1, x0:x1] = over[y0 - sy:y1 - sy, x0 - sx:x1 - sx]
+    if log is not None:
+        # count overlay linework that fell outside the base canvas after the
+        # shift; warn only if some real linework was actually dropped
+        odark_all = over < DARK_THRESH
+        kept = np.zeros_like(odark_all)
+        if y1 > y0 and x1 > x0:
+            kept[y0 - sy:y1 - sy, x0 - sx:x1 - sx] = True
+        dropped = int((odark_all & ~kept).sum())
+        if dropped > 0:
+            log(f"  WARNING: {dropped} overlay linework pixel(s) fell outside "
+                f"the base page and are missing from the diff (overlay clipped "
+                f"by dx={a.dx:.1f} dy={a.dy:.1f} pt)")
     bdark = base < DARK_THRESH
     odark = canvas < DARK_THRESH
     out = np.full((H, W, 3), 255, np.uint8)
@@ -205,7 +222,7 @@ def make_comparison_pdf(base_path: str, overlay_path: str, out_path: str,
     """Write a one-page PDF (page size = base page's pt size) embedding the
     comparison image full-page."""
     img = comparison_image(base_path, overlay_path, base_page, overlay_page,
-                           align=align, dpi=dpi)
+                           align=align, dpi=dpi, log=log)
     src = fitz.open(base_path)
     rect = src[base_page - 1].rect
     src.close()

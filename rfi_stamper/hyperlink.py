@@ -58,15 +58,18 @@ def _loose_num(num: str) -> str:
 
 def _variants(token: str) -> list:
     """Display forms of a canonical sheet token that may appear in drawing
-    text: hyphenated, no-separator and space-separated, for both the exact and
-    the zero-stripped number.  The exact token is searched first."""
+    text: hyphenated and no-separator, for both the exact and the zero-stripped
+    number.  The exact token is searched first.  A space-separated form
+    (``A 1``) is deliberately NOT emitted: it matches two independent words in
+    unrelated running text (e.g. "TYPE A 1 HR RATED") and spawns false links,
+    while genuine mid-token splits still hit via the hyphen/no-space forms."""
     m = _TOKEN_PARTS.match(token)
     if not m:
         return [token]
     letters, num = m.group(1), m.group(2)
     forms = [token]
     for n in dict.fromkeys((num, _loose_num(num))):
-        forms += [f"{letters}-{n}", f"{letters}{n}", f"{letters} {n}"]
+        forms += [f"{letters}-{n}", f"{letters}{n}"]
     seen: set = set()
     out: list = []
     for f in forms:
@@ -177,6 +180,7 @@ def _find_hits(doc, targets: dict, link_self: bool, dedupe: bool) -> list:
         text = page.get_text("text")
         if not text.strip():                       # image-only / blank page
             continue
+        upper = text.upper()                       # cheap pre-filter substrate
         tp = page.get_textpage()                   # extract once, search many
         words = page.get_text("words", textpage=tp)
         rm = page.rotation_matrix if page.rotation % 360 else None
@@ -184,6 +188,18 @@ def _find_hits(doc, targets: dict, link_self: bool, dedupe: bool) -> list:
         for token, target in targets.items():
             if src == target and not link_self:    # skip a sheet's own number
                 continue
+            # cheap candidate gate: a token can only be present if BOTH its
+            # letters and its number (exact OR zero-stripped, matching the
+            # forms _variants searches for) appear somewhere in the page text.
+            # Skips the expensive _variants/search_for/_standalone work for the
+            # vast majority of (token, page) pairs on large sets, without
+            # changing results for tokens that are actually present.
+            m = _TOKEN_PARTS.match(token)
+            if m:
+                letters, num = m.group(1), m.group(2)
+                if letters not in upper or not any(
+                        n in upper for n in (num, _loose_num(num))):
+                    continue
             for form in _variants(token):
                 for r in page.search_for(form, textpage=tp):
                     # search_for matches substrings; keep only hits that sit
