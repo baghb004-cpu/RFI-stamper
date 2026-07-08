@@ -238,6 +238,8 @@ class HomeTab(ttk.Frame):
         glyphs = {"markup": "✎", "plan": "▣", "combine": "⧉", "compare": "⇄",
                   "project": "◆"}
         for item in recent[:5]:
+            if not isinstance(item, dict):      # corrupt prefs -> skip
+                continue
             path, kind = item.get("path", ""), item.get("kind", "markup")
             row = ttk.Frame(self.recent_box)
             row.pack(anchor="w", fill="x")

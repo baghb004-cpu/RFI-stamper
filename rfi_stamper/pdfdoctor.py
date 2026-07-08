@@ -684,10 +684,14 @@ def verify_safe(orig_path: str, fixed_path: str, sample_pages=None,
                 dpi: int = 50) -> tuple[bool, str]:
     """Guard a fix against damage.
 
-    Checks that the page count is preserved and that a sample of pages still
-    render to non-blank pixmaps.  (Rasterized output keeps the same page
-    count, so the count check holds for it too; only text is intentionally
-    lost, which this does not require.)  Returns ``(ok, message)``."""
+    Checks that the page count is preserved and that no sampled page LOST its
+    content: a page that rendered non-blank in the original must still render
+    non-blank in the fixed copy.  A legitimately-blank page (spacer, blank
+    middle sheet) that was blank in the original stays acceptable -- only a
+    non-blank -> blank transition is a failure.  (Rasterized output keeps the
+    same page count, so the count check holds for it too; only text is
+    intentionally lost, which this does not require.)  Returns
+    ``(ok, message)``."""
     try:
         o = fitz.open(orig_path)
     except Exception as e:
@@ -713,16 +717,21 @@ def verify_safe(orig_path: str, fixed_path: str, sample_pages=None,
             idx = [p for p in sample_pages if 0 <= p < n_f]
         for p in idx:
             try:
-                pix = f[p].get_pixmap(dpi=dpi, colorspace=fitz.csGRAY,
-                                      alpha=False)
+                pix_o = o[p].get_pixmap(dpi=dpi, colorspace=fitz.csGRAY,
+                                        alpha=False)
+                pix_f = f[p].get_pixmap(dpi=dpi, colorspace=fitz.csGRAY,
+                                        alpha=False)
             except Exception as e:
                 return False, f"page {p + 1} did not render: {e}"
-            samples = pix.samples
-            if not samples:
+            s_o, s_f = pix_o.samples, pix_f.samples
+            if not s_f:
                 return False, f"page {p + 1} rendered empty"
-            if min(samples) >= 250:             # every pixel near-white
-                return False, f"page {p + 1} is blank"
-        return True, f"ok: {n_f} page(s), {len(idx)} sampled render non-blank"
+            # Content-loss only: fail when a page that carried ink in the
+            # original went entirely near-white in the fixed copy.  Pages
+            # that were already blank are left alone.
+            if s_o and min(s_o) < 250 <= min(s_f):
+                return False, f"page {p + 1} went blank (content lost)"
+        return True, f"ok: {n_f} page(s), {len(idx)} sampled, no content lost"
     finally:
         o.close()
         f.close()

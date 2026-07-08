@@ -59,9 +59,21 @@ class TableSpec:
 
 # ------------------------------------------------------------- text utils ---
 
+#: Hard cap on cell characters.  A single cell taller than one usable page
+#: raises reportlab's LayoutError and aborts the whole PDF; bounding the text
+#: keeps any one row paginatable.  Well above any legitimate note length.
+_CELL_MAX = 2000
+
+
 def _cell_text(value) -> str:
-    """Escape a cell value for reportlab and keep intentional line breaks."""
+    """Escape a cell value for reportlab and keep intentional line breaks.
+
+    Text longer than :data:`_CELL_MAX` is truncated with an ellipsis so no
+    single row can grow taller than a page and crash the build.
+    """
     text = "" if value is None else str(value)
+    if len(text) > _CELL_MAX:
+        text = text[:_CELL_MAX].rstrip() + "…"
     return _xml_escape(text).replace("\r\n", "\n").replace("\n", "<br/>")
 
 

@@ -25,8 +25,27 @@ class MergeItem:
     bookmark: str = ""     # outline title; "" -> file stem
 
 
+def _open(path: str) -> PdfReader:
+    """Open a PdfReader, transparently unlocking blank-password encryption.
+
+    Password-protected inputs otherwise raise ``FileNotDecryptedError`` deep in
+    pypdf when pages are touched; here we try the empty password (the common
+    "owner-locked, no user password" case) and, failing that, raise a clean
+    ``ValueError`` the caller can surface to the user."""
+    r = PdfReader(path)
+    if r.is_encrypted:
+        try:
+            ok = r.decrypt("")          # PasswordType.NOT_DECRYPTED == 0
+        except Exception:
+            ok = 0
+        if not ok:
+            raise ValueError(
+                f"{os.path.basename(path)} is password-protected; unlock it first")
+    return r
+
+
 def pdf_page_count(path: str) -> int:
-    return len(PdfReader(path).pages)
+    return len(_open(path).pages)
 
 
 def parse_page_range(spec: str, n_pages: int) -> list[int]:
@@ -89,7 +108,7 @@ def merge_pdfs(items: list[MergeItem], out_path: str, bookmarks: bool = True,
     marks: list[tuple[str, int]] = []   # (title, 0-based first page in output)
     for it in items:
         rot = _check_rotation(it.rotation)
-        reader = PdfReader(it.path)
+        reader = _open(it.path)
         nums = parse_page_range(it.pages, len(reader.pages))
         if not nums:
             log(f"  !! {os.path.basename(it.path)}: no pages selected, skipped")
@@ -120,7 +139,7 @@ def split_pdf(path: str, out_dir: str, ranges: str = "", every: int = 0,
         raise ValueError("give exactly one of ranges= or every=")
     if every < 0:
         raise ValueError("every must be a positive page count")
-    reader = PdfReader(path)
+    reader = _open(path)
     n = len(reader.pages)
     if ranges.strip():
         parts = [parse_page_range(r, n) for r in ranges.split(";") if r.strip()]
@@ -146,7 +165,7 @@ def rotate_pdf(path: str, out_path: str, rotation: int, pages: str = "",
                log=print) -> None:
     """Rotate the listed pages (default all) by rotation degrees (multiple of 90)."""
     rot = _check_rotation(rotation)
-    reader = PdfReader(path)
+    reader = _open(path)
     targets = set(parse_page_range(pages, len(reader.pages)))
     writer = PdfWriter()
     for i, page in enumerate(reader.pages, 1):

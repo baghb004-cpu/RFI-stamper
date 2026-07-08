@@ -143,16 +143,23 @@ def _value(chunk: str, label: str, *, require_colon: bool = False) -> str:
     return m.group(1).strip(" \t.,;:-") if m else ""
 
 
-def _extract_csi(text: str) -> str:
-    """Return a normalized CSI spec section found in ``text``, or ""."""
+def _extract_csi(text: str, legacy: bool = True) -> str:
+    """Return a normalized CSI spec section found in ``text``, or "".
+
+    The spaced ``NN NN NN`` form is unambiguous.  The loose 5-6 digit
+    ``_CSI_LEGACY`` form matches dates, PO/phone numbers and the like, so it
+    is only tried when ``legacy`` is set — never against a whole record chunk,
+    where a fabricated section is worse than a blank one.
+    """
     if not text:
         return ""
     m = _CSI_SPACED.search(text)
     if m:
         return f"{m.group(1)} {m.group(2)} {m.group(3)}{m.group(4) or ''}"
-    m = _CSI_LEGACY.search(text)
-    if m:
-        return m.group(1)
+    if legacy:
+        m = _CSI_LEGACY.search(text)
+        if m:
+            return m.group(1)
     return ""
 
 
@@ -167,7 +174,7 @@ def _parse_fields(chunk: str, source: str) -> SubmittalRecord:
     if raw_spec:
         spec = _extract_csi(raw_spec) or raw_spec
     else:
-        spec = _extract_csi(number) or _extract_csi(chunk)
+        spec = _extract_csi(number) or _extract_csi(chunk, legacy=False)
 
     status = normalize_status(_value(chunk, _STATUS_LABEL))
     ball = _value(chunk, _BALL_LABEL)

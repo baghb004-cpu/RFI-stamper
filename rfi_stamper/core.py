@@ -56,6 +56,8 @@ class RFIRecord:
     refs: list = field(default_factory=list)       # (token, via) via in {planref, body}
     source: str = ""
     warnings: list = field(default_factory=list)
+    numbered: bool = False   # True only if the number was parsed from content
+                             # (not the filename/sentinel fallback) -> safe to merge on
 
     @property
     def has_answer(self) -> bool:
@@ -169,14 +171,15 @@ def _trim_tail(s: str) -> str:
 
 def parse_fields(chunk: str, fname: str) -> RFIRecord:
     rec = RFIRecord(source=fname)
-    for pat in (r"Document:\s*(\d{2,5})", r"District RFI #:\s*(\d{1,5})",
-                r"\bRFI\s*[#\u2013-]?\s*(\d{2,5})\b"):
+    for pat in (r"Document:\s*(\d{2,12})\b", r"District RFI #:\s*(\d{1,12})\b",
+                r"\bRFI\s*[#\u2013-]?\s*(\d{1,12})\b"):
         m = re.search(pat, chunk)
         if m:
             rec.number = m.group(1).zfill(3)
+            rec.numbered = True         # parsed from content, safe to merge on
             break
     if not rec.number:
-        m = re.search(r"(\d{3,5})", os.path.basename(fname))
+        m = re.search(r"(\d{2,12})\b", os.path.basename(fname))
         rec.number = m.group(1).zfill(3) if m else "???"
         rec.warnings.append("RFI number taken from file name")
 
@@ -205,9 +208,13 @@ def parse_fields(chunk: str, fname: str) -> RFIRecord:
         cand = _section_after(chunk, m.end(), cap=1400)
         if not cand or _JUNK_HEAD.search(cand[:150]):
             continue                      # attachment table / letterhead, not an answer
-        head = _norm(cand)[:90]
-        if len(head) >= 40 and head in nq:
-            continue                      # question restatement, not an answer
+        # question restatement, not an answer: reject when the normalized
+        # question appears anywhere inside the candidate (this way a long or
+        # labelled restatement that exceeds the head window can't sneak past)
+        ncand = _norm(re.sub(r"^\s*(?:Original Question|RE)\s*[-:]\s*", "",
+                             cand, flags=re.IGNORECASE))
+        if nq and len(nq) >= 40 and nq[:90] in ncand:
+            continue
         if len(cand) > len(best):
             best = cand
     best = _trim_tail(best)
@@ -240,6 +247,26 @@ def parse_fields(chunk: str, fname: str) -> RFIRecord:
 RECORD_START = re.compile(r"Request for Information", re.IGNORECASE)
 
 
+def _merge_key(rec: RFIRecord, idx: int):
+    """Only records whose number was parsed from content share a merge key.
+    Unnumbered / filename-fallback records get a unique key so distinct
+    un-numbered RFIs stay distinct (each still flows to the appendix)."""
+    if rec.numbered:
+        return rec.number
+    return f"{rec.number}-uniq-{idx}"
+
+
+def _merge_into(keep: RFIRecord, r: RFIRecord) -> None:
+    """Fold a duplicate record r into keep (answered copies of earlier RFIs
+    ride inside later packages)."""
+    if r.has_answer and not keep.has_answer:
+        keep.answer = r.answer
+    if len(r.question) > len(keep.question):
+        keep.question = r.question
+    have = {t for t, _ in keep.refs}
+    keep.refs += [(t, v) for t, v in r.refs if t not in have]
+
+
 def split_records(text: str, fname: str) -> list:
     starts = [m.start() for m in RECORD_START.finditer(text)]
     if len(starts) <= 1:
@@ -251,18 +278,12 @@ def split_records(text: str, fname: str) -> list:
 
     # merge duplicates (answered copies of earlier RFIs ride inside later packages)
     merged: dict = {}
-    for r in recs:
-        k = r.number
+    for i, r in enumerate(recs):
+        k = _merge_key(r, i)
         if k not in merged:
             merged[k] = r
             continue
-        keep = merged[k]
-        if r.has_answer and not keep.has_answer:
-            keep.answer = r.answer
-        if len(r.question) > len(keep.question):
-            keep.question = r.question
-        have = {t for t, _ in keep.refs}
-        keep.refs += [(t, v) for t, v in r.refs if t not in have]
+        _merge_into(merged[k], r)
     return list(merged.values())
 
 
@@ -278,6 +299,7 @@ def parse_paths(paths, log=print) -> list:
         else:
             files.append(p)
     out: dict = {}
+    uniq = 0
     for f in files:
         try:
             text, kind = read_document(f)
@@ -285,13 +307,15 @@ def parse_paths(paths, log=print) -> list:
             log(f"  !! could not read {os.path.basename(f)}: {e}")
             continue
         for r in split_records(text, f):
-            if r.number in out:
-                keep = out[r.number]
-                if r.has_answer and not keep.has_answer:
-                    keep.answer = r.answer
-                have = {t for t, _ in keep.refs}
-                keep.refs += [(t, v) for t, v in r.refs if t not in have]
+            # unnumbered records must never collapse together across files
+            if r.numbered:
+                k = r.number
             else:
-                out[r.number] = r
+                uniq += 1
+                k = f"{r.number}-uniq-{uniq}"
+            if k in out:
+                _merge_into(out[k], r)
+            else:
+                out[k] = r
         log(f"  read {os.path.basename(f)} [{kind}]")
     return sorted(out.values(), key=lambda r: r.number)

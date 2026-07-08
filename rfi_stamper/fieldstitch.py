@@ -433,6 +433,18 @@ def _pnezd_desc(p: LayoutPoint) -> str:
     return p.desc or p.category or p.layer
 
 
+def _csv_safe(v) -> str:
+    """Neutralize spreadsheet formula injection: a text cell opening with a
+    formula trigger (= + - @ TAB CR) is read as a formula by spreadsheet
+    apps, so prefix it with a single apostrophe (the value stays literal).
+    Numeric coordinate cells are pre-formatted and must NOT pass through
+    here."""
+    s = str(v)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 def export_csv_pnezd(job: LayoutJob, out_path: str, points=None,
                      header: bool = True, delimiter: str = ",") -> int:
     """PNEZD CSV: composed point id, Northing, Easting, Elevation (3
@@ -445,8 +457,8 @@ def export_csv_pnezd(job: LayoutJob, out_path: str, points=None,
                     "Description"])
     for p in pts:
         n, e, z = job.to_world(p)
-        w.writerow([job.composed(p), f"{n:.3f}", f"{e:.3f}", f"{z:.3f}",
-                    _pnezd_desc(p)])
+        w.writerow([_csv_safe(job.composed(p)), f"{n:.3f}", f"{e:.3f}",
+                    f"{z:.3f}", _csv_safe(_pnezd_desc(p))])
     _atomic_bytes(buf.getvalue().encode("utf-8"), out_path)
     return len(pts)
 
@@ -467,6 +479,14 @@ _NS_CTYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
 def _xlsx_cell(col: int, row: int, value, numeric: bool) -> str:
     ref = f"{chr(ord('A') + col)}{row}"
     if numeric:
+        # A literal 'inf'/'nan' in a <v> cell corrupts the workbook (Excel
+        # rejects the sheet).  Non-finite coordinates fall back to 0.
+        try:
+            fv = float(value)
+        except (TypeError, ValueError):
+            fv = float("nan")
+        if not math.isfinite(fv):
+            value = "0"
         return f'<c r="{ref}"><v>{value}</v></c>'
     return (f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">'
             f"{escape(str(value))}</t></is></c>")
@@ -529,6 +549,14 @@ def export_xlsx(job: LayoutJob, out_path: str, points=None) -> int:
 _DXF_TEXT_H = 1.5              # label height in drawing (real) units
 
 
+def _dxf_clean(v) -> str:
+    """DXF is line-oriented: a CR/LF (or any control char) inside a free-text
+    value is read as the next group code and corrupts the file (and desyncs
+    the (70, count) layer count).  Collapse every control character to a
+    space so a layer name or label can never inject group codes."""
+    return "".join(" " if ord(ch) < 0x20 else ch for ch in str(v))
+
+
 def export_dxf(job: LayoutJob, out_path: str, points=None) -> int:
     """ASCII DXF R12: a LAYER table (color from :func:`aci_for`), one POINT
     entity per point at (Easting, Northing, Z) plus a TEXT label at a small
@@ -546,20 +574,21 @@ def export_dxf(job: LayoutJob, out_path: str, points=None) -> int:
         (0, "TABLE"), (2, "LAYER"), (70, str(len(layer_colors))),
     ]
     for name, color in layer_colors.items():
-        pairs += [(0, "LAYER"), (2, name), (70, "0"), (62, str(color)),
-                  (6, "CONTINUOUS")]
+        pairs += [(0, "LAYER"), (2, _dxf_clean(name)), (70, "0"),
+                  (62, str(color)), (6, "CONTINUOUS")]
     pairs += [(0, "ENDTAB"), (0, "ENDSEC"),
               (0, "SECTION"), (2, "ENTITIES")]
     off = _DXF_TEXT_H * 0.5
     entities = 0
     for p in pts:
         n, e, z = job.to_world(p)
-        pairs += [(0, "POINT"), (8, p.layer),
+        layer = _dxf_clean(p.layer)
+        pairs += [(0, "POINT"), (8, layer),
                   (10, f"{e:.4f}"), (20, f"{n:.4f}"), (30, f"{z:.4f}")]
-        pairs += [(0, "TEXT"), (8, p.layer),
+        pairs += [(0, "TEXT"), (8, layer),
                   (10, f"{e + off:.4f}"), (20, f"{n + off:.4f}"),
                   (30, f"{z:.4f}"), (40, f"{_DXF_TEXT_H:.2f}"),
-                  (1, job.composed(p))]
+                  (1, _dxf_clean(job.composed(p)))]
         entities += 2
     pairs += [(0, "ENDSEC"), (0, "EOF")]
     text = "".join(f"{code}\r\n{value}\r\n" for code, value in pairs)

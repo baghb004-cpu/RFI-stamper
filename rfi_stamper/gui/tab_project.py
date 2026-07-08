@@ -346,15 +346,19 @@ class SpecsPanel(ttk.Frame):
             if err:
                 self.status.set(f"Spec parse failed: {err}", "err")
                 return
-            if secs:
+            # dedup against what's already stored, keyed on (section, source),
+            # so re-importing the same book doesn't duplicate every section
+            have = {(s.section, s.source) for s in proj.specs}
+            fresh = [s for s in secs if (s.section, s.source) not in have]
+            if fresh:
                 # one atomic save for the whole book — proj.add() would
                 # rewrite the entire project file once per section
-                proj.specs.extend(secs)
+                proj.specs.extend(fresh)
                 if proj.path:
                     proj.save()
             self.refresh()
             self.on_change()
-            self.status.set(f"{len(secs)} spec section(s) imported", "ok")
+            self.status.set(f"{len(fresh)} spec section(s) imported", "ok")
 
         run_bg(self, work, done)
 

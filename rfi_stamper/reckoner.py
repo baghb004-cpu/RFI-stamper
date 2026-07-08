@@ -40,15 +40,43 @@ class PriceItem:
     unit_cost: float = 0.0
 
 
-def _parse_cost(value) -> float:
-    """Tolerant money parser: strips ``$``, thousands commas and whitespace."""
-    text = str(value or "").strip().replace("$", "").replace(",", "")
+def _parse_cost(value, log=None) -> float:
+    """Tolerant money parser: strips ``$`` and whitespace, honors accounting
+    parentheses as negatives, and disambiguates decimal vs. grouping
+    separators for both ``1,234.56`` and EU ``1.234,56``.  A genuinely
+    unparseable non-empty value is logged (if ``log`` given) and returns 0.0.
+    """
+    text = str(value or "").strip().replace("$", "").replace(" ", "")
     if not text:
         return 0.0
+    neg = False
+    if text.startswith("(") and text.endswith(")"):     # accounting negative
+        neg = True
+        text = text[1:-1].strip()
+    if text.startswith("-"):
+        neg = True
+        text = text[1:]
+    has_comma = "," in text
+    has_dot = "." in text
+    if has_comma and has_dot:
+        # the rightmost separator is the decimal point; the other groups
+        if text.rfind(",") > text.rfind("."):           # EU: 1.234,56
+            text = text.replace(".", "").replace(",", ".")
+        else:                                            # US: 1,234.56
+            text = text.replace(",", "")
+    elif has_comma:
+        # a trailing ,\d{1,2} is a decimal comma; otherwise thousands commas
+        if re.search(r",\d{1,2}$", text):
+            text = text.replace(",", ".")
+        else:
+            text = text.replace(",", "")
     try:
-        return float(text)
+        val = float(text)
     except ValueError:
+        if log is not None:
+            log(f"  !! unparseable cost {value!r}, treating as 0")
         return 0.0
+    return -val if neg else val
 
 
 class PriceBook:
@@ -242,6 +270,19 @@ _HEADERS = ["Subject", "Kind", "Qty", "Unit", "Pages", "Code",
             "Unit Cost", "Total"]
 
 
+#: Leading characters a spreadsheet may interpret as a formula (CSV injection).
+_CSV_INJECT = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def _csv_safe(v):
+    """Prefix a text cell that starts with a formula trigger (= + - @ TAB CR
+    LF) with a single quote so spreadsheets treat it as text, not a formula.
+    Program-generated numeric columns are passed unchanged by the caller."""
+    if isinstance(v, str) and v[:1] in _CSV_INJECT:
+        return "'" + v
+    return v
+
+
 def _pages_text(pages) -> str:
     return ", ".join(str(p) for p in pages)
 
@@ -264,8 +305,9 @@ def export_csv(lines, out_path: str, log=print) -> int:
     writer = csv.writer(buf)
     writer.writerow(_HEADERS)
     for line in lines:
-        writer.writerow([line.subject, line.kind, f"{line.qty:.10g}",
-                         line.unit, _pages_text(line.pages), line.code,
+        writer.writerow([_csv_safe(line.subject), _csv_safe(line.kind),
+                         f"{line.qty:.10g}", _csv_safe(line.unit),
+                         _csv_safe(_pages_text(line.pages)), _csv_safe(line.code),
                          f"{line.unit_cost:.2f}", f"{line.total:.2f}"])
     tmp = out_path + ".part"
     with open(tmp, "w", encoding="utf-8", newline="") as f:

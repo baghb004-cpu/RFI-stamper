@@ -95,6 +95,8 @@ class Markup:
         return cls(**{k: v for k, v in d.items() if k in known})
 
     def bbox(self) -> tuple:
+        if not self.points:                 # defensive: empty points list
+            return (0.0, 0.0, 0.0, 0.0)
         xs = [p[0] for p in self.points]
         ys = [p[1] for p in self.points]
         return (min(xs), min(ys), max(xs), max(ys))
@@ -167,6 +169,14 @@ class MarkupStore:
 
     def to_csv(self, path: str, latest_status_only: bool = True):
         from .measure import caption_for
+
+        def _csv_safe(v):
+            # CSV formula-injection guard: prefix a leading =+-@/TAB/CR cell so
+            # a spreadsheet treats it as text, not a formula.
+            if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@", "\t", "\r"):
+                return "'" + v
+            return v
+
         cols = ["page", "type", "subject", "comment", "text", "status", "author",
                 "created", "measure_value", "measure_unit", "caption"]
         if not latest_status_only:
@@ -175,9 +185,10 @@ class MarkupStore:
             w = csv.writer(f)
             w.writerow(cols)
             for m in self.markups:
-                row = [m.page, m.type, m.subject, m.comment, m.text, m.status,
-                       m.author, m.created, m.measure_value, m.measure_unit,
-                       caption_for(m)]
+                row = [m.page, m.type, _csv_safe(m.subject), _csv_safe(m.comment),
+                       _csv_safe(m.text), m.status, _csv_safe(m.author),
+                       m.created, m.measure_value, m.measure_unit,
+                       _csv_safe(caption_for(m))]
                 if not latest_status_only:
                     row.append("; ".join(f"{s}@{t}" for s, t in m.status_history))
                 w.writerow(row)
@@ -220,6 +231,15 @@ def cloud_path_points(x0: float, y0: float, x1: float, y1: float,
 
 # ----------------------------------------------------------- PDF writing ---
 
+# Minimum point count each markup type needs to render an annotation; a
+# stale/corrupt sidecar with fewer points is skipped-and-logged, not crashed.
+_MIN_POINTS = {
+    "pen": 1, "highlighter": 1, "line": 2, "arrow": 2, "rect": 2,
+    "ellipse": 2, "cloud": 2, "callout": 2, "text": 1, "image": 2,
+    "measure_length": 2, "measure_polylength": 2, "measure_area": 3, "count": 1,
+}
+
+
 def _hex_rgb(h: str):
     h = h.lstrip("#")
     if len(h) != 6:
@@ -240,12 +260,30 @@ def _finish(annot, stroke, fill, width, opacity):
 
 
 def _label(page, mat, x, y, text, color, fontsize):
-    """Small freetext label near a point (viewer coords)."""
+    """Small freetext label near a point (viewer coords).
+
+    The rect is built in UNROTATED page space: derotate only the ANCHOR, then
+    add width/height there. Rotating a viewer-space rect through mat swaps its
+    width/height on /Rotate 90/270, shrinking a dimension and clipping text.
+    """
     w = max(30.0, 0.62 * fontsize * len(text) + 8)
-    rect = fitz.Rect(x, y - fontsize, x + w, y + fontsize * 0.9) * mat
+    a0 = fitz.Point(x, y - fontsize) * mat
+    rect = fitz.Rect(a0.x, a0.y, a0.x + w, a0.y + fontsize * 1.9)
     a = page.add_freetext_annot(rect, text, fontsize=fontsize, text_color=color)
     a.update()
     return a
+
+
+def _text_rect(anchor, text, fs, mat):
+    """FreeText rect for a text/callout box, built in UNROTATED page space.
+
+    Only the ANCHOR is derotated; width/height are added there. Rotating a
+    viewer-space rect through mat swaps its width/height on /Rotate 90/270,
+    shrinking a dimension so the text clips -- see bug #15.
+    """
+    w = max(80.0, 0.62 * fs * len(text) + 10)
+    a0 = fitz.Point(anchor[0], anchor[1]) * mat
+    return fitz.Rect(a0.x, a0.y, a0.x + w, a0.y + fs * 1.8)
 
 
 def _freetext(page, rect, text, color, fontsize, border_width):
@@ -272,117 +310,19 @@ def apply_to_pdf(pdf_path: str, out_path: str, markups: list,
     doc = fitz.open(pdf_path)
     n = 0
     for m in markups:
-        page = doc[m.page - 1]
-        mat = page.derotation_matrix
-        P = lambda p: fitz.Point(p[0], p[1]) * mat  # noqa: E731
-        stroke = _hex_rgb(m.style.color) or (0, 0, 0)
-        fill = _hex_rgb(m.style.fill)
-        width, opacity, fs = m.style.width, m.style.opacity, m.style.font_size
-        bx0, by0, bx1, by1 = m.bbox()
-        rect = fitz.Rect(bx0, by0, bx1, by1) * mat  # normalized by the multiply
-        caption = caption_for(m)
-        a = None
-
-        if m.type in ("pen", "highlighter"):
-            a = page.add_ink_annot([[tuple(P(p)) for p in m.points]])
-            if m.type == "highlighter":
-                width, opacity = width * 3.0, 0.35
-            _finish(a, stroke, None, width, opacity)
-        elif m.type in ("line", "arrow", "measure_length"):
-            a = page.add_line_annot(P(m.points[0]), P(m.points[1]))
-            if m.type == "arrow":
-                a.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_CLOSED_ARROW)
-            _finish(a, stroke, fill, width, opacity)
-        elif m.type == "rect":
-            a = page.add_rect_annot(rect)
-            _finish(a, stroke, fill, width, opacity)
-        elif m.type == "ellipse":
-            a = page.add_circle_annot(rect)
-            _finish(a, stroke, fill, width, opacity)
-        elif m.type == "cloud":
-            pts = cloud_path_points(bx0, by0, bx1, by1)
-            a = page.add_polygon_annot([P(p) for p in pts])
-            try:
-                a.set_border(clouds=2, width=width)
-            except Exception:
-                pass  # older PyMuPDF: polygon outline already looks scalloped
-            _finish(a, stroke, fill, width, opacity)
-        elif m.type == "text":
-            x, y = m.points[0]
-            w = max(80.0, 0.62 * fs * len(m.text) + 10)
-            a = _freetext(page, fitz.Rect(x, y, x + w, y + fs * 1.8) * mat,
-                          m.text, stroke, fs, width)
-            a.set_opacity(opacity)
-        elif m.type == "callout":
-            x, y = m.points[0]
-            tip = m.points[1]
-            knee = m.points[2] if len(m.points) > 2 else None
-            w = max(80.0, 0.62 * fs * len(m.text) + 10)
-            a = _freetext(page, fitz.Rect(x, y, x + w, y + fs * 1.8) * mat,
-                          m.text, stroke, fs, width)
-            segs = [(m.points[0], knee), (knee, tip)] if knee else [(m.points[0], tip)]
-            for i, (p0, p1) in enumerate(segs):
-                la = page.add_line_annot(P(p0), P(p1))
-                if i == len(segs) - 1:
-                    la.set_line_ends(fitz.PDF_ANNOT_LE_NONE,
-                                     fitz.PDF_ANNOT_LE_CLOSED_ARROW)
-                _finish(la, stroke, None, width, opacity)
-                la.set_info(title=m.author, subject=m.subject,
-                            content=m.comment or caption)
-                la.update()
-                n += 1
-        elif m.type == "image":
-            if m.image_path and os.path.exists(m.image_path):
-                page.insert_image(rect, filename=m.image_path)
-            else:
-                log(f"  !! image not found for markup {m.id}: {m.image_path}")
-            continue  # page content, no annot object
-        elif m.type == "measure_polylength":
-            a = page.add_polyline_annot([P(p) for p in m.points])
-            _finish(a, stroke, None, width, opacity)
-        elif m.type == "measure_area":
-            a = page.add_polygon_annot([P(p) for p in m.points])
-            _finish(a, stroke, fill, width, opacity)
-        elif m.type == "count":
-            x, y = m.points[0]
-            a = page.add_circle_annot(fitz.Rect(x - 6, y - 6, x + 6, y + 6) * mat)
-            _finish(a, stroke, stroke, width, opacity)  # filled dot
-            if m.text:
-                la = _label(page, mat, x + 8, y, m.text, stroke, fs)
-                la.set_info(title=m.author, subject=m.subject, content=m.text)
-                la.update()
-                n += 1
-        else:
-            log(f"  !! unsupported markup type skipped: {m.type}")
+        # Stale sidecar: page deleted out from under the markup -> skip, no crash.
+        if not (1 <= m.page <= doc.page_count):
+            log(f"  !! markup {m.id} page {m.page} out of range; skipped")
             continue
-
-        if a is not None:
-            if m.type in ("text", "callout"):
-                # A FreeText annot DISPLAYS its /Contents entry: overwriting it
-                # with the comment would clobber the visible text on update().
-                a.set_info(title=m.author, subject=m.subject)
-            else:
-                a.set_info(title=m.author, subject=m.subject,
-                           content=m.comment or caption)
-            a.update()
-            n += 1
-
-        if m.type in ("measure_length", "measure_polylength") and caption:
-            mid = m.points[len(m.points) // 2 - 1] if len(m.points) > 2 else None
-            if mid is None:
-                mid = ((m.points[0][0] + m.points[-1][0]) / 2,
-                       (m.points[0][1] + m.points[-1][1]) / 2)
-            la = _label(page, mat, mid[0], mid[1] - 3, caption, stroke, fs)
-            la.set_info(title=m.author, subject=m.subject, content=caption)
-            la.update()
-            n += 1
-        elif m.type == "measure_area" and caption:
-            cx = sum(p[0] for p in m.points) / len(m.points)
-            cy = sum(p[1] for p in m.points) / len(m.points)
-            la = _label(page, mat, cx, cy, caption, stroke, fs)
-            la.set_info(title=m.author, subject=m.subject, content=caption)
-            la.update()
-            n += 1
+        need = _MIN_POINTS.get(m.type, 1)
+        if len(m.points) < need:
+            log(f"  !! markup {m.id} ({m.type}) has {len(m.points)} points, "
+                f"need {need}; skipped")
+            continue
+        try:
+            n = _apply_one(doc, m, caption_for, n, log)
+        except Exception as e:              # one bad markup never aborts the batch
+            log(f"  !! markup {m.id} ({m.type}) failed: {e}; skipped")
 
     if flatten:
         if hasattr(doc, "bake"):
@@ -394,3 +334,115 @@ def apply_to_pdf(pdf_path: str, out_path: str, markups: list,
     doc.close()
     os.replace(tmp, out_path)
     return {"annots": n, "out_path": out_path}
+
+
+def _apply_one(doc, m, caption_for, n, log=print) -> int:
+    """Write a single markup's annotation(s); returns the updated annot count."""
+    page = doc[m.page - 1]
+    mat = page.derotation_matrix
+    P = lambda p: fitz.Point(p[0], p[1]) * mat  # noqa: E731
+    stroke = _hex_rgb(m.style.color) or (0, 0, 0)
+    fill = _hex_rgb(m.style.fill)
+    width, opacity, fs = m.style.width, m.style.opacity, m.style.font_size
+    bx0, by0, bx1, by1 = m.bbox()
+    rect = fitz.Rect(bx0, by0, bx1, by1) * mat  # normalized by the multiply
+    caption = caption_for(m)
+    a = None
+
+    if m.type in ("pen", "highlighter"):
+        a = page.add_ink_annot([[tuple(P(p)) for p in m.points]])
+        if m.type == "highlighter":
+            width, opacity = width * 3.0, 0.35
+        _finish(a, stroke, None, width, opacity)
+    elif m.type in ("line", "arrow", "measure_length"):
+        a = page.add_line_annot(P(m.points[0]), P(m.points[1]))
+        if m.type == "arrow":
+            a.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_CLOSED_ARROW)
+        _finish(a, stroke, fill, width, opacity)
+    elif m.type == "rect":
+        a = page.add_rect_annot(rect)
+        _finish(a, stroke, fill, width, opacity)
+    elif m.type == "ellipse":
+        a = page.add_circle_annot(rect)
+        _finish(a, stroke, fill, width, opacity)
+    elif m.type == "cloud":
+        pts = cloud_path_points(bx0, by0, bx1, by1)
+        a = page.add_polygon_annot([P(p) for p in pts])
+        try:
+            a.set_border(clouds=2, width=width)
+        except Exception:
+            pass  # older PyMuPDF: polygon outline already looks scalloped
+        _finish(a, stroke, fill, width, opacity)
+    elif m.type == "text":
+        a = _freetext(page, _text_rect(m.points[0], m.text, fs, mat),
+                      m.text, stroke, fs, width)
+        a.set_opacity(opacity)
+    elif m.type == "callout":
+        tip = m.points[1]
+        knee = m.points[2] if len(m.points) > 2 else None
+        a = _freetext(page, _text_rect(m.points[0], m.text, fs, mat),
+                      m.text, stroke, fs, width)
+        segs = [(m.points[0], knee), (knee, tip)] if knee else [(m.points[0], tip)]
+        for i, (p0, p1) in enumerate(segs):
+            la = page.add_line_annot(P(p0), P(p1))
+            if i == len(segs) - 1:
+                la.set_line_ends(fitz.PDF_ANNOT_LE_NONE,
+                                 fitz.PDF_ANNOT_LE_CLOSED_ARROW)
+            _finish(la, stroke, None, width, opacity)
+            la.set_info(title=m.author, subject=m.subject,
+                        content=m.comment or caption)
+            la.update()
+            n += 1
+    elif m.type == "image":
+        if m.image_path and os.path.exists(m.image_path):
+            page.insert_image(rect, filename=m.image_path)
+        else:
+            log(f"  !! image not found for markup {m.id}: {m.image_path}")
+        return n  # page content, no annot object
+    elif m.type == "measure_polylength":
+        a = page.add_polyline_annot([P(p) for p in m.points])
+        _finish(a, stroke, None, width, opacity)
+    elif m.type == "measure_area":
+        a = page.add_polygon_annot([P(p) for p in m.points])
+        _finish(a, stroke, fill, width, opacity)
+    elif m.type == "count":
+        x, y = m.points[0]
+        a = page.add_circle_annot(fitz.Rect(x - 6, y - 6, x + 6, y + 6) * mat)
+        _finish(a, stroke, stroke, width, opacity)  # filled dot
+        if m.text:
+            la = _label(page, mat, x + 8, y, m.text, stroke, fs)
+            la.set_info(title=m.author, subject=m.subject, content=m.text)
+            la.update()
+            n += 1
+    else:
+        log(f"  !! unsupported markup type skipped: {m.type}")
+        return n
+
+    if a is not None:
+        if m.type in ("text", "callout"):
+            # A FreeText annot DISPLAYS its /Contents entry: overwriting it
+            # with the comment would clobber the visible text on update().
+            a.set_info(title=m.author, subject=m.subject)
+        else:
+            a.set_info(title=m.author, subject=m.subject,
+                       content=m.comment or caption)
+        a.update()
+        n += 1
+
+    if m.type in ("measure_length", "measure_polylength") and caption:
+        mid = m.points[len(m.points) // 2 - 1] if len(m.points) > 2 else None
+        if mid is None:
+            mid = ((m.points[0][0] + m.points[-1][0]) / 2,
+                   (m.points[0][1] + m.points[-1][1]) / 2)
+        la = _label(page, mat, mid[0], mid[1] - 3, caption, stroke, fs)
+        la.set_info(title=m.author, subject=m.subject, content=caption)
+        la.update()
+        n += 1
+    elif m.type == "measure_area" and caption:
+        cx = sum(p[0] for p in m.points) / len(m.points)
+        cy = sum(p[1] for p in m.points) / len(m.points)
+        la = _label(page, mat, cx, cy, caption, stroke, fs)
+        la.set_info(title=m.author, subject=m.subject, content=caption)
+        la.update()
+        n += 1
+    return n

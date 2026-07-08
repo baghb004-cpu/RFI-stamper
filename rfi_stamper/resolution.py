@@ -185,7 +185,16 @@ class ResolutionStore:
                                 "note": str(e.get("note", "")),
                                 "author": str(e.get("author", ""))})
             if entries:
-                cleaned[_norm(num)] = entries
+                # #12: zfill-equivalent keys ("1" and "001") normalize to the
+                # same RFI — MERGE their histories instead of letting the last
+                # one overwrite (which silently dropped history and could
+                # downgrade the current status).
+                key = _norm(num)
+                cleaned.setdefault(key, []).extend(entries)
+        # order each merged history by timestamp so get()/statuses() (which
+        # read the last entry) see the latest lifecycle step last.
+        for hist in cleaned.values():
+            hist.sort(key=lambda e: e["ts"])
         self._rfis = cleaned
 
 

@@ -34,6 +34,22 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _num(v) -> float:
+    """Tolerant number coercion for JSON-loaded fields: returns a float, or
+    0.0 for None / blanks / unparseable strings so one bad record can never
+    crash summary().  Accepts ints/floats as-is and strips thousands commas,
+    currency symbols and surrounding whitespace from strings."""
+    if isinstance(v, bool):          # bool is an int subclass — treat as 0/1
+        return float(v)
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        s = str(v).strip().replace(",", "").lstrip("$").strip()
+        return float(s) if s else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ------------------------------------------------------------- dataclasses ---
 
 class _Record:
@@ -57,9 +73,22 @@ class _Record:
     @classmethod
     def from_dict(cls, d: dict):
         """Build from a dict, ignoring unknown keys (forward compatible) and
-        deep-copying values so the source dict is never shared or mutated."""
-        names = {f.name for f in fields(cls)}
-        return cls(**{k: deepcopy(v) for k, v in d.items() if k in names})
+        deep-copying values so the source dict is never shared or mutated.
+        Numeric fields (float/int) are coerced tolerantly so a hand-edited or
+        legacy JSON string (e.g. an amount saved as "1,000") can never crash
+        summary() later — an unparseable value becomes 0.0/0."""
+        types = {f.name: f.type for f in fields(cls)}
+        kw = {}
+        for k, v in d.items():
+            if k not in types:
+                continue
+            t = types[k]
+            if t in ("float", float):
+                v = _num(v)
+            elif t in ("int", int):
+                v = int(_num(v))
+            kw[k] = deepcopy(v)
+        return cls(**kw)
 
 
 @dataclass
@@ -193,6 +222,9 @@ class Project:
     def __init__(self, path: str | None = None):
         self.path = path
         self.name = ""
+        # on-disk fingerprint of the last file we read/wrote; save() uses it to
+        # detect a concurrent writer and merge instead of clobbering (#10).
+        self._disk_sig: tuple | None = None
         for kind in KINDS:
             setattr(self, kind, [])
         if path:
@@ -200,6 +232,16 @@ class Project:
                 self.load(path)
             else:
                 self.name = _stem(path)
+
+    @staticmethod
+    def _sig_of(path: str) -> tuple | None:
+        """(mtime_ns, size) fingerprint of a file, or None if it is absent.
+        Used to notice a concurrent writer between our load and our save."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
 
     # internal: kind -> live list, with the one validation everything shares
     def _list(self, kind: str) -> list:
@@ -246,12 +288,43 @@ class Project:
             raise ValueError("no path set: pass save(path=...) once")
         if not self.name:
             self.name = _stem(p)
+        # #10: if the on-disk file changed since we last read it (a second
+        # process opened and saved the same project), don't blindly clobber
+        # its records — reload and fold the on-disk-only records back into our
+        # in-memory lists first.  Only when writing to the store we track
+        # (self.path); an explicit save-as to a new path is a plain write.
+        if p == self.path and self._disk_sig is not None:
+            cur = self._sig_of(p)
+            if cur is not None and cur != self._disk_sig:
+                self._merge_from_disk(p)
         payload: dict = {"version": 1, "name": self.name}
         for kind in KINDS:
             payload[kind] = [obj.to_dict() for obj in getattr(self, kind)]
         _atomic_write_json(payload, p)
         self.path = p
+        self._disk_sig = self._sig_of(p)
         return p
+
+    def _merge_from_disk(self, p: str) -> None:
+        """Fold records written by a concurrent process back into our lists:
+        for each kind, append any on-disk record whose id we don't already
+        hold.  Our copy wins for ids we hold (our in-flight edits are kept)."""
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return                       # unreadable/partial — keep our state
+        if data.get("version", 1) != 1:
+            return
+        for kind in KINDS:
+            cls = _CLS_FOR[kind]
+            mine = getattr(self, kind)
+            have = {obj.id for obj in mine}
+            for d in data.get(kind, []):
+                other = cls.from_dict(d)
+                if other.id not in have:
+                    mine.append(other)
+                    have.add(other.id)
 
     def load(self, path: str | None = None) -> "Project":
         p = path or self.path
@@ -267,6 +340,7 @@ class Project:
             cls = _CLS_FOR[kind]
             setattr(self, kind, [cls.from_dict(d) for d in data.get(kind, [])])
         self.path = p
+        self._disk_sig = self._sig_of(p)
         return self
 
     def summary(self) -> dict:
@@ -283,10 +357,10 @@ class Project:
                                       if i.status == "failed"),
             "co_pending": sum(1 for c in self.change_orders
                               if c.status in ("draft", "submitted")),
-            "co_approved_amount": float(sum(c.amount for c in self.change_orders
-                                            if c.status == "approved")),
-            "budget_total": float(sum(b.budget for b in self.budget)),
-            "budget_spent": float(sum(b.spent for b in self.budget)),
+            "co_approved_amount": sum((_num(c.amount) for c in self.change_orders
+                                       if c.status == "approved"), 0.0),
+            "budget_total": sum((_num(b.budget) for b in self.budget), 0.0),
+            "budget_spent": sum((_num(b.spent) for b in self.budget), 0.0),
             "docs": len(self.documents),
             "specs": len(self.specs),
             "schedule_behind": sum(1 for s in self.schedule

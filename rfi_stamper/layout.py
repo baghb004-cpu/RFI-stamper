@@ -65,6 +65,29 @@ def make_entries(records, summarizer=None, statuses: dict | None = None):
     return out
 
 
+def _fit_header(hdr: str, inner: float) -> str:
+    """Shrink an over-wide single-line header to fit `inner` pt, trimming the
+    TITLE while keeping the ``RFI NNN — `` prefix and any ``· STATUS``
+    suffix intact.  The status suffix is USER-APPROVED to never be clipped, so
+    it is split off and re-appended after the title is trimmed.  Header height
+    is one line regardless, so this never changes box geometry -- it only stops
+    a long title from printing past the right border (which would land red text
+    over linework and fail verification)."""
+    if stringWidth(hdr, F_HDR, S_HDR) <= inner:
+        return hdr
+    sep = " · "                       # status_suffix separator (middle dot)
+    idx = hdr.rfind(sep)
+    base, suffix = (hdr[:idx], hdr[idx:]) if idx != -1 else (hdr, "")
+    dash = base.find(" — ")           # keep 'RFI NNN — '
+    keep = dash + 3 if dash != -1 else 0
+    ell = "…"
+    hi = len(base)
+    while hi > keep and stringWidth(base[:hi].rstrip() + ell + suffix,
+                                    F_HDR, S_HDR) > inner:
+        hi -= 1
+    return base[:hi].rstrip() + ell + suffix
+
+
 def wrap(text, font, size, width):
     lines, line = [], ""
     for word in text.split():
@@ -85,6 +108,7 @@ def layout_entries(entries, w):
     inner = w - 2 * PAD
     items, h = [], PAD
     for _num, hdr, body in entries:
+        hdr = _fit_header(hdr, inner)
         blines = wrap(body, F_BOD, S_BOD, inner)
         items.append((hdr, blines))
         h += L_HDR + len(blines) * L_BOD + GAP
@@ -135,9 +159,22 @@ def find_spot(ii, img_w, img_h, w_pt, h_pt, scale, occupied):
         Yb = int((1 - fy0) * img_h) - h_px         # lowest allowed top row
         if X1 <= X0 or Yb <= Yt:
             continue
-        ys = range(Yb, Yt, -STEP) if corner == "bl" else range(Yt, Yb, STEP)
+        # Include the far endpoints so a clear window that begins between grid
+        # lines (or hard against the zone edge) is still found instead of being
+        # spilled to the appendix.  Endpoints only ADD candidates.
+        xs = list(range(X0, X1, STEP))
+        if not xs or xs[-1] != X1:
+            xs.append(X1)
+        if corner == "bl":
+            ys = list(range(Yb, Yt, -STEP))
+            if not ys or ys[-1] != Yt:
+                ys.append(Yt)
+        else:
+            ys = list(range(Yt, Yb, STEP))
+            if not ys or ys[-1] != Yb:
+                ys.append(Yb)
         for y in ys:
-            for x in range(X0, X1, STEP):
+            for x in xs:
                 if blocked(x, y):
                     continue
                 if _rect_sum(ii, x, y, x + w_px, y + h_px) == 0:
