@@ -38,12 +38,27 @@ Ctrl+Wheel    zoom at cursor        Middle-drag   pan
 """
 
 
+def resource_path(rel: str) -> str:
+    """Locate a bundled asset both from source and from a frozen exe."""
+    import sys
+    base = getattr(sys, "_MEIPASS",
+                   os.path.dirname(os.path.dirname(os.path.dirname(
+                       os.path.abspath(__file__)))))
+    return os.path.join(base, rel)
+
+
 class App:
     def __init__(self, root):
         self.root = root
         self.prefs = prefs.load()
         root.title(f"Planloom {__version__} — offline construction workspace")
         root.geometry("1400x900")
+        try:
+            self._icon = tk.PhotoImage(
+                file=resource_path(os.path.join("assets", "planloom.png")))
+            root.iconphoto(True, self._icon)
+        except Exception:   # noqa: BLE001 -- icon is cosmetic
+            pass
         self.theme = ThemeManager(root, self.prefs.get("theme", "dark"))
 
         eff = self.prefs.get("effects", "auto")
@@ -123,12 +138,15 @@ class App:
             self.add_recent(plan, "plan")
             self.truth.refresh()
         st.on_scanned = scanned
-        st.on_stamped = lambda ok, out: (
+        def stamped(ok, _out):
             toast(root, self.theme,
                   "Stamped & verified — statuses woven into the sheets" if ok
                   else "Verification FAILED — do not issue",
-                  "ok" if ok else "err"),
-            self.truth.refresh())
+                  "ok" if ok else "err")
+            self.truth.refresh()
+            if ok:
+                self.celebrate_verified()
+        st.on_stamped = stamped
         self.projsec.merge.on_combined = lambda out, files, pages: (
             self.add_recent(out, "combine"),
             toast(root, self.theme, f"Combined {files} file(s) → {pages} "
@@ -156,6 +174,54 @@ class App:
 
         if fx.quality() != "off":
             self.root.after(50, self._warp_up)
+
+    # -------------------------------------------------------- celebration
+    def celebrate_verified(self):
+        """A rubber-stamp slam: 'VERIFIED' drops onto the screen at an angle,
+        thuds to size, then fades — the payoff for a pixel-clean run.
+        Quality 'off' skips it entirely."""
+        if fx.quality() == "off":
+            return
+        from .theme import mix
+        c = self.theme.colors
+        w = max(self.root.winfo_width(), 300)
+        h = max(self.root.winfo_height(), 200)
+        cv = tk.Canvas(self.root, highlightthickness=0, bg=c["bg"])
+        # stipple keeps the workspace visible under the stamp moment
+        cv.place(x=0, y=0, relwidth=1.0, relheight=1.0)
+        cv.create_rectangle(0, 0, w, h, fill=c["bg"], outline="",
+                            stipple="gray25")
+        cv.bind("<Button-1>", lambda e: cv.destroy())
+        red = c["accent"]
+
+        def draw(t):
+            if not cv.winfo_exists():
+                return
+            cv.delete("stamp")
+            # slam: oversized -> settle (ease_out_back overshoot reads as thud)
+            size = int(110 - 68 * min(t, 1.0))
+            angle = -14 + 8 * min(t, 1.0)
+            fill = red if t <= 1.0 else mix(red, c["bg"], (t - 1.0) / 0.6)
+            tid = cv.create_text(w / 2, h / 2, text="VERIFIED",
+                                 font=("Segoe UI", max(size, 8), "bold"),
+                                 fill=fill, angle=angle, tags="stamp")
+            x0, y0, x1, y1 = cv.bbox(tid)
+            pad = 18
+            cv.create_rectangle(x0 - pad, y0 - pad, x1 + pad, y1 + pad,
+                                outline=fill, width=5, tags="stamp")
+            cv.create_text(w / 2, y1 + pad + 22, tags="stamp",
+                           text="nothing covered · pixel-diff clean",
+                           font=("Segoe UI", 11), fill=fill)
+            cv.tag_raise(tid)
+
+        def phase2():
+            fx.animate(cv, "fade", 1.0, 1.6, 500, draw,
+                       easing="linear",
+                       on_done=lambda: cv.winfo_exists() and cv.destroy())
+
+        fx.animate(cv, "slam", 0.0, 1.0, 380, draw,
+                   easing="ease_out_back",
+                   on_done=lambda: self.root.after(450, phase2))
 
     # ------------------------------------------------------------ warp-up
     def _warp_up(self):

@@ -14,7 +14,7 @@ except Exception:               # tkinterdnd2 not installed: DnD degrades to Bro
 a_gui = Analysis(
     ["launch_gui.py"],
     pathex=["."],
-    datas=tkdnd_datas,
+    datas=tkdnd_datas + [("assets/planloom.png", "assets")],
     hiddenimports=["tkinterdnd2"],   # optional drag-and-drop; warning-only if absent
     noarchive=False,
 )
@@ -28,6 +28,7 @@ exe_gui = EXE(
     name="Planloom",
     console=False,
     upx=False,
+    icon="assets/planloom.ico",
 )
 
 a_cli = Analysis(
@@ -47,4 +48,5 @@ exe_cli = EXE(
     name="planloom-cli",
     console=True,
     upx=False,
+    icon="assets/planloom.ico",
 )

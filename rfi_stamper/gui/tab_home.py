@@ -75,13 +75,17 @@ class HomeTab(ttk.Frame):
         self.on_recent = on_recent
         self.project_ops = project_ops
 
-        # animated blueprint hero
+        # animated blueprint hero + a slowly orbiting wireframe building
         self.hero = tk.Canvas(self, height=128, highlightthickness=0)
         self.hero.pack(fill="x")
         self.backdrop = fx.BlueprintBackdrop(self.hero, theme)
         theme.register(lambda c: self._draw_hero())
         self.hero.bind("<Configure>", lambda e: self._draw_hero())
         self.backdrop.start()
+        self._spin_yaw = -30.0
+        self._spin_on = False
+        self.hero.bind("<Map>", lambda e: self._start_spin(), add="+")
+        self._start_spin()
 
         # bottom drop zone reserves its space before `body` claims the rest
         self._router = None
@@ -147,6 +151,72 @@ class HomeTab(ttk.Frame):
         for i in range(10):
             cv.create_line(w - 250 + i * 22, 88, w - 250 + i * 22, 112,
                            fill=mix(c["accent"], c["bg"], 0.5), tags="hero")
+
+    # tiny two-story wireframe that slowly orbits at the hero's right edge —
+    # ambient, ≤ one eased cycle per 14 s, stops the instant the tab unmaps
+    _HERO_SEGS = None
+
+    @classmethod
+    def _hero_model(cls):
+        if cls._HERO_SEGS is None:
+            segs = []
+            for z in (0.0, 10.0, 20.0):                    # slab outlines
+                segs += [((0, 0, z), (36, 0, z)), ((36, 0, z), (36, 24, z)),
+                         ((36, 24, z), (0, 24, z)), ((0, 24, z), (0, 0, z))]
+            for x, y in ((0, 0), (36, 0), (36, 24), (0, 24), (18, 0),
+                         (18, 24)):                        # columns
+                segs.append(((x, y, 0.0), (x, y, 20.0)))
+            # gable roof: a slope pair at each end + the ridge line
+            segs += [((0, 0, 20), (18, 0, 27)), ((18, 0, 27), (36, 0, 20)),
+                     ((0, 24, 20), (18, 24, 27)), ((18, 24, 27), (36, 24, 20)),
+                     ((18, 0, 27), (18, 24, 27))]
+            segs += [((2, 2, 4), (34, 2, 4)), ((34, 2, 4), (34, 22, 4))]
+            cls._HERO_SEGS = segs
+        return cls._HERO_SEGS
+
+    def _draw_spin(self):
+        cv = self.hero
+        if not cv.winfo_exists():
+            return
+        cv.delete("hero3d")
+        import rfi_stamper.bim as bim
+        c = self.theme.colors
+        cam = bim.Camera(yaw=self._spin_yaw, pitch=20.0, dist=95.0,
+                         target=(18.0, 12.0, 9.0))
+        segs = self._hero_model()
+        pts = [p for s in segs for p in s]
+        scr = bim.project_points(pts, cam, 250, 240)
+        w = max(cv.winfo_width(), 400)
+        ox, oy = w - 300, -46
+        line_col = mix(c["accent"], c["bg"], 0.45)
+        for i in range(len(segs)):
+            a, b = scr[2 * i], scr[2 * i + 1]
+            if a[2] <= 0 or b[2] <= 0:
+                continue
+            cv.create_line(a[0] + ox, a[1] + oy, b[0] + ox, b[1] + oy,
+                           fill=line_col, width=1.2, tags="hero3d")
+
+    def _start_spin(self):
+        if self._spin_on or fx.quality() != "full":
+            if fx.quality() != "full":
+                self._draw_spin()      # static frame on reduced/off
+            return
+        self._spin_on = True
+
+        def cycle(t):
+            if not self.hero.winfo_ismapped():
+                self._spin_on = False
+                fx.cancel(self.hero, "spin")
+                return
+            self._spin_yaw = -30.0 + 360.0 * t
+            self._draw_spin()
+
+        def again():
+            self._spin_on = False
+            self._start_spin()
+
+        fx.animate(self.hero, "spin", 0.0, 1.0, 14000, cycle,
+                   easing="linear", on_done=again)
 
     def set_project_name(self, name):
         self.proj_lbl.configure(text=name or "none open")

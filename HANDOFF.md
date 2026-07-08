@@ -6,7 +6,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (start of "Fieldstitch round")
 
-- Product: **Planloom** v3.0.0, offline construction workspace; Python package
+- Product: **Planloom** v3.1.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth.
@@ -92,6 +92,17 @@ All items below are BUILT, tested (19 suites green) and pushed:
   rounds 4–6 (fieldstitch studio, bim3d additions, plansbim wiring, pano,
   daybook/reckoner/crewpass panels, app/nav/crud/truth) — confirmed bugs
   fixed in place with construct-test regressions.
+
+## Round 4 (SHIPPED): finish & merge
+
+- VERIFIED stamp-slam celebration on a passing run (fx, quality-gated,
+  click-dismiss); Home hero gains a slowly orbiting wireframe building
+  (full-quality only, stops when unmapped); Gantt weekend shading.
+- App icon: assets/planloom.ico + .png, wired into both exe targets in
+  rfi_stamper.spec (datas bundle the png; gui/app.resource_path resolves
+  sys._MEIPASS for frozen builds) and the window iconphoto.
+- v3.1.0. Branch merged to `main` — GitHub default may still point at the
+  work branch; switch in repo Settings → Branches if needed.
 
 ## Roadmap (still open)
 

@@ -82,6 +82,16 @@ class ScheduleView(ttk.Frame):
         def x_of(date):
             return self.LEFT_W + (date - d0).days * px_day
 
+        # weekend shading behind everything else
+        wknd = mix(c["border"], c["panel"], 0.72)
+        d = d0
+        while d <= d1:
+            if d.weekday() >= 5:
+                x = x_of(d)
+                cv.create_rectangle(x, top, x + px_day, h, fill=wknd,
+                                    outline="")
+            d += _dt.timedelta(days=1)
+
         # month/week grid
         d = d0
         while d <= d1:

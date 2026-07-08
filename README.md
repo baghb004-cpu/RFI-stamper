@@ -132,8 +132,10 @@ Python 3.10+ with Tk, then:
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,
-no Python needed by end users. (The internal Python package keeps its
-original `rfi_stamper` name for API stability; the product is Planloom.)
+no Python needed by end users, with the Planloom icon baked in (the spec
+bundles `assets/` automatically). Works on x64 and Windows-on-ARM. (The
+internal Python package keeps its original `rfi_stamper` name for API
+stability; the product is Planloom.)
 
 CLI (also answers to the legacy flag style):
 

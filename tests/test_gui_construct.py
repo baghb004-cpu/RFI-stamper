@@ -551,6 +551,20 @@ def main():
                            os.path.abspath(__file__))))
     assert r.returncode == 0 and "merge" in r.stdout
 
+    # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
+    from rfi_stamper.gui.app import resource_path
+    icon_png = resource_path(os.path.join("assets", "planloom.png"))
+    assert os.path.exists(icon_png), icon_png
+    import tkinter as tk2
+    probe_img = tk2.PhotoImage(file=icon_png)
+    assert probe_img.width() == 256
+    assert hasattr(app.home, "_start_spin") and app.home._spin_on is False, \
+        "quality is 'off' in tests: hero spin must not be running"
+    app.celebrate_verified()      # quality off -> must be a silent no-op
+    root.update()
+    from rfi_stamper.gui import fx as fx2
+    assert fx2.quality() == "off"
+
     # offline guard active by default; undo depth effectively unlimited
     from rfi_stamper import offline_guard
     assert offline_guard.is_active()
