@@ -43,6 +43,13 @@ def load() -> dict:
             prefs.update(json.load(f))
     except Exception:   # noqa: BLE001 -- missing/corrupt prefs -> defaults
         pass
+    # sanitize hand-editable / corruptible fields so a bad prefs.json can
+    # never crash GUI startup ------------------------------------------------
+    raw = prefs.get("recent")
+    prefs["recent"] = ([r for r in raw if isinstance(r, dict)]
+                       if isinstance(raw, list) else [])
+    if prefs.get("effects") not in ("auto", "full", "reduced", "off"):
+        prefs["effects"] = "auto"
     return prefs
 
 

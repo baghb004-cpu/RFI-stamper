@@ -131,23 +131,26 @@ def test_guard():
     # non-local still blocked
     expect(guard.OfflineError, socket.create_connection, ("example.com", 80), 1)
 
-    # AF_UNIX always allowed
+    # local socketpair always allowed (AF_UNIX on POSIX, emulated on Windows)
     a, b = socket.socketpair()
     a.sendall(b"ping")
     assert b.recv(4) == b"ping"
     a.close(); b.close()
-    with tempfile.TemporaryDirectory() as td:
-        path = os.path.join(td, "guard.sock")
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(path)
-        srv.listen(1)
-        cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        cli.connect(path)                                # patched connect, AF_UNIX
-        conn, _ = srv.accept()
-        cli.sendall(b"ok")
-        assert conn.recv(2) == b"ok"
-        for s in (cli, conn, srv):
-            s.close()
+
+    # AF_UNIX always allowed -- but AF_UNIX itself is POSIX-only
+    if hasattr(socket, "AF_UNIX"):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "guard.sock")
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(path)
+            srv.listen(1)
+            cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            cli.connect(path)                            # patched connect, AF_UNIX
+            conn, _ = srv.accept()
+            cli.sendall(b"ok")
+            assert conn.recv(2) == b"ok"
+            for s in (cli, conn, srv):
+                s.close()
 
     guard.uninstall()
     guard.uninstall()                                    # idempotent

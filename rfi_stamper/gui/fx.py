@@ -87,6 +87,14 @@ def set_quality(q: str) -> None:
     if q not in ("full", "reduced", "off"):
         raise ValueError(f"unknown quality {q!r} (full/reduced/off)")
     _quality = q
+    if q == "off":
+        # invariant: "off" jumps straight to the final state -- finalize every
+        # in-flight tween and drop ambient loops, then stay disarmed.
+        _SCHED.finalize_all()
+    else:
+        # re-rate any running tween to the new frame cadence so a mid-tween
+        # switch (full<->reduced) takes effect immediately.
+        _SCHED.rerate_anims(_frame_ms())
 
 
 def _frame_ms() -> int:
@@ -151,6 +159,21 @@ class _Anim:
         self.ease_fn = ease_fn
         self.interval = _frame_ms()
         self.next_due = self.t0                 # first frame on next tick
+
+    def finalize(self) -> None:
+        """Snap straight to the final state (quality "off" invariant): call
+        on_update(to) + on_done() once, swallowing dead-widget errors.  No
+        winfo_exists gate -- on a live widget it must land, and a dead one
+        just raises TclError which we ignore."""
+        try:
+            self.on_update(self.to)
+        except tk.TclError:
+            return
+        if self.on_done is not None:
+            try:
+                self.on_done()
+            except tk.TclError:
+                pass
 
     def step(self, now: float) -> bool:
         try:
@@ -245,6 +268,28 @@ class _Scheduler:
         """Pure-dict removal (never touches tk) -- quality "off" path."""
         self._tasks.pop((id(owner), key), None)
 
+    def finalize_all(self) -> None:
+        """Quality just went "off": snap every in-flight tween to its final
+        state, drop every ambient loop, clear the table and disarm.  After
+        this the scheduler is idle -- nothing keeps touching tk."""
+        tasks = list(self._tasks.values())
+        self._tasks.clear()
+        for task in tasks:
+            fin = getattr(task, "finalize", None)
+            if fin is not None:                 # _Anim: land on the end value
+                try:
+                    fin()
+                except Exception:   # noqa: BLE001 -- one bad callback must
+                    pass            # not block finalizing the rest
+        self._disarm_if_idle()
+
+    def rerate_anims(self, interval: int) -> None:
+        """Re-rate live tweens after a quality change (leave _LoopTask
+        intervals untouched -- their cadence is caller-chosen)."""
+        for task in self._tasks.values():
+            if isinstance(task, _Anim):
+                task.interval = interval
+
     def idle(self) -> bool:
         return not self._tasks and self._after_id is None
 
@@ -290,6 +335,9 @@ class _Scheduler:
 
     def _tick(self):
         self._after_id = None
+        if _quality == "off":       # switched off between arm and tick:
+            self.finalize_all()     # snap to final state, don't re-arm
+            return
         now = time.monotonic()
         for tkey in list(self._tasks):
             task = self._tasks.get(tkey)

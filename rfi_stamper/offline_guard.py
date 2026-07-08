@@ -65,6 +65,22 @@ def _g_connect_ex(self, address):
     return _originals["connect_ex"](self, address)
 
 
+def _g_sendto(self, *args, **kwargs):
+    # sendto(data, address) or sendto(data, flags, address); address is last
+    address = args[-1] if args else kwargs.get("address")
+    if address is not None:                       # None only via connected send
+        _check(self.family, address)
+    return _originals["sendto"](self, *args, **kwargs)
+
+
+def _g_sendmsg(self, *args, **kwargs):
+    # sendmsg(buffers[, ancdata[, flags[, address]]]); address is 5th / kwarg
+    address = args[3] if len(args) >= 4 else kwargs.get("address")
+    if address is not None:                       # connected socket omits address
+        _check(self.family, address)
+    return _originals["sendmsg"](self, *args, **kwargs)
+
+
 def _g_create_connection(address, *args, **kwargs):
     if not (_allow_localhost and _is_local(_host_of(address))):
         raise OfflineError(_MSG)
@@ -83,7 +99,11 @@ def install(allow_localhost: bool = False) -> None:
     _allow_localhost = allow_localhost
     if _originals:
         return
-    for name, wrapper in (("connect", _g_connect), ("connect_ex", _g_connect_ex)):
+    patches = [("connect", _g_connect), ("connect_ex", _g_connect_ex),
+               ("sendto", _g_sendto)]
+    if hasattr(socket.socket, "sendmsg"):        # not on all platforms
+        patches.append(("sendmsg", _g_sendmsg))
+    for name, wrapper in patches:
         _had_own[name] = name in socket.socket.__dict__
         _originals[name] = getattr(socket.socket, name)
         setattr(socket.socket, name, wrapper)
@@ -97,7 +117,9 @@ def uninstall() -> None:
     """Restore the original socket entry points. Idempotent."""
     if not _originals:
         return
-    for name in ("connect", "connect_ex"):
+    for name in ("connect", "connect_ex", "sendto", "sendmsg"):
+        if name not in _originals:               # sendmsg absent on this platform
+            continue
         if _had_own.get(name):
             setattr(socket.socket, name, _originals[name])
         else:                                    # was inherited from _socket

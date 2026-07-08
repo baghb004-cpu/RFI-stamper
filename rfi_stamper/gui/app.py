@@ -62,10 +62,10 @@ class App:
         self.theme = ThemeManager(root, self.prefs.get("theme", "dark"))
 
         eff = self.prefs.get("effects", "auto")
-        if eff == "auto":
-            fx.auto_quality(root)
-        else:
+        if eff in ("full", "reduced", "off"):
             fx.set_quality(eff)
+        else:                               # "auto" or a corrupt/unknown value
+            fx.auto_quality(root)
 
         if self.prefs.get("offline_guard", True):
             offline_guard.install()
@@ -385,7 +385,7 @@ class App:
     # ------------------------------------------------------------- recents
     def add_recent(self, path, kind):
         rec = [r for r in self.prefs.get("recent", [])
-               if r.get("path") != path]
+               if isinstance(r, dict) and r.get("path") != path]
         rec.insert(0, {"path": path, "kind": kind})
         self.prefs["recent"] = rec[:10]
         prefs.save(self.prefs)
