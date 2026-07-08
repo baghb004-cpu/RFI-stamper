@@ -301,6 +301,13 @@ class HeartwoodStore:
         return {row["key"]: row["value"]
                 for row in self.db.execute("SELECT key, value FROM hw_meta")}
 
+    def set_meta(self, key: str, value: str) -> None:
+        with self.db:
+            self.db.execute(
+                "INSERT INTO hw_meta(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value))
+
     # -------------------------------------------------------- thesaurus -----
 
     def add_thesaurus(self, term: str, canonical: str, trade: str | None,

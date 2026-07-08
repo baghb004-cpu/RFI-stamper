@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 
 from . import ask as _ask
+from . import corral as _corral
 from . import ingest as _ingest
 from . import search as _search
 from . import thesaurus as _thesaurus
@@ -143,6 +144,36 @@ class Heartwood:
     def rebuild(self, log=None) -> dict:
         """Retrain the meaning layer (postings + vectors + miner)."""
         return _ingest.rebuild(self.store, log)
+
+    # ------------------------------------------------------- the Corral --
+
+    def compact(self, limits: dict | None = None) -> dict:
+        """Cap pruning + orphan sweep + dedupe + VACUUM; never touches
+        note content.  See corral.compact()."""
+        return _corral.compact(self.store, limits)
+
+    def provenance(self) -> list[dict]:
+        """Every learned item with its origin, shaped for a tree view."""
+        return _corral.provenance(self.store)
+
+    def purge(self, kind: str, ident) -> bool:
+        """Remove one learned item incl. its index entries (thesaurus
+        seeds are disabled, never deleted)."""
+        return _corral.purge(self.store, kind, ident)
+
+    def snapshot(self, out_path: str) -> dict:
+        """Export the learned state to one carry file (offline hand-off
+        between machines).  See corral.snapshot()."""
+        return _corral.snapshot(self.store, out_path)
+
+    def restore(self, path: str) -> dict:
+        """Merge a learned-state carry file into this store — statuses
+        kept, nothing promoted.  See corral.restore()."""
+        return _corral.restore(self.store, path)
+
+    def gauges(self) -> dict:
+        """Size / growth / queue numbers for the Ground Truth card row."""
+        return _corral.gauges(self.store)
 
     def status(self) -> dict:
         """One dict for a status panel: training meta, store counts,

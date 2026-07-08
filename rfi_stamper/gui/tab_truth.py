@@ -5,6 +5,7 @@ every insight names the rule that produced it)."""
 from __future__ import annotations
 
 import datetime as _dt
+import os
 import tkinter as tk
 from tkinter import ttk
 
@@ -73,8 +74,34 @@ class TruthSection(ttk.Frame):
             tiles.columnconfigure(i, weight=1)
             self.tiles[key] = t
 
+        # the Heartwood card row (the Corral's growth gauges): built here,
+        # PACKED only when a store file already exists on disk — a fresh
+        # install shows no card and raises nothing, the same silent-empty
+        # rule the project tiles follow
+        self.hw_path_provider = None       # app wires this to the Old Hand
+        self.hw_frame = ttk.Frame(body)
+        ttk.Label(self.hw_frame, text="▍Heartwood",
+                  font=("Segoe UI", 13, "bold"), foreground=col
+                  ).pack(anchor="w", pady=(0, 6))
+        hw_tiles = ttk.Frame(self.hw_frame)
+        hw_tiles.pack(fill="x")
+        self.hw_tile_defs = [
+            ("kb_mb", "KB size (MB)", "#12a5ba"),
+            ("passages", "Passages", "#2f9e62"),
+            ("queue", "Unverified queue", "#d99c20"),
+            ("asks_7d", "Asks, 7 days", "#8b5cf6"),
+        ]
+        self.hw_tiles = {}
+        for i, (key, cap, color) in enumerate(self.hw_tile_defs):
+            t = KpiTile(hw_tiles, theme, cap, color)
+            t.grid(row=0, column=i, padx=(0, 12), sticky="nsew")
+            hw_tiles.columnconfigure(i, weight=1)
+            self.hw_tiles[key] = t
+        self.hw_tiles["kb_mb"].counter.fmt = "{:,.1f}"
+
         mid = ttk.Frame(body)
         mid.pack(fill="both", expand=True, pady=(14, 0))
+        self._mid = mid
 
         gauges = ttk.Frame(mid)
         gauges.pack(side="left", anchor="n", padx=(0, 18))
@@ -144,6 +171,47 @@ class TruthSection(ttk.Frame):
         self.g_budget.set(summ.get("budget_spent", 0) / btot * 100
                           if btot else 0)
         self._insights(proj, summ, res)
+        self._hw_refresh()
+
+    # ------------------------------------------------------ heartwood card
+    def _hw_path(self):
+        try:
+            if self.hw_path_provider is not None:
+                return self.hw_path_provider()
+            from .. import heartwood
+            return heartwood.default_path()
+        except Exception:
+            return None
+
+    def _hw_refresh(self):
+        """Show the Heartwood card only when a store file already exists —
+        opening a store CREATES one, so a missing file means hide, never
+        touch.  Any read trouble hides the card too (no error boxes)."""
+        path = self._hw_path()
+        if not path or path == ":memory:" or not os.path.isfile(path):
+            self.hw_frame.pack_forget()
+            return
+        try:
+            from ..heartwood import corral
+            from ..heartwood.store import HeartwoodStore
+            st = HeartwoodStore(path)
+            try:
+                g = corral.gauges(st)
+            finally:
+                st.close()
+        except Exception:
+            self.hw_frame.pack_forget()
+            return
+        if not self.hw_frame.winfo_manager():
+            self.hw_frame.pack(fill="x", pady=(14, 0), before=self._mid)
+        notes = g.get("notes", {})
+        queue = (int(notes.get("unverified", 0))
+                 + int(g.get("proposals_pending", 0)))
+        self.hw_tiles["kb_mb"].set(g.get("db_size_mb", 0.0))
+        self.hw_tiles["passages"].set(g.get("chunks", 0),
+                                      g.get("growth") or None)
+        self.hw_tiles["queue"].set(queue)
+        self.hw_tiles["asks_7d"].set(g.get("asks_7d", 0))
 
     def _histories(self, proj):
         """Simple created-date histograms so sparklines show real shape."""

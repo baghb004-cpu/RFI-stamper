@@ -267,9 +267,16 @@ def load(store) -> bool:
         return model is not None and len(model.terms) > 0
     if model is not None and model.trained_at == trained_at:
         return True
+    rows = [(term, d, blob) for term, d, blob in store.iter_vectors()]
+    if len(rows) > VOCAB_CAP:
+        # the Corral: the vocabulary cap holds at LOAD too — an oversized
+        # or hand-edited store cannot balloon memory.  Same cut line as
+        # train(): df rank, ties lexical.
+        rows.sort(key=lambda r: (-r[1], r[0]))
+        del rows[VOCAB_CAP:]
     vecs: dict[str, np.ndarray] = {}
     dfm: dict[str, int] = {}
-    for term, d, blob in store.iter_vectors():
+    for term, d, blob in rows:
         vecs[term] = np.frombuffer(blob, dtype=np.float32).copy()
         dfm[term] = d
     docs = int(store.get_meta("docs") or 0)

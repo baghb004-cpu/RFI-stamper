@@ -255,5 +255,7 @@ def rebuild(store, log=None) -> dict:
     reindexed = store.reindex_postings()
     trained = vectors.train(store, log)
     mined = thesaurus.mine(store)
+    from . import corral                    # lazy: the maintenance arm
+    corral.record_growth(store)             # the Ground Truth growth series
     return dict(trained, reindexed=reindexed, mined=mined["proposed"],
                 scanned=mined["scanned"])

@@ -259,7 +259,7 @@ class OldHandDrawer:
         dlg = tk.Toplevel(self.root)
         dlg.title("Heartwood — the knowledge core")
         dlg.transient(self.root)
-        dlg.geometry("760x560")
+        dlg.geometry("780x780")
         frm = ttk.Frame(dlg, padding=12)
         frm.pack(fill="both", expand=True)
         ttk.Label(frm, text="Heartwood", style="Title.TLabel").pack(anchor="w")
@@ -392,9 +392,144 @@ class OldHandDrawer:
         ttk.Label(rowb, style="Muted.TLabel",
                   text="  nothing becomes gospel without you").pack(
             side="left")
+
+        # the Corral: provenance browser + compaction + the carry file
+        ttk.Label(frm, text="Provenance — where every learned item came "
+                            "from", style="Title.TLabel").pack(
+            anchor="w", pady=(10, 2))
+        f3, t_prov = make_tree(frm, self.theme,
+                               [("kind", "KIND"),
+                                ("item", "LEARNED ITEM"),
+                                ("origin", "CAME FROM"),
+                                ("status", "STATUS")],
+                               (80, 260, 200, 90), height=6)
+        f3.pack(fill="both", expand=True)
+        self.prov_tree = t_prov               # construct-test handle
+        prov_items: dict[str, dict] = {}      # iid -> provenance dict
+
+        def refresh_prov():
+            def done(items, err):
+                if err or not t_prov.winfo_exists():
+                    return
+                prov_items.clear()
+                t_prov.delete(*t_prov.get_children())
+                for i, it in enumerate(items):
+                    iid = f"v{i}"
+                    prov_items[iid] = it
+                    t_prov.insert("", "end", iid=iid,
+                                  values=(it["kind"], it["label"],
+                                          it["origin"], it["status"]))
+
+            self._work(lambda hw: hw.provenance(), done)
+
+        def purge_selected(confirm=True):
+            picked = [prov_items[i] for i in t_prov.selection()
+                      if i in prov_items]
+            if not picked:
+                toast(self.root, self.theme,
+                      "Select a learned item to purge", "info")
+                return
+            if confirm and not messagebox.askyesno(
+                    "Purge", f"Purge {len(picked)} learned item(s)? "
+                    "Shipped thesaurus seeds are disabled, never deleted.",
+                    parent=dlg):
+                return
+            calls = [(it["kind"], it["id"]) for it in picked]
+
+            def job(hw):
+                return sum(1 for kind, ident in calls
+                           if hw.purge(kind, ident))
+
+            self._work(job, lambda n, err: (
+                refresh_prov(), refresh_lists(), refresh_status(),
+                err or toast(self.root, self.theme,
+                             f"Purged {n} learned item(s)")))
+
+        def compact_now():
+            def done(rep, err):
+                if err:
+                    toast(self.root, self.theme,
+                          f"Compact failed: {err}", "err")
+                    return
+                sz = rep.get("db_size_mb", {})
+                orphans = sum(rep.get("orphans_dropped", {}).values())
+                toast(self.root, self.theme,
+                      f"Compacted: {rep.get('feedback_pruned', 0)} feedback "
+                      f"pruned, {rep.get('chunks_deduped', 0)} duplicate + "
+                      f"{orphans} orphan row(s) dropped, "
+                      f"{sz.get('before', 0):.1f} → "
+                      f"{sz.get('after', 0):.1f} MB")
+                for w in rep.get("warnings", []):
+                    toast(self.root, self.theme, w, "info")
+                refresh_status()
+                refresh_prov()
+
+            self._work(lambda hw: hw.compact(), done)
+
+        def export_learning(path=None):
+            p = path or filedialog.asksaveasfilename(
+                parent=dlg, title="Export learning",
+                defaultextension=".json",
+                filetypes=[("Learning snapshot", "*.json"), ("All", "*.*")])
+            if not p:
+                return
+
+            def done(rep, err):
+                if err:
+                    toast(self.root, self.theme,
+                          f"Export failed: {err}", "err")
+                    return
+                toast(self.root, self.theme,
+                      f"Learning exported: {rep['thesaurus']} term(s), "
+                      f"{rep['notes']} note(s), {rep['feedback']} feedback "
+                      f"row(s)")
+
+            self._work(lambda hw: hw.snapshot(p), done)
+
+        def import_learning(path=None):
+            p = path or filedialog.askopenfilename(
+                parent=dlg, title="Import learning",
+                filetypes=[("Learning snapshot", "*.json"), ("All", "*.*")])
+            if not p:
+                return
+
+            def done(rep, err):
+                if err or (rep and rep.get("error")):
+                    toast(self.root, self.theme,
+                          f"Import failed: {err or rep['error']}", "err")
+                    return
+                toast(self.root, self.theme,
+                      f"Learning imported: +{rep['thesaurus_added']} "
+                      f"term(s), +{rep['notes_added']} note(s) — statuses "
+                      "kept, nothing promoted")
+                refresh_status()
+                refresh_lists()
+                refresh_prov()
+
+            self._work(lambda hw: hw.restore(p), done)
+
+        # construct-test handles (drive these paths without file dialogs)
+        self.purge_selected = purge_selected
+        self.compact_now = compact_now
+        self.export_learning = export_learning
+        self.import_learning = import_learning
+        t_prov.bind("<Button-3>", lambda e: purge_selected())
+
+        rowp = ttk.Frame(frm)
+        rowp.pack(fill="x", pady=(6, 0))
+        ttk.Button(rowp, text="Purge selected",
+                   command=purge_selected).pack(side="left")
+        ttk.Button(rowp, text="Compact now",
+                   command=compact_now).pack(side="left", padx=4)
+        ttk.Button(rowp, text="Import learning…",
+                   command=import_learning).pack(side="right")
+        ttk.Button(rowp, text="Export learning…",
+                   command=export_learning).pack(side="right", padx=4)
+
         dlg.bind("<Escape>", lambda e: dlg.destroy())
         refresh_status()
         refresh_lists()
+        refresh_prov()
 
     # ------------------------------------------------------- app plumbing
     def capture_rfis_async(self):

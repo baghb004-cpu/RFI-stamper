@@ -876,6 +876,109 @@ def main():
     root.update()
     assert not app.oldhand.open_
 
+    # ---- Phase F: the Corral — Ground Truth card + the Manage dialog
+    import time as _t35
+    # WITHOUT a store: the Heartwood card stays hidden, nothing is created,
+    # nothing raises (fresh-install rule)
+    app.oldhand.db_path = os.path.join(tmp, "no_such_hw.db")
+    app.truth.refresh()
+    root.update()
+    assert not app.truth.hw_frame.winfo_manager(), "card shown w/o a store"
+    assert not os.path.exists(app.oldhand.db_path), "refresh created a store"
+    # WITH the seeded store: the card renders with real gauge numbers
+    app.oldhand.db_path = hwdb
+    app.truth.refresh()
+    root.update()
+    assert app.truth.hw_frame.winfo_manager(), "card hidden with a store"
+    from rfi_stamper.heartwood import corral as _corral
+    with Heartwood(hwdb) as hwq:
+        g = _corral.gauges(hwq.store)
+    assert g["chunks"] >= 3 and g["db_size_mb"] > 0, g
+    assert app.truth.hw_tiles["passages"].counter._value >= 0
+
+    # the Manage dialog opens headless with the provenance section and
+    # populates through its worker thread (no blocking dialogs on this path)
+    app.oldhand.manage_dialog()
+    root.update()
+    for _ in range(200):
+        root.update()
+        if app.oldhand.prov_tree.get_children():
+            break
+        _t35.sleep(0.05)
+    rows = app.oldhand.prov_tree.get_children()
+    assert rows, "provenance tree stayed empty"
+    kinds = {app.oldhand.prov_tree.item(i, "values")[0] for i in rows}
+    assert {"thesaurus", "note", "document"} <= kinds, kinds
+
+    # Export learning… through the dialog path (explicit path, no dialog)
+    snap = os.path.join(tmp, "learning.json")
+    app.oldhand.export_learning(snap)
+    for _ in range(200):
+        root.update()
+        if os.path.exists(snap):
+            break
+        _t35.sleep(0.05)
+    assert os.path.exists(snap), "export produced no carry file"
+    import json as _json
+    bundle = _json.load(open(snap, encoding="utf-8"))
+    assert bundle.get("format") == "planloom-heartwood-learning", bundle
+    assert bundle.get("notes"), "the taught note did not travel"
+
+    # Compact now: bg worker + toast; the growth series gains a snapshot
+    with Heartwood(hwdb) as hwq:
+        glen0 = len(hwq.gauges()["growth"])
+    app.oldhand.compact_now()
+    for _ in range(200):
+        root.update()
+        with Heartwood(hwdb) as hwq:
+            if len(hwq.gauges()["growth"]) > glen0:
+                break
+        _t35.sleep(0.05)
+    with Heartwood(hwdb) as hwq:
+        assert len(hwq.gauges()["growth"]) == glen0 + 1, "compact not seen"
+
+    # Purge (confirm bypassed: no messagebox headless): the taught note goes
+    for _ in range(200):
+        root.update()
+        rows = app.oldhand.prov_tree.get_children()
+        if rows:
+            break
+        _t35.sleep(0.05)
+    note_iids = [i for i in app.oldhand.prov_tree.get_children()
+                 if app.oldhand.prov_tree.item(i, "values")[0] == "note"]
+    assert note_iids, "no note row to purge"
+    app.oldhand.prov_tree.selection_set(note_iids[0])
+    app.oldhand.purge_selected(confirm=False)
+    for _ in range(200):
+        root.update()
+        with Heartwood(hwdb) as hwq:
+            if not hwq.notes():
+                break
+        _t35.sleep(0.05)
+    with Heartwood(hwdb) as hwq:
+        assert hwq.notes() == [], "purge did not remove the note"
+
+    # Import learning… into a FRESH store: the note returns, unverified
+    hwdb2 = os.path.join(tmp, "hw2.db")
+    app.oldhand.db_path = hwdb2
+    app.oldhand.import_learning(snap)
+    for _ in range(300):
+        root.update()
+        if os.path.exists(hwdb2):
+            with Heartwood(hwdb2) as hwq:
+                if hwq.notes():
+                    break
+        _t35.sleep(0.05)
+    with Heartwood(hwdb2) as hwq:
+        notes2 = hwq.notes()
+    assert notes2 and all(n["status"] == "unverified" for n in notes2), \
+        "import promoted or lost the note"
+    # and Ground Truth renders against the imported store too
+    app.truth.refresh()
+    root.update()
+    assert app.truth.hw_frame.winfo_manager()
+    app.oldhand.db_path = hwdb
+
     # ---- Phase D: 3D uplift — shaded faces, pipe solids, walk, iso, measure
     bv3 = app.plans.bim
     app.goto("plans")

@@ -145,6 +145,8 @@ class App:
         self.plans.loft.on_opened = lambda p: self.add_recent(p, "loft")
         # the Weaver learns phrasing through the same Heartwood store
         self.plans.loft.hw_path_provider = lambda: self.oldhand._path()
+        # Ground Truth's Heartwood card reads the same store as the drawer
+        self.truth.hw_path_provider = lambda: self.oldhand._path()
         st = self.projsec.stamp
         prev = st.on_scanned
         def scanned(plan, _prev=prev):
