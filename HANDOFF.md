@@ -315,6 +315,26 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   awaits a Weaver zoom verb (refuses honestly). Construct flake seen once
   more, unreproduced across 5 runs — xvfb race suspected, keep watching.
 
+## Round 12 (SHIPPED, v3.9.0): the 3D uplift (ROADMAP Phase D)
+
+- **bim.py additive**: Face dataclass + Model.faces, Segment.radius,
+  wall_faces/tube_faces/exaggerate_z; extrude/draft to_bim gained
+  faces=True opt-in (segment lists byte-identical either way — pinned by
+  tests/test_bim_faces.py); pipewright.to_bim sets pipe radius.
+- **bim3d.py**: Shaded mode (flat shading by face normal, painter-sorted,
+  under the wireframe; default ON at quality "full" only), pipe runs as
+  octagonal solids + "slope ×N" slider (1-10, render-time z-stretch,
+  model never mutated), Walk mode (eye 5'-6", WASD/arrows fixed steps,
+  drag turns, Esc restores the orbit camera, HUD position chip),
+  NE/NW/SE/SW iso presets (one fx tween), depth-cued fading (6 cached
+  buckets, off at quality "off"), 3D Measure (two endpoint snaps ->
+  ft-in + ΔZ tape). Horizon Slice + Strata cull faces by centroid z
+  (documented approximation). No free-running loops; zero idle CPU kept.
+- Trimmed deliberately: no per-frame polygon clipping at the slice, no
+  walk collision (per ROADMAP), wheel no-op in walk, wireframe always on
+  top of faces. 43 suites green twice (+ the rare xvfb construct flake
+  seen once, unreproduced x5).
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
