@@ -17,6 +17,7 @@ the registry in HANDOFF.md; new names are declared here.
 | **Pipewright** | the from-scratch piping domain engine (runs, fittings, slopes, inverts) | a wright is a maker — shipwright, millwright, pipewright |
 | **The Weaver** | the drawing-driving agent: typed commands → drafted geometry | the one who works the loom |
 | **The Corral** | the self-learning containment design | the brain grows inside the fence, never acts outside it |
+| **Squawk Box** | mic/headset voice-command deck (speaker-trained, offline) | job-site slang for the intercom |
 
 ## The honest architecture (why this works offline, from scratch)
 
@@ -43,11 +44,28 @@ three provable parts:
 The "AI" feel comes from 1 + Heartwood's learning; the trust comes from 2
 and 3 being deterministic. It cannot draw something it cannot justify.
 
-**Honesty note (talking):** offline speech-to-text from scratch is not a
-promise worth making — the Weaver is TYPED chat first. The command box
-lives in the Loft and the Old Hand drawer, so "talking" is conversational
-typing. If the OS ever supplies local dictation into a text field, the
-Weaver benefits for free.
+**Honesty note (talking):** open-vocabulary dictation from scratch is not
+a promise worth making — the Weaver is TYPED chat first. But a
+**speaker-trained voice-command deck IS buildable from scratch**, and it
+ships as the **Squawk Box** (Phase C):
+
+- **Device picker like a meeting app**: a settings dialog listing every
+  input device (built-in mic, USB headset…) with a live level meter, a
+  test-record/playback button, and a push-to-talk key. On Windows the
+  capture layer is written from scratch against the OS wave-in interface
+  via ctypes — no new packages, nothing embedded.
+- **Recognition the from-scratch way**: classic signal processing — MFCC
+  features (numpy DSP, written here) + dynamic-time-warping template
+  matching. YOU train it: record each command phrase 2–3 times in your
+  own voice ("cap open ends", "slope one eighth", digits for sizes), and
+  those recordings ARE the model — stored locally, per user, growable
+  phrase by phrase. This is the same self-learning ethos as Heartwood:
+  the model is built from what the operator gives it.
+- **Honest boundary**: it recognizes the phrases you trained (a growing
+  deck of dozens, speaker-dependent, push-to-talk), not free-form speech.
+  Anything unrecognized shows the closest matches and asks — never
+  guesses a drawing command. Typed commands remain the full-power path;
+  voice is the hands-busy shortcut.
 
 ## The Corral — self-ballooning without breakout (standing rules)
 
@@ -134,6 +152,12 @@ mode in the Old Hand drawer):
   0'-2 13/16""). Successful phrasing→intent pairs land in Heartwood lane 1
   (ranking memory); corrections teach the parser's synonym table via the
   human gate.
+- **Squawk Box (voice)**: the mic/headset deck described above — device
+  picker with level meter, push-to-talk, speaker-trained MFCC+DTW phrase
+  recognition feeding the SAME parser as typed commands (voice is just
+  another way to fill the command box). Windows capture via ctypes
+  wave-in; the DSP/matcher fully unit-tested with synthesized WAV
+  fixtures so the pipeline is proven even where CI has no microphone.
 - Target commands from the brief, day one: `run 4" sanitary from the wc
   to the main at 1/8 per foot` · `slope this run at 1/4` · `cap the open
   ends` · `replace that wye with a combo` · plus draw/move/delete for
@@ -183,8 +207,10 @@ still fully usable.
 
 ## Sequencing
 
-A (Fieldstitch Pro) → B (Pipewright) → C (Weaver v1) → D (3D uplift) →
-E (Weaver v2) → F (Corral hardening). B before C because the Weaver needs
-hands before a voice; D after C so the first wow is functional, not
-cosmetic. Each phase is independently shippable; the order can be changed
-by the owner at any time.
+A (Fieldstitch Pro) → B (Pipewright) → C (Weaver v1 + Squawk Box) →
+D (3D uplift) → E (Weaver v2) → F (Corral hardening). B before C because
+the Weaver needs hands before a voice; D after C so the first wow is
+functional, not cosmetic. Each phase is independently shippable.
+
+**Status: GREENLIT by the owner (roll in order), Phase A research fleet
+running.**
