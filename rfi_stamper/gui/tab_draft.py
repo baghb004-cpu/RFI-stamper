@@ -1339,6 +1339,8 @@ class LoftTab(ttk.Frame):
         self.weave_entry.bind("<Escape>", lambda e: self._weave_reset())
         ttk.Button(bar, text="Weave it", style="Accent.TButton",
                    command=self.weave).pack(side="left")
+        ttk.Button(bar, text="🎙 Squawk…", style="Tool.TButton",
+                   command=self._open_squawk).pack(side="left", padx=(4, 0))
         self.weave_say = ttk.Label(self, style="Muted.TLabel", text="type "
                                    "/ on the board to command the Weaver — "
                                    "it only draws what it can justify",
@@ -1794,3 +1796,20 @@ class LoftTab(ttk.Frame):
             ("Pipewright: check the piping", "Loft", self.pipe_check),
             ("Pipewright: slope selected run", "Loft", self.pipe_slope),
         ]
+
+    # -------------------------------------------------------- the Squawk Box
+    def _open_squawk(self):
+        """Voice → the Weave bar: a confident trained phrase lands in the
+        command box and weaves; anything unsure asks.  A broken audio stack
+        must never break the Loft, so the whole open is guarded."""
+        try:
+            from .squawk_deck import SquawkDialog
+            deck_dir = os.path.join(os.path.expanduser("~"),
+                                    ".planloom", "squawkdeck")
+            SquawkDialog(self.root, self.theme,
+                         on_command=lambda t: (self.weave_var.set(t),
+                                               self.weave()),
+                         deck_dir=deck_dir)
+        except Exception as e:      # noqa: BLE001 -- honest, never fatal
+            self.weave_say.configure(
+                text=f"the Squawk Box couldn't open: {e}")
