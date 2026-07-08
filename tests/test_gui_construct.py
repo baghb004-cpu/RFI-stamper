@@ -15,6 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fitz                                            # noqa: E402
 
 
+def res2_refused(hw):
+    """Off-trade questions must be refused honestly (trades-only physics)."""
+    r = hw.ask("best pizza dough recipe")
+    return r["refused"]
+
+
 def make_pdf(path, pages=2):
     doc = fitz.open()
     for i in range(pages):
@@ -674,6 +680,45 @@ def main():
     app.plans._loft_to_3d(m3)
     root.update()
     assert app.plans.bim.model is m3
+
+    # ---- The Old Hand + Heartwood: drawer plumbing, cited ask, refusal
+    hwdb = os.path.join(tmp, "hw.db")
+    app.oldhand.db_path = hwdb            # keep the test KB out of ~/
+    app.oldhand.toggle(True)
+    root.update()
+    assert app.oldhand.open_
+    from rfi_stamper.heartwood import Heartwood
+    with Heartwood(hwdb) as hw:
+        hw.ingest_text("Conductor sizing",
+                       "The ungrounded conductor for a 20 ampere branch "
+                       "circuit shall be 12 AWG copper minimum sizing.")
+        hw.ingest_text("Branch circuits",
+                       "Every 20 ampere branch circuit uses a 12 AWG "
+                       "copper ungrounded conductor unless derated.")
+        hw.ingest_text("Roofing membrane",
+                       "Fully adhered membrane laps shall be 3 inches "
+                       "minimum at side seams.")
+        hw.rebuild()
+        res = hw.ask("what size is the hot wire for a 20 amp circuit")
+        assert not res["refused"] and res["blocks"], res
+        assert res2_refused(hw)
+        hw.teach("Panel schedules live in the trailer top drawer.",
+                 author="QA")
+        assert hw.notes(status="unverified")
+    # the drawer answers through its worker thread
+    app.oldhand.ask("hot wire size for 20 amp circuit")
+    import time as _t3
+    for _ in range(200):
+        root.update()
+        text_now = app.oldhand.log.get("1.0", "end")
+        if "confidence" in text_now or "Not in" in text_now:
+            break
+        _t3.sleep(0.05)
+    logtext = app.oldhand.log.get("1.0", "end")
+    assert "You:" in logtext and "confidence" in logtext, logtext[-400:]
+    app.oldhand.toggle(False)
+    root.update()
+    assert not app.oldhand.open_
 
     # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
     from rfi_stamper.gui.app import resource_path

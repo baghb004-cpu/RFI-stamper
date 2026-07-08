@@ -125,6 +125,27 @@ A draft saves as one `.loft.json` file, and leaves the Loft three ways:
   intersections to Fieldstitch as layout points, or export the Tally as a
   takeoff CSV for Reckoner
 
+## The Old Hand — ask the trades, from anywhere
+
+Hit **Ctrl+/** in any workspace (or the ⚘ button in the status bar) and the
+**Old Hand** slides in: Planloom's offline trade brain. Ask a question in
+your own words — "what size is the hot wire for a 20 amp circuit" — and it
+answers from **Heartwood**, the knowledge core, with quoted passages and a
+citation on every block. It was built from scratch (no cloud AI, no
+downloaded models, no network — ever): meaning search comes from term
+vectors trained on *your own* knowledge base plus a curated trade thesaurus,
+so field words find code words. It summarizes across documents by picking
+the central sentences verbatim, restates code-speak into plain words without
+ever touching a number, and when it doesn't know, it says so — it can never
+invent a code requirement.
+
+And it learns. Every answered RFI you stamp is offered into the Heartwood;
+daily use sharpens its ranking; you can teach it directly. But nothing
+becomes gospel on its own: everything it learns lands as an *unverified shop
+note*, clearly labeled in answers, until you trust it in the Manage screen.
+Seed it in one click by importing an existing knowledge-base file, or feed
+it PDFs and text.
+
 ## Daybook, Reckoner, Crewpass
 
 * **Daybook** (Field Management) — the foreman's daily journal: crew,

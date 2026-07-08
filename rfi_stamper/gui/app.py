@@ -10,6 +10,7 @@ from .. import __version__, offline_guard
 from ..project import Project
 from . import dnd, fx, prefs
 from .nav import NavBar
+from .oldhand import OldHandDrawer
 from .overlay import DropOverlay
 from .palette import CommandPalette
 from .tab_field import FieldSection
@@ -36,6 +37,7 @@ Del           delete selected markups     Esc   cancel the in-progress tool
 V P G L A R E C Q T N M   markup tools
 Ctrl+Wheel    zoom at cursor        Middle-drag   pan
 The Loft      V W D N F G M R T C L tools · Esc chain · Space rotate/flip
+Ctrl+/        the Old Hand — ask the trades (offline, cited)
 """
 
 
@@ -129,6 +131,15 @@ class App:
         self.overlay = DropOverlay(root, self.theme, self._drop_hint,
                                    self._drop_route)
 
+        # the Old Hand: the Heartwood Q&A drawer, reachable from any section
+        self.oldhand = OldHandDrawer(
+            root, self.theme, self.status,
+            get_records=lambda: [r.record for r in
+                                 (self.projsec.stamp.rows or [])])
+        ttk.Button(self.status, text="⚘ Old Hand", style="Tool.TButton",
+                   command=lambda: self.oldhand.toggle()).pack(
+            side="right", padx=4)
+
         # recents + toasts riding on the embedded tools
         self.plans.markup.on_opened = lambda p: self.add_recent(p, "markup")
         self.plans.loft.on_opened = lambda p: self.add_recent(p, "loft")
@@ -139,6 +150,11 @@ class App:
                 _prev(plan)
             self.add_recent(plan, "plan")
             self.truth.refresh()
+            # lane-2 self-learning: answered RFIs -> unverified shop notes
+            try:
+                self.oldhand.capture_rfis_async()
+            except Exception:   # noqa: BLE001 -- learning must never block
+                pass            # the stamping workflow
         st.on_scanned = scanned
         def stamped(ok, _out):
             toast(root, self.theme,
@@ -161,6 +177,7 @@ class App:
         self._register_commands()
         self.plans.markup.bind_shortcuts(root)
         root.bind("<Control-k>", self.palette.open)
+        root.bind("<Control-slash>", lambda e: self.oldhand.toggle())
         root.bind("<Control-d>", lambda e: self.toggle_dark())
         root.bind("<F1>", lambda e: self.show_shortcuts())
         root.bind("<F11>", lambda e: self.toggle_fullscreen())
@@ -443,6 +460,10 @@ class App:
                            command=self.palette.open)
         toolsm.add_command(label="Crewpass seat ledger…",
                            command=self.crewpass_dialog)
+        toolsm.add_command(label="The Old Hand — ask the trades\tCtrl+/",
+                           command=lambda: self.oldhand.toggle(True))
+        toolsm.add_command(label="Manage the Heartwood…",
+                           command=self.oldhand.manage_dialog)
         toolsm.add_separator()
         toolsm.add_command(label="Set author name…", command=self.set_author)
         toolsm.add_command(label="Toggle offline guard",
@@ -466,6 +487,7 @@ class App:
                    self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
         p.register("Crewpass seat ledger", "Tools", self.crewpass_dialog)
+        p.register_many(self.oldhand.commands())
         for q in ("auto", "full", "reduced", "off"):
             p.register(f"Animation quality: {q}", "Preferences",
                        lambda qq=q: self.set_effects(qq))

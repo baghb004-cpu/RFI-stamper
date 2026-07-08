@@ -92,6 +92,13 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
+    rfi_stamper/heartwood/    the knowledge core ("the bible"): SQLite KB,
+                              from-scratch meaning search (random-indexing
+                              vectors trained on the KB + trade thesaurus),
+                              TextRank digest, number-locked restate,
+                              TradeForge-KB import, two-lane self-learning
+                              (auto signals + human-gated shop notes) —
+                              trades-only by physics, honest refusals
     rfi_stamper/markups/      GUI-free markup data layer: model (+ PDF annot
                               writer), multiply, measure, toolchest
     rfi_stamper/gui/          tkinter app: app (nav shell), nav (animated
@@ -100,7 +107,9 @@ run; the `*_report.txt` must end in PASS).
                               theme (color-theory palettes + SECTIONS hues),
                               crud (schema-driven module panels), bim3d
                               (canvas 3D viewer), dnd, widgets, palette,
-                              overlay, viewer, prefs (~/.planloom), tab_draft
+                              overlay, viewer, prefs (~/.planloom), oldhand
+                              (the Old Hand: global Heartwood Q&A drawer,
+                              Ctrl+/ from any section), tab_draft
                               (The Loft drafting board), tab_home,
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,

@@ -37,6 +37,9 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Binder** | Loft's left tree (plies/stencils/plates) | construction docs live in binders |
 | **Traits** | Loft's right properties panel | plain word, no baggage |
 | **Tally** | live takeoff readout in the Loft | tally counter |
+| **Heartwood** | the knowledge core: SQLite KB + from-scratch meaning search | the dense center wood of a tree — the heart, engine and soul |
+| **The Old Hand** | global Q&A drawer persona over Heartwood (Ctrl+/) | the worker who's seen it all and cites where he read it |
+| **Journeyman** | the SAME semantic layer in the owner's other repo (JS) | between apprentice and master; knows the words of the trade |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -133,6 +136,28 @@ Built from an 8-agent industry-standards research pass + implementation:
   temp dims, rubber band, window/crossing box select, Esc chain, single-key
   shorthand, Shift=ortho, Space rotate/flip), weave/ring placement
   flourishes (quality-gated), DnD `.loft.json`, recents kind "loft".
+
+## Round 6 (SHIPPED): Heartwood + the Old Hand — the bible of Planloom
+
+Owner brief: the trade AI from the other repo must live IN Planloom,
+reachable from every tab, restricted to the trades, self-learning, with the
+KB as "the heart, engine and soul — the instruction book, the bible."
+
+- **rfi_stamper/heartwood/** — Python port of the Journeyman (bit-verified
+  hashing parity with the JS): pure-Python BM25 store, random-indexing
+  vectors trained on the KB, 135-pair trade thesaurus seed + miner with a
+  human gate, hybrid meaning search + confidence gate (honest refusals),
+  TextRank digest, number-locked restate; ingest: TradeForge db import,
+  PDFs (fitz), text, answered-RFI capture; two-lane self-learning (auto
+  usage/mining signals; factual notes land UNVERIFIED until trusted).
+  Store: ~/.planloom/heartwood.db. tests/test_heartwood.py: 125 asserts.
+- **gui/oldhand.py** — the Old Hand drawer: slides in over ANY workspace
+  (status-bar button + Ctrl+/ + palette + Tools menu), cited answer blocks,
+  unverified shop-note labeling, confidence bars, click-a-passage feedback
+  (mark_used), related-term chips, Teach dialog, Manage dialog (imports,
+  approvals, rebuild). Answered RFI scans auto-weave in as unverified notes.
+- TradeForge side shipped separately on its repo branch
+  `claude/tradeforge-journeyman` (154 selftest checks green).
 
 ## Roadmap (still open)
 
