@@ -25,20 +25,61 @@ context={"pending": <that whole return>})`` — the Weaver stitches the
 answer into the pending frame itself; the GUI never looks inside it.
 ``context`` may also carry ``"selection"`` (entity ids), ``"last_point"``
 ((x, y) model feet) and ``"answer"`` (overrides ``text`` as the answer).
+A "done" result MAY additionally carry ``"view"``: ``{"action":
+"fit"|"in"|"out"|"goto", "point": (x, y)|None}`` — a view request the
+GUI may honor and every other caller can ignore (changed is always 0).
 
 The verb table (fixed; word synonyms live in ``_VERB_LEX``):
 
     draw / add / place / run   wall | pipe run | fixture | grid | room |
+                               room MACRO (a "W by D <name>" phrase) |
                                text | dim   (the object noun picks the frame)
     connect                    a pipe run between two references
     slope                      pitch a run (pipewright.slope_run)
     cap                        cap every open end (pipewright.cap_open_ends)
     replace                    force the fitting at a node (replace_fitting)
     resize                     run diameter, downstream or this-run-only
+    reshape / make             re-dimension the last room macro (memory)
     delete / remove / erase    entities by reference
     move                       entities by distance + direction or to a point
+    zoom                       view only: fit / in / out / to a reference
     undo / redo                the model's snapshot undo
     check / tally              reporters: piping rule sweep / quantity readout
+
+The room MACRO ("draw a 12 by 10 restroom at B-2 with two lavs, a wc and
+a floor drain") builds the whole room as ONE undo step with a fixed,
+documented layout: the anchor is the LOWER-LEFT corner; four chained
+walls (default stud partition) close the W x D rectangle; a 3'-0" door
+lands centered in the anchor-side (south) wall; the room tag sits at the
+room center, named from the phrase noun and auto-numbered 101, 102, ...
+(the GUI's room-number convention); the listed fixtures line the wall
+OPPOSITE the door (the north wall), backs to the wall (rot 180), spaced
+3'-0" on center with 1'-6" end clearance from the west corner
+(:data:`ROOM_FIX_OC_FT` / :data:`ROOM_FIX_END_FT` — ADA-ish, always
+verify against the project code).
+
+Multi-turn memory: the last DONE mutation is stashed on the DraftModel
+itself as ``model._weaver_memory`` (a private dict: ``{"kind":
+"room_macro"|"batch", "ents": [ids], "macro": {...}}``), because the GUI
+builds a fresh Weaver per command.  It powers "make it 14 wide" (reshape
+the last room), "move it 2 feet north" / "delete that" (the last batch,
+when nothing is selected) and "add another lav" (repeat the last fixture
+kind 3'-0" further along the row).  No memory -> an honest ask/refusal.
+Undo/redo and deleting the remembered batch clear the stash.
+
+Question lane: an input that starts with no known verb and looks like a
+question (ends in "?" or opens with what/how/is/...) is answered, never
+drawn.  Slope-minimum questions come straight from pipewright's
+MIN_SLOPE table (deterministic, no store needed); anything else quotes
+the Heartwood's cited blocks when a store is attached and confident,
+and otherwise refers the user to the Old Hand (Ctrl+/) honestly.
+
+Pattern macros (lane 2, gated): :meth:`Weaver.save_macro` snapshots the
+last room macro into the Heartwood as an UNVERIFIED note (origin
+``"macro"``); "draw a <saved name> at X" replays it ONLY once a human
+has trusted that note in the Old Hand's Manage screen.  No store, no
+macro — refused politely; an untrusted macro says exactly why it will
+not fire.
 
 Target references the resolver understands: ``this/that/it/selected``
 (the selection), fixture words (``the wc``, ``the lav`` — nearest to the
@@ -63,6 +104,7 @@ learning can never break commanding.
 from __future__ import annotations
 
 import difflib
+import json
 import math
 import re
 
@@ -88,6 +130,8 @@ _VERB_LEX: dict[str, str] = {
     "delete": "delete", "remove": "delete", "erase": "delete",
     "move": "move", "shift": "move", "slide": "move",
     "dimension": "draw", "label": "draw", "note": "draw",
+    "make": "reshape", "reshape": "reshape",
+    "zoom": "zoom",
     "undo": "undo", "redo": "redo",
     "check": "check", "audit": "check",
     "tally": "tally", "count": "tally", "takeoff": "tally",
@@ -102,8 +146,10 @@ FRAME_EXAMPLES: dict[str, str] = {
     "cap": "cap the open ends",
     "replace": "replace that wye with a combo",
     "resize": 'resize the main to 6"',
+    "reshape": "make it 14 wide",
     "delete": "delete the wc",
     "move": "move the wc 2' north",
+    "zoom": "zoom to the wc",
     "undo": "undo",
     "redo": "redo",
     "check": "check",
@@ -242,6 +288,30 @@ _SLOPE_HEAD = re.compile(
 
 _GRID_ADDR = re.compile(r"^([a-z]{1,2})\s*[-/ ]?\s*(\d{1,3})$")
 _ENT_ID = re.compile(r"^e\d{4}$")
+
+# --- the room macro's fixed layout numbers (documented in the module
+# --- docstring; ADA-ish defaults — always verify against the project code).
+ROOM_DOOR_WIDTH_IN = 36.0   # the 3'-0" default door
+ROOM_FIX_OC_FT = 3.0        # fixture spacing, on center
+ROOM_FIX_END_FT = 1.5       # end clearance to the first fixture center
+
+#: one plan dimension: 12 / 12.5 / 12' / 12'-6" (unit words handled around it)
+_DIM_TOK = r"\d+(?:\.\d+)?(?:\s*'(?:\s*-?\s*\d+(?:\s+\d+/\d+)?\s*\")?)?"
+
+#: "12 by 10 restroom ..." — the room-macro trigger.
+_ROOM_MACRO_RE = re.compile(
+    rf"^(?:an?\s+|the\s+)?({_DIM_TOK})\s*(?:feet|foot|ft)?"
+    rf"\s*(?:by|x|×)\s*({_DIM_TOK})\s*(?:feet|foot|ft)?\s+(.+)$")
+
+#: words that describe the wall assembly, stripped from a room name.
+_WALL_WORDS = {"stud", "cmu", "block", "masonry", "concrete", "conc",
+               "furring", "furred"}
+
+#: openers that mark a question when the first word is not a verb.
+_QUESTION_HEADS = {"what", "whats", "what's", "which", "who", "whose",
+                   "when", "where", "why", "how", "is", "are", "am", "do",
+                   "does", "did", "can", "could", "should", "would", "will",
+                   "must"}
 
 _EPS = 1e-9
 
@@ -404,6 +474,45 @@ def _fit_phrase(counts: dict) -> str:
     return ", ".join(parts)
 
 
+def _plural(word: str, n: int) -> str:
+    if n == 1:
+        return word
+    if word.endswith("y") and not word.endswith(("ay", "ey", "oy", "uy")):
+        return word[:-1] + "ies"
+    if word.endswith(("s", "x", "z", "sh", "ch")):
+        return word + "es"
+    return word + "s"
+
+
+def _dim_value(tok) -> float | None:
+    """A plan dimension in feet: 12 / 12' / 12'-6" / twelve / 12 feet."""
+    s = _norm(tok)
+    s = re.sub(r"\s*(?:feet|foot|ft)\s*$", "", s).strip()
+    if s in _NUM_WORDS:
+        return _NUM_WORDS[s]
+    return parse_ftin(s)
+
+
+def _room_geometry(anchor, w: float, d: float, wtype: str, flat_keys):
+    """The room macro's deterministic layout (see the module docstring):
+    returns (wall point pairs CCW from the anchor, tag center, fixture
+    (x, y) centers along the interior face of the north wall)."""
+    x0, y0 = float(anchor[0]), float(anchor[1])
+    x1, y1 = x0 + float(w), y0 + float(d)
+    walls = [((x0, y0), (x1, y0)),      # south — the anchor side (door)
+             ((x1, y0), (x1, y1)),      # east
+             ((x1, y1), (x0, y1)),      # north — the fixture wall
+             ((x0, y1), (x0, y0))]      # west
+    center = ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+    thick = float(WALL_TYPES.get(wtype, WALL_TYPES["stud4"])["thick_in"])
+    fix = []
+    for i, key in enumerate(flat_keys):
+        depth = float(STENCILS.get(key, {}).get("d_in", 12.0))
+        fix.append((x0 + ROOM_FIX_END_FT + ROOM_FIX_OC_FT * i,
+                    y1 - (thick / 2.0 + depth / 2.0) / 12.0))
+    return walls, center, fix
+
+
 # --------------------------------------------------------------- the Weaver -
 
 class Weaver:
@@ -418,6 +527,7 @@ class Weaver:
         self._hw_path = heartwood
         self._hw_store = None
         self._hw_dead = False
+        self._mem_written = False
 
     # ------------------------------------------------------- entry point --
 
@@ -442,6 +552,9 @@ class Weaver:
         toks = text.split()
         while toks and toks[0] in _FILLERS:
             toks.pop(0)
+        if toks and toks[0] not in _VERB_LEX \
+                and (text.endswith("?") or toks[0] in _QUESTION_HEADS):
+            return self._answer_question(text)
         if not toks or toks[0] not in _VERB_LEX:
             return self._refuse_unknown(text)
         verb = _VERB_LEX[toks[0]]
@@ -458,10 +571,46 @@ class Weaver:
     def _dispatch(self, frame: dict, ctx: dict) -> dict:
         verb = frame["verb"]
         handler = getattr(self, "_handle_" + verb)
+        self._mem_written = False
         out = handler(frame, ctx)
         if out.get("status") == "done":
             self._record(frame)
+            # multi-turn memory: remember the last mutating batch (handlers
+            # that manage richer memory themselves set _mem_written)
+            if verb not in ("delete", "undo", "redo") \
+                    and out.get("changed") and out.get("ents") \
+                    and not self._mem_written:
+                self._remember("batch", out["ents"])
         return out
+
+    # ---------------------------------------------------- multi-turn memory --
+
+    def _memory(self) -> dict | None:
+        """The last DONE result's stash, kept on the model itself (the GUI
+        builds a fresh Weaver per command): ``model._weaver_memory``."""
+        mem = getattr(self.model, "_weaver_memory", None)
+        return mem if isinstance(mem, dict) and mem.get("ents") else None
+
+    def _remember(self, kind: str, ents, extra: dict | None = None) -> None:
+        try:
+            mem = {"kind": str(kind), "ents": [str(i) for i in ents]}
+            if extra:
+                mem.update(extra)
+            self.model._weaver_memory = mem
+            self._mem_written = True
+        except Exception:
+            pass
+
+    def _forget(self) -> None:
+        try:
+            self.model._weaver_memory = None
+        except Exception:
+            pass
+
+    def _memory_live(self, mem: dict) -> bool:
+        """Every remembered entity still on the drawing?"""
+        return all(self.model.entity(str(i)) is not None
+                   for i in mem.get("ents", []))
 
     # ------------------------------------------------------- ask / resume --
 
@@ -784,6 +933,12 @@ class Weaver:
         toks = set(s.split())
         if toks & _SELECT_WORDS:
             sel = self._selection_ents(ctx)
+            if not sel:                    # fall back to the last batch
+                mem = self._memory()
+                if mem:
+                    sel = [e for i in mem["ents"]
+                           if (e := self.model.entity(str(i))) is not None
+                           and e.pts]
             if not sel:
                 return "err", "Nothing is selected."
             e = sel[0]
@@ -882,6 +1037,13 @@ class Weaver:
             sel = self._selection_ents(ctx, kind)
             if kinds:
                 sel = [e for e in sel if e.kind in kinds]
+            if not sel:                    # fall back to the last batch
+                mem = self._memory()
+                if mem:
+                    sel = [e for i in mem["ents"]
+                           if (e := self.model.entity(str(i))) is not None
+                           and (kind is None or e.kind == kind)
+                           and (not kinds or e.kind in kinds)]
             if not sel:
                 return "err", "Nothing (matching) is selected."
             return "ents", [e.id for e in sel]
@@ -954,6 +1116,9 @@ class Weaver:
         s = frame["slots"]
         verb_word = frame["norm"].split()[0]
         text = rest
+        # the room MACRO first: a "W by D <noun>" phrase claims the frame
+        if self._parse_room_macro(s, text):
+            return None
         # object nouns decide the frame (fixed dispatch — the Corral)
         if re.search(r"\bwalls?\b", text):
             s["object"] = "wall"
@@ -973,12 +1138,21 @@ class Weaver:
             if skey is not None:
                 s["object"] = "fixture"
                 s["stencil"] = skey
+                if re.search(r"\banother\b|\bone more\b", text):
+                    s["another"] = True
             else:
                 system, _ = _find_phrase(text, _SYSTEM_LEX)
                 if system or re.search(r"\b(?:pipe|line|run)\b", text):
                     s["object"] = "pipe"
+                elif re.search(r"\banother\b|\bone more\b", text):
+                    s["object"] = "fixture"   # repeat the remembered kind
+                    s["another"] = True
                 else:
-                    s["object"] = None      # ask "draw what?"
+                    claim = self._parse_saved_macro(s, text)
+                    if isinstance(claim, str):
+                        return claim          # a macro on file, not trusted
+                    if not claim:
+                        s["object"] = None    # ask "draw what?"
                     return None
         if s["object"] == "pipe":
             self._parse_pipe_slots(s, text)
@@ -1069,6 +1243,168 @@ class Weaver:
                 s["to_c"] = m.group(1).strip()
 
     _parse_run = _parse_draw
+
+    def _parse_room_macro(self, s: dict, text: str) -> bool:
+        """Claim a "12 by 10 restroom at B-2 with two lavs..." phrase.
+        The W x D dimension pair is the trigger; the noun after it names
+        the room (wall-assembly words fall out of the name)."""
+        m = _ROOM_MACRO_RE.match(text)
+        if not m:
+            return False
+        w, d = _dim_value(m.group(1)), _dim_value(m.group(2))
+        if w is None or d is None or w <= 0 or d <= 0:
+            return False
+        tail = m.group(3).strip()
+        mm = re.search(r"\bwith\s+(.+)$", tail)
+        if mm:
+            s["fixtures_c"] = mm.group(1).strip()
+            tail = tail[:mm.start()].strip()
+        mm = re.search(r"\bat\s+(.+)$", tail)
+        if mm:
+            s["at_c"] = mm.group(1).strip()
+            tail = tail[:mm.start()].strip()
+        elif s.get("fixtures_c"):
+            # "... with a wc at B-2" — the anchor rode into the with-clause
+            mm = re.search(r"\s+at\s+(.+)$", s["fixtures_c"])
+            if mm:
+                s["at_c"] = mm.group(1).strip()
+                s["fixtures_c"] = s["fixtures_c"][:mm.start()].strip()
+        if not s.get("at_c"):
+            # a bare "here"/"there" anchor rides without "at"
+            mm = re.search(r"\s+(here|there)$", tail)
+            if mm:
+                s["at_c"] = mm.group(1)
+                tail = tail[:mm.start()].strip()
+        noun = re.sub(r"^(?:an?|the)\s+", "", tail).strip().strip(".")
+        if not noun or not re.fullmatch(r"[a-z][a-z '-]*", noun):
+            return False
+        base = _KIND_NOUNS.get(noun)
+        if base and base != "room":
+            return False                    # "12 by 10 wall" is no room
+        name = " ".join(t for t in noun.split() if t not in _WALL_WORDS)
+        s["object"] = "roommacro"
+        s["w"], s["d"] = float(w), float(d)
+        s["name"] = name or "room"
+        s["wtype"] = _wall_type(tail)
+        return True
+
+    def _parse_fixture_list(self, clause: str):
+        """"two lavs, a wc and a floor drain" -> ([("lav", 2), ("wc", 1),
+        ("fd", 1)], None), or (None, word) on the first unknown word."""
+        out: list = []
+        for item in re.split(r"\s*,\s*|\s+and\s+|\s*&\s*|\s+plus\s+",
+                             _norm(clause)):
+            item = item.strip().strip(".")
+            if not item:
+                continue
+            n = 1
+            m = re.match(rf"^(\d+|an?|{_NUMWORD_ALT})\s+(.+)$", item)
+            if m:
+                n = int(m.group(1)) if m.group(1).isdigit() \
+                    else int(_NUM_WORDS.get(m.group(1), 1))
+                item = m.group(2).strip()
+            key = self._stencil_of(item)
+            if key is None and item.endswith("ies"):
+                key = self._stencil_of(item[:-3] + "y")
+            if key is None and item.endswith("es"):
+                key = self._stencil_of(item[:-2])
+            if key is None and item.endswith("s"):
+                key = self._stencil_of(item[:-1])
+            if key is None:
+                return None, item
+            out.append((key, max(1, n)))
+        return out, None
+
+    def _parse_saved_macro(self, s: dict, text: str):
+        """A trusted pattern macro by its saved name ("draw a standard
+        restroom at B-2").  True when claimed, an error string when the
+        macro exists but is not trusted (the lane-2 gate), None when no
+        macro note matches."""
+        m = re.match(r"^(?:an?\s+|the\s+)?(.+?)(?:\s+at\s+(.+))?$", text)
+        if not m or not m.group(1).strip():
+            return None
+        name = m.group(1).strip().strip(".")
+        status, payload = self._macro_note(name)
+        if status is None:
+            return None
+        if status != "trusted":
+            return (f"The macro {name!r} is on file but not trusted yet — "
+                    "trust its note in the Old Hand's Manage screen "
+                    "(Ground Truth) and it will draw.")
+        if not isinstance(payload, dict) or "w" not in payload \
+                or "d" not in payload:
+            return (f"The macro {name!r} is trusted but its frame does not "
+                    "read back — save it again.")
+        s["object"] = "roommacro"
+        s["w"], s["d"] = float(payload["w"]), float(payload["d"])
+        s["name"] = str(payload.get("name") or name)
+        s["wtype"] = str(payload.get("wtype") or "stud4")
+        s["fixtures"] = [(str(k), int(n))
+                         for k, n in (payload.get("fixtures") or [])]
+        if m.group(2):
+            s["at_c"] = m.group(2).strip()
+        return True
+
+    def _macro_note(self, name):
+        """The newest live macro note called ``name`` -> (status, payload
+        dict | None); (None, None) when no store or no such macro."""
+        store = self._store()
+        want = _norm(name)
+        if store is None or not want:
+            return None, None
+        status = payload = None
+        try:
+            for row in store.notes():
+                if str(row["origin"]) != "macro" \
+                        or str(row["status"]) == "rejected":
+                    continue
+                text = str(row["text"])
+                first = _norm(text.splitlines()[0])
+                if not first.startswith("macro ") \
+                        or first[6:].strip() != want:
+                    continue
+                status = str(row["status"])
+                payload = None
+                fm = re.search(r"^frame:\s*(\{.*\})\s*$", text,
+                               re.MULTILINE)
+                if fm:
+                    try:
+                        payload = json.loads(fm.group(1))
+                    except ValueError:
+                        payload = None
+        except Exception:
+            return None, None
+        return status, payload
+
+    def _parse_reshape(self, frame, rest, raw):
+        s = frame["slots"]
+        m = re.search(r"\b(wide|wider|width|deep|deeper|depth|long|longer)"
+                      r"\b", rest)
+        if m:
+            s["dim"] = "w" if m.group(1).startswith("wid") else "d"
+            head = rest[:m.start()].strip()
+            mm = re.search(rf"(\d[\d'\"./ -]*|{_NUMWORD_ALT})\s*"
+                           r"(?:feet|foot|ft)?\s*$", head)
+            if mm:
+                val = _dim_value(mm.group(1))
+                if val is not None and val > 0:
+                    s["value"] = val
+        return None
+
+    def _parse_zoom(self, frame, rest, raw):
+        s = frame["slots"]
+        r = re.sub(r"^the\s+", "", " ".join(rest.split()))
+        if not r or re.fullmatch(r"(?:to\s+)?(?:fit|extents?|all|"
+                                 r"everything|drawing|the drawing)", r):
+            s["action"] = "fit"
+        elif re.fullmatch(r"in(?:\s+a\s+bit)?", r):
+            s["action"] = "in"
+        elif re.fullmatch(r"out(?:\s+a\s+bit)?", r):
+            s["action"] = "out"
+        else:
+            s["action"] = "goto"
+            s["at_c"] = re.sub(r"^(?:in\s+)?(?:to|on|at)\s+", "", r).strip()
+        return None
 
     def _parse_connect(self, frame, rest, raw):
         s = frame["slots"]
@@ -1394,6 +1730,9 @@ class Weaver:
     def _handle_obj_fixture(self, frame, ctx):
         s = frame["slots"]
         key = s.get("stencil")
+        if s.get("another") and not s.get("at_c") \
+                and s.get("at_pt") is None and s.get("at") is None:
+            return self._repeat_fixture(key)
         if not key:
             return self._ask(frame, "stencil", "stencil",
                              "Which fixture — wc, lav, sink, urinal, "
@@ -1406,6 +1745,32 @@ class Weaver:
             return pt
         ent = self.model.add("fixture", [pt], stencil=key)
         say = f"Placed a {self._stencil_word(key)} at {_fmt_pt(pt)}."
+        return self._done(say, changed=1, ents=[ent.id])
+
+    def _repeat_fixture(self, key):
+        """"add another lav": repeat the remembered fixture kind one row
+        spacing (3'-0" o.c., continuing east) past the previous one."""
+        mem = self._memory()
+        prev = None
+        if mem:
+            for i in mem["ents"]:
+                e = self.model.entity(str(i))
+                if e is not None and e.kind == "fixture" and e.pts \
+                        and (key is None
+                             or str(e.props.get("stencil")) == key):
+                    prev = e            # the LAST match = the row's end
+        if prev is None:
+            word = self._stencil_word(key) if key else "fixture"
+            return self._refuse(
+                f"No {word} in the last thing I drew to repeat — say "
+                f"where instead: add a {word if key else 'lav'} at B-2.")
+        key = key or str(prev.props.get("stencil"))
+        pt = (prev.pts[0][0] + ROOM_FIX_OC_FT, prev.pts[0][1])
+        ent = self.model.add("fixture", [pt], stencil=key,
+                             rot=float(prev.props.get("rot", 0.0)),
+                             flip=bool(prev.props.get("flip", False)))
+        say = (f"Placed another {self._stencil_word(key)} "
+               f"{fmt_ftin(ROOM_FIX_OC_FT)} over at {_fmt_pt(pt)}.")
         return self._done(say, changed=1, ents=[ent.id])
 
     # ---- grids / rooms / text / dims ---------------------------------------
@@ -1449,6 +1814,97 @@ class Weaver:
         num = f" {s['number']}" if s.get("number") else ""
         say = f"Labeled room {str(s['name']).upper()}{num} at {_fmt_pt(pt)}."
         return self._done(say, changed=1, ents=[ent.id])
+
+    # ---- the room macro ----------------------------------------------------
+
+    def _next_room_number(self) -> str:
+        """The GUI's room-number convention (101, 102, ...): one past the
+        highest trailing integer already tagged; 101 on a fresh drawing."""
+        nums = []
+        for e in self.model.ents:
+            if e.kind == "room":
+                m = re.search(r"(\d+)$", str(e.props.get("number", "")))
+                if m:
+                    nums.append(int(m.group(1)))
+        return str(max(nums) + 1) if nums else "101"
+
+    def _row_warning(self, flat, w: float) -> list:
+        """Warn (never block) when the fixture row outruns the wall."""
+        if not flat:
+            return []
+        need = 2 * ROOM_FIX_END_FT + ROOM_FIX_OC_FT * (len(flat) - 1)
+        if need <= float(w) + 1e-9:
+            return []
+        return [f"{len(flat)} fixtures at {fmt_ftin(ROOM_FIX_OC_FT)} o.c. "
+                f"with {fmt_ftin(ROOM_FIX_END_FT)} end clearance want "
+                f"{fmt_ftin(need)} of wall — the room is only "
+                f"{fmt_ftin(float(w))} wide; spread them by hand."]
+
+    def _handle_obj_roommacro(self, frame, ctx):
+        """The whole room in one breath, ONE undo: four walls, a door, the
+        numbered tag, and the listed fixtures — layout rules per the module
+        docstring (anchor = lower-left; door centered in the south wall;
+        fixtures on the north wall, 3'-0" o.c., 1'-6" end clearance)."""
+        s = frame["slots"]
+        w, d = float(s["w"]), float(s["d"])
+        name_word = str(s.get("name") or "room")
+        if w < 3.0 or d < 3.0:
+            return self._refuse(
+                f"A {fmt_ftin(w)} x {fmt_ftin(d)} {name_word} is too small "
+                "to build — give real feet, e.g. draw a 12 by 10 restroom "
+                "at B-2.")
+        fixtures = s.get("fixtures")
+        if fixtures is None:
+            fixtures, unknown = self._parse_fixture_list(
+                s.get("fixtures_c") or "")
+            if unknown is not None:
+                return self._refuse(
+                    f"I don't know the fixture {unknown!r} — say wc, lav, "
+                    "sink, urinal, floor drain, shower, tub, mop sink...")
+            s["fixtures"] = fixtures
+        got, pt = self._need_point(
+            frame, ctx, "at",
+            f"Where does the {name_word} go — its lower-left corner: a "
+            "grid address like B-2, coordinates like 30, 20, or 'here'?")
+        if got != "ok":
+            return pt
+        model = self.model
+        wtype = str(s.get("wtype") or "stud4")
+        flat = [k for k, n in fixtures for _ in range(int(n))]
+        walls, center, fix_pts = _room_geometry(pt, w, d, wtype, flat)
+        depth = len(model._undo)
+        wall_ids = [model.add("wall", [a, b], wtype=wtype).id
+                    for a, b in walls]
+        door_id = model.add("door", [], host=wall_ids[0], t=0.5,
+                            width_in=ROOM_DOOR_WIDTH_IN).id
+        name = name_word.upper()
+        number = str(s.get("number") or self._next_room_number())
+        tag_id = model.add("room", [center], name=name, number=number).id
+        fix_ids = [model.add("fixture", [p], stencil=k, rot=180.0).id
+                   for k, p in zip(flat, fix_pts)]
+        self._seal(depth)
+        ids = wall_ids + [door_id, tag_id] + fix_ids
+        self._remember("room_macro", ids, {"macro": {
+            "anchor": [float(pt[0]), float(pt[1])], "w": w, "d": d,
+            "name": name, "number": number, "wtype": wtype,
+            "fixtures": [[k, int(n)] for k, n in fixtures],
+            "walls": wall_ids, "door": door_id, "tag": tag_id,
+            "fix": fix_ids}})
+        label = WALL_TYPES.get(wtype, WALL_TYPES["stud4"])["label"]
+        say = (f"Built {name} {number} — {fmt_ftin(w)} x {fmt_ftin(d)} at "
+               f"{_fmt_pt(pt)}: 4 walls ({fmt_ftin(2 * (w + d))} of "
+               f"{label}), a {fmt_ftin(ROOM_DOOR_WIDTH_IN / 12.0)} door "
+               "centered in the south wall")
+        if flat:
+            fixphrase = ", ".join(f"{n} {_plural(self._stencil_word(k), n)}"
+                                  for k, n in fixtures)
+            say += (f", and {fixphrase} on the north wall at "
+                    f"{fmt_ftin(ROOM_FIX_OC_FT)} o.c. "
+                    f"({fmt_ftin(ROOM_FIX_END_FT)} end clearance).")
+        else:
+            say += "."
+        return self._done(say, changed=len(ids), ents=ids,
+                          warnings=self._row_warning(flat, w))
 
     def _handle_obj_text(self, frame, ctx):
         s = frame["slots"]
@@ -1617,6 +2073,75 @@ class Weaver:
                           ents=r.get("runs", []),
                           warnings=r.get("warnings", []))
 
+    # ---- reshape (the room-macro memory) -------------------------------------
+
+    def _handle_reshape(self, frame, ctx):
+        s = frame["slots"]
+        mem = self._memory()
+        if not (mem and mem.get("kind") == "room_macro"
+                and isinstance(mem.get("macro"), dict)):
+            return self._refuse(
+                "Nothing to reshape — the last thing drawn was not a room "
+                "macro. Draw one first: draw a 12 by 10 restroom at B-2.")
+        if not self._memory_live(mem):
+            self._forget()
+            return self._refuse("The last room is gone (deleted or undone)"
+                                " — draw it again first.")
+        if s.get("dim") is None:
+            return self._refuse("Say which way and how much — e.g. make "
+                                "it 14 wide, or make it 12 deep.")
+        if s.get("value") is None:
+            return self._ask(frame, "value", "dist",
+                             "To what size — e.g. 14' or 14'-6\"?")
+        mac = mem["macro"]
+        w = float(s["value"]) if s["dim"] == "w" else float(mac["w"])
+        d = float(s["value"]) if s["dim"] == "d" else float(mac["d"])
+        if w < 3.0 or d < 3.0:
+            return self._refuse(f"{fmt_ftin(float(s['value']))} is too "
+                                "small for a room — keep it 3'-0\" or "
+                                "better.")
+        flat = [k for k, n in mac.get("fixtures", [])
+                for _ in range(int(n))]
+        walls, center, fix_pts = _room_geometry(
+            mac["anchor"], w, d, str(mac.get("wtype") or "stud4"), flat)
+        model = self.model
+        depth = len(model._undo)
+        for wid, (a, b) in zip(mac["walls"], walls):
+            model.update(wid, pts=[a, b])
+        model.update(mac["tag"], pts=[center])
+        for fid, p in zip(mac.get("fix", []), fix_pts):
+            model.update(fid, pts=[p])
+        self._seal(depth)
+        mac["w"], mac["d"] = w, d
+        self._remember("room_macro", mem["ents"], {"macro": mac})
+        ids = list(mac["walls"]) + [mac["tag"]] + list(mac.get("fix", []))
+        say = (f"Reshaped {mac.get('name', 'ROOM')} "
+               f"{mac.get('number', '')} to {fmt_ftin(w)} x {fmt_ftin(d)}"
+               f" — anchor unchanged at {_fmt_pt(mac['anchor'])}.")
+        return self._done(say, changed=len(ids), ents=ids,
+                          warnings=self._row_warning(flat, w))
+
+    # ---- zoom (view only — the model is never touched) -----------------------
+
+    def _handle_zoom(self, frame, ctx):
+        s = frame["slots"]
+        action = s.get("action") or "fit"
+        point = None
+        if action == "goto":
+            got, pt = self._need_point(
+                frame, ctx, "at",
+                "Zoom to what — a fixture, a grid address like B-2, or "
+                "coordinates?")
+            if got != "ok":
+                return pt
+            point = (float(pt[0]), float(pt[1]))
+        says = {"fit": "Zoomed to fit the drawing.",
+                "in": "Zoomed in.", "out": "Zoomed out."}
+        out = self._done(says.get(action)
+                         or f"Zoomed to {_fmt_pt(point)}.")
+        out["view"] = {"action": action, "point": point}
+        return out
+
     # ---- delete / move -------------------------------------------------------
 
     def _handle_delete(self, frame, ctx):
@@ -1639,6 +2164,9 @@ class Weaver:
         n = self.model.remove(ids)
         if not n:
             return self._refuse("Nothing there to delete.")
+        mem = self._memory()
+        if mem and {str(i) for i in ids} & set(mem["ents"]):
+            self._forget()                 # the remembered batch is gone
         if len(descs) == 1 and n == 1:
             say = f"Deleted the {descs[0]} ({ids[0]})."
         else:
@@ -1691,6 +2219,17 @@ class Weaver:
         n = self.model.move(ids, dx, dy)
         if not n:
             return self._refuse("Nothing moved — check the reference.")
+        mem = self._memory()
+        if mem and mem.get("kind") == "room_macro" \
+                and isinstance(mem.get("macro"), dict) \
+                and set(mem["macro"].get("walls") or ()) \
+                    <= {str(i) for i in ids}:
+            # the whole room moved: the macro anchor rides along so a
+            # later reshape rebuilds in the right place
+            ax, ay = mem["macro"].get("anchor", (0.0, 0.0))
+            mem["macro"]["anchor"] = [float(ax) + dx, float(ay) + dy]
+            self._remember("room_macro", mem["ents"],
+                           {"macro": mem["macro"]})
         if len(ids) == 1:
             e = self.model.entity(ids[0])
             desc = self._desc(e) if e else ids[0]
@@ -1703,11 +2242,13 @@ class Weaver:
 
     def _handle_undo(self, frame, ctx):
         if self.model.undo():
+            self._forget()          # remembered ids are stale after undo
             return self._done("Undid the last command.", changed=1)
         return self._done("Nothing to undo.", changed=0)
 
     def _handle_redo(self, frame, ctx):
         if self.model.redo():
+            self._forget()
             return self._done("Redid the last undone command.", changed=1)
         return self._done("Nothing to redo.", changed=0)
 
@@ -1757,6 +2298,116 @@ class Weaver:
         if not parts:
             return self._done("Tally: nothing drawn yet.")
         return self._done("Tally: " + "; ".join(parts) + ".")
+
+    # ------------------------------------------------------- question lane --
+
+    def _answer_question(self, text: str) -> dict:
+        """Answer, never draw.  Slope minimums come straight from
+        pipewright's MIN_SLOPE table (deterministic, no store needed);
+        everything else quotes the Heartwood's cited blocks when a store
+        is attached and confident, and otherwise refers to the Old Hand
+        honestly.  Always changed=0 — a question moves no ink."""
+        q = text.rstrip("?").strip()
+        if re.search(r"\b(?:slope|pitch|fall|grade)s?\b", q):
+            out = self._slope_answer(q)
+            if out is not None:
+                return out
+        return self._heartwood_answer(text)
+
+    def _slope_answer(self, q: str):
+        from . import pipewright as pw
+        table = ('1/4"/ft under 3", 1/8"/ft for 3" and larger — verify '
+                 "against the project code.")
+        size, _rest = _extract_size(q)
+        if size is not None and size > 0:
+            mn, _basis = pw.min_slope(size)
+            return self._done(
+                f'Minimum slope for {pw.fmt_dia_in(size)}" gravity '
+                f"drainage: {pw.fmt_slope(mn)} — the table: {table}")
+        if re.search(r"\b(?:min(?:imum)?|limit|least|required|much|what|"
+                     r"whats)\b", q):
+            return self._done(f"Gravity-drainage minimum slopes: {table}")
+        return None
+
+    def _heartwood_answer(self, question: str) -> dict:
+        referral = ("That is a question, not a drawing command — and "
+                    "nothing loaded here backs an answer. Ask the Old "
+                    "Hand (Ctrl+/) once the Heartwood is seeded with "
+                    "your codes and specs.")
+        store = self._store()
+        if store is None:
+            return self._refuse(referral)
+        try:
+            if int(store.counts().get("chunks", 0)) <= 0:
+                return self._refuse(referral)
+            from .heartwood import ask as hw_ask
+            res = hw_ask.ask(store, question)
+        except Exception:
+            return self._refuse(referral)
+        if res.get("refused") or not res.get("blocks"):
+            msg = str(res.get("message") or "").strip()
+            return self._refuse(
+                (msg + " " if msg else "")
+                + "Ask the Old Hand (Ctrl+/) — or seed the Heartwood "
+                  "and ask again.")
+        lines = []
+        for b in res["blocks"][:3]:
+            t = str(b.get("text", "")).strip()
+            if b.get("unverified"):
+                t += "  [shop note — unverified]"
+            lines.append(t)
+        return self._done("\n".join(lines))
+
+    # ------------------------------------------ pattern macros (lane 2) ----
+
+    def save_macro(self, name) -> dict:
+        """Snapshot the LAST room macro as a reusable named template — an
+        UNVERIFIED Heartwood note (origin ``"macro"``).  It cannot draw
+        until a human trusts that note in the Old Hand's Manage screen;
+        that human gate IS the lane-2 rule.  Returns a command()-shaped
+        result dict."""
+        name = _norm(name)
+        if not name or not re.fullmatch(r"[a-z][a-z0-9 _-]{0,60}", name):
+            return self._refuse("Give the macro a plain name — letters "
+                                "and numbers, e.g. standard restroom.")
+        mem = self._memory()
+        if not (mem and mem.get("kind") == "room_macro"
+                and isinstance(mem.get("macro"), dict)):
+            return self._refuse(
+                "Nothing to save — draw a room macro first (draw a 12 by "
+                "10 restroom at B-2 with two lavs and a wc), then save "
+                "it.")
+        store = self._store()
+        if store is None:
+            return self._refuse("No Heartwood store is attached — macros "
+                                "live there as gated notes, so open the "
+                                "knowledge core first.")
+        status, _payload = self._macro_note(name)
+        if status is not None:
+            return self._refuse(f"A macro named {name!r} is already on "
+                                f"file ({status}) — pick another name or "
+                                "reject the old note first.")
+        mac = mem["macro"]
+        fixtures = [[str(k), int(n)] for k, n in mac.get("fixtures", [])]
+        payload = {"kind": "room_macro", "w": float(mac["w"]),
+                   "d": float(mac["d"]), "name": str(mac.get("name", "")),
+                   "wtype": str(mac.get("wtype", "stud4")),
+                   "fixtures": fixtures}
+        fixphrase = ", ".join(f"{k} x{n}" for k, n in fixtures) or "none"
+        text = (f"MACRO {name}\n"
+                f"room template: {fmt_ftin(payload['w'])} x "
+                f"{fmt_ftin(payload['d'])} {payload['name'] or 'ROOM'}; "
+                f"fixtures: {fixphrase}\n"
+                f"frame: {json.dumps(payload, sort_keys=True)}")
+        try:
+            store.add_note(text, origin="macro")
+        except Exception:
+            return self._refuse("The Heartwood store would not take the "
+                                "note — macro not saved.")
+        return self._done(
+            f"Saved macro {name!r} as an UNVERIFIED note in the "
+            "Heartwood. Trust it in the Old Hand's Manage screen and "
+            f"'draw a {name} at B-2' will build it.")
 
     # -------------------------------------------- optional heartwood lane 1 --
 

@@ -1397,6 +1397,24 @@ class LoftTab(ttk.Frame):
             self._after_mutate()
             self._traits_refresh()
             toast(self.root, self.theme, say[:120])
+        view = res.get("view")
+        if view:
+            try:                # the Weaver's view verbs (zoom fit/in/out/to)
+                cx = max(self.cv.winfo_width(), 400) / 2
+                cy = max(self.cv.winfo_height(), 300) / 2
+                if view.get("action") == "fit":
+                    self._zoom_extents()
+                elif view.get("action") == "in":
+                    self._zoom_at(cx, cy, 1.3)
+                elif view.get("action") == "out":
+                    self._zoom_at(cx, cy, 1 / 1.3)
+                elif view.get("action") == "goto" and view.get("point"):
+                    px, py = view["point"]
+                    self.vx = float(px) - cx / self.ppf
+                    self.vy = float(py) + cy / self.ppf
+                    self.redraw()
+            except Exception:   # noqa: BLE001 -- view sugar never crashes
+                pass
 
     # ---------------------------------------------------------- status strip
     def _build_strip(self):

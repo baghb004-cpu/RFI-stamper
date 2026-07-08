@@ -16,6 +16,22 @@ Exercises:
 * optional heartwood learning: lane-1 phrase memory, thesaurus expansion,
   clarification-taught synonym PROPOSALS (unverified — never auto-added)
 
+Weaver v2 (ROADMAP Phase E):
+
+* the room MACRO: "draw a 12 by 10 restroom at B-2 with two lavs, a wc
+  and a floor drain" — 4 walls, hosted door, auto-numbered tag, fixture
+  row at the documented spacing, all ONE undo step
+* multi-turn memory on the model (model._weaver_memory): "make it 14
+  wide", "move it 2 feet north", "delete that", "add another lav" — and
+  honest asks/refusals when there is no memory
+* view verbs: zoom fit/in/out/to — done results carry the "view" key,
+  changed stays 0, the model is never touched
+* the question lane: slope minimums straight from pipewright's MIN_SLOPE
+  table; other questions from the Heartwood's cited blocks or an honest
+  Old Hand referral
+* pattern macros (lane 2, gated): save_macro files an UNVERIFIED note;
+  replay fires ONLY after a human trusts it
+
 Run:  python3 tests/test_weaver.py
 """
 import json
@@ -701,6 +717,376 @@ def test_learning_optional():
     keys_ok(C(w3, "cap the open ends"), "done")
 
 
+# ------------------------------------------------------------- room macro --
+
+def grid_b2_model():
+    m = DraftModel()
+    m.add("grid", [(25, -2), (25, 40)], label="2", bubble="both")
+    m.add("grid", [(-2, 20), (40, 20)], label="B", bubble="both")
+    return m
+
+
+def test_room_macro():
+    from rfi_stamper.draft import STENCILS, WALL_TYPES
+    m = grid_b2_model()
+    w = Weaver(m)
+    before = json.dumps([e.to_dict() for e in m.ents])
+    r = keys_ok(C(w, "draw a 12 by 10 restroom at B-2 with two lavs, "
+                     "a wc and a floor drain"), "done")
+    # four chained walls closing the 12 x 10 rectangle, anchored (lower
+    # left) at B-2's intersection (25, 20)
+    walls = [e for e in m.ents if e.kind == "wall"]
+    assert len(walls) == 4
+    corners = {p for e in walls for p in e.pts}
+    assert corners == {(25.0, 20.0), (37.0, 20.0),
+                       (37.0, 30.0), (25.0, 30.0)}, corners
+    ends = [p for e in walls for p in e.pts]
+    assert all(ends.count(c) == 2 for c in corners), "rectangle not closed"
+    assert all(e.props["wtype"] == "stud4" for e in walls)
+    # ONE 3'-0" door, hosted centered in the anchor-side (south) wall
+    doors = [e for e in m.ents if e.kind == "door"]
+    assert len(doors) == 1
+    south = [e for e in walls
+             if e.pts == [(25.0, 20.0), (37.0, 20.0)]][0]
+    assert doors[0].props["host"] == south.id
+    assert abs(doors[0].props["t"] - 0.5) < 1e-9
+    assert abs(doors[0].props["width_in"] - 36.0) < 1e-9
+    # the tag: named from the phrase noun, auto-numbered 101, centered
+    tags = [e for e in m.ents if e.kind == "room"]
+    assert len(tags) == 1
+    assert tags[0].props["name"] == "RESTROOM"
+    assert tags[0].props["number"] == "101"
+    assert tags[0].pts == [(31.0, 25.0)]
+    # the fixtures line the north wall in listed order at the documented
+    # spacing: centers 3'-0" o.c., first center 1'-6" from the west corner
+    fixes = [e for e in m.ents if e.kind == "fixture"]
+    assert [e.props["stencil"] for e in fixes] == ["lav", "lav", "wc", "fd"]
+    assert [e.pts[0][0] for e in fixes] == [26.5, 29.5, 32.5, 35.5]
+    for e in fixes:
+        d_in = STENCILS[e.props["stencil"]]["d_in"]
+        want_y = 30.0 - (WALL_TYPES["stud4"]["thick_in"] / 2
+                         + d_in / 2) / 12.0
+        assert abs(e.pts[0][1] - want_y) < 1e-9, (e.props["stencil"], e.pts)
+        assert abs(e.props["rot"] - 180.0) < 1e-9  # backs onto the north wall
+    # the say itemizes everything with sizes
+    for bit in ("RESTROOM", "101", "12'-0\"", "10'-0\"", "44'-0\"",
+                "3'-0\" door", "south wall", "2 lavatories",
+                "1 water closet", "1 floor drain", "3'-0\" o.c.",
+                "1'-6\""):
+        assert bit in r["say"], (bit, r["say"])
+    assert r["changed"] == 10 and len(r["ents"]) == 10
+    assert r["warnings"] == []                     # 12' fits the 4-fixture row
+    # the WHOLE macro is ONE undo step
+    assert m.undo()
+    assert json.dumps([e.to_dict() for e in m.ents]) == before
+
+
+def test_room_macro_flows():
+    m = DraftModel()
+    w = Weaver(m)
+    # missing anchor -> ONE question -> answered with coordinates
+    r = keys_ok(C(w, "draw a 9 by 9 kitchen with a double sink"), "ask")
+    assert "lower-left" in r["question"]
+    r2 = keys_ok(C(w, "30, 30", pending=r), "done")
+    assert [e.pts[0] for e in m.ents if e.kind == "room"] == [(34.5, 34.5)]
+    assert m.ents[-1].props["stencil"] == "sink_d"
+    assert r2["changed"] == 7
+    # "here" anchors on the last point; digit counts; multiword room names
+    r = keys_ok(C(w, "draw a 10 by 8 janitor closet here with 2 mop sinks",
+                  last_point=(60, 0)), "done")
+    tag = [e for e in m.ents if e.kind == "room"][-1]
+    assert tag.props["name"] == "JANITOR CLOSET"
+    assert tag.props["number"] == "102"            # numbering continues
+    mops = [e for e in m.ents if e.kind == "fixture"
+            and e.props["stencil"] == "mop"]
+    assert len(mops) == 2
+    assert mops[0].pts[0] == (61.5, mops[0].pts[0][1])
+    assert mops[1].pts[0][0] - mops[0].pts[0][0] == 3.0
+    # "x" separator + a wall assembly in the phrase (falls out of the name)
+    r = keys_ok(C(w, "draw a 10 x 10 cmu mechanical room at 0,60"), "done")
+    tag = [e for e in m.ents if e.kind == "room"][-1]
+    assert tag.props["name"] == "MECHANICAL ROOM"
+    ids = [i for i in r["ents"]
+           if (e := m.entity(i)) is not None and e.kind == "wall"]
+    assert all(m.entity(i).props["wtype"] == "cmu8" for i in ids)
+    # an unknown fixture word refuses the WHOLE macro — nothing half-drawn
+    n = json.dumps([e.to_dict() for e in m.ents])
+    r = keys_ok(C(w, "draw a 8 by 8 restroom at 0,90 with a bidet"),
+                "refused")
+    assert "bidet" in r["say"]
+    assert json.dumps([e.to_dict() for e in m.ents]) == n
+    # a missing grid address refuses honestly, never guesses
+    r = keys_ok(C(w, "draw a 12 by 10 office at c-9"), "refused")
+    assert "C-9" in r["say"]
+    assert json.dumps([e.to_dict() for e in m.ents]) == n
+    # a row that outruns the wall WARNS (drawn, flagged, never silent)
+    r = keys_ok(C(w, "draw a 6 by 6 restroom at 0,120 with three wcs"),
+                "done")
+    assert r["warnings"] and "6'-0\"" in r["warnings"][0], r["warnings"]
+    assert len([i for i in r["ents"]
+                if m.entity(i) and m.entity(i).kind == "fixture"]) == 3
+    # no with-clause at all: walls + door + tag, nothing else
+    r = keys_ok(C(w, "draw a 12 by 12 storage room at 0,150"), "done")
+    assert r["changed"] == 6 and r["warnings"] == []
+    # verb synonyms drive the macro too
+    r = keys_ok(C(w, "place a 8 by 6 office at 0,170"), "done")
+    assert [e for e in m.ents if e.kind == "room"][-1].props["name"] \
+        == "OFFICE"
+
+
+# ------------------------------------------------------- multi-turn memory --
+
+def test_memory_reshape():
+    m = DraftModel()
+    w = Weaver(m)
+    keys_ok(C(w, "draw a 12 by 10 restroom at 0,0 with two lavs"), "done")
+    r = keys_ok(C(w, "make it 14 wide"), "done")
+    walls = [e for e in m.ents if e.kind == "wall"]
+    corners = {p for e in walls for p in e.pts}
+    # new width, SAME anchor
+    assert corners == {(0.0, 0.0), (14.0, 0.0),
+                       (14.0, 10.0), (0.0, 10.0)}, corners
+    assert "14'-0\"" in r["say"] and "anchor unchanged" in r["say"]
+    tag = [e for e in m.ents if e.kind == "room"][0]
+    assert tag.pts == [(7.0, 5.0)]                 # tag re-centered
+    # "feet" phrasing + depth: fixtures ride the north wall down/up
+    keys_ok(C(w, "make it 12 deep"), "done")
+    lavs = [e for e in m.ents if e.kind == "fixture"]
+    from rfi_stamper.draft import STENCILS, WALL_TYPES
+    want_y = 12.0 - (WALL_TYPES["stud4"]["thick_in"] / 2
+                     + STENCILS["lav"]["d_in"] / 2) / 12.0
+    assert all(abs(e.pts[0][1] - want_y) < 1e-9 for e in lavs)
+    # number words work here like everywhere else
+    keys_ok(C(w, "make it eleven deep"), "done")
+    walls = [e for e in m.ents if e.kind == "wall"]
+    assert max(p[1] for e in walls for p in e.pts) == 11.0
+    r = keys_ok(C(w, "make it 16 feet wide"), "done")
+    assert "16'-0\"" in r["say"]
+    # reshape is ONE undo step
+    snap = json.dumps([e.to_dict() for e in m.ents])
+    keys_ok(C(w, "make it 20 wide"), "done")
+    assert m.undo()
+    assert json.dumps([e.to_dict() for e in m.ents]) == snap
+    # missing size -> ONE question -> answered
+    w2 = Weaver(m)         # a FRESH Weaver: memory lives on the model
+    r = keys_ok(C(w2, "make it wider"), "ask")
+    assert "size" in r["question"].lower()
+    r2 = keys_ok(C(w2, "18", pending=r), "done")
+    assert "18'-0\"" in r2["say"]
+    # no memory -> honest refusal (a fresh model has nothing to reshape)
+    r = keys_ok(C(Weaver(DraftModel()), "make it 14 wide"), "refused")
+    assert "Nothing to reshape" in r["say"]
+    # a non-room batch in memory refuses too — never guesses a target
+    m3 = DraftModel()
+    w3 = Weaver(m3)
+    keys_ok(C(w3, "add a wc at 5, 5"), "done")
+    r = keys_ok(C(w3, "make it 14 wide"), "refused")
+    assert "not a room" in r["say"]
+
+
+def test_memory_move_delete_repeat():
+    m = DraftModel()
+    w = Weaver(m)
+    keys_ok(C(w, "draw a 12 by 10 restroom at 0,0 with two lavs and a wc"),
+            "done")
+    # "move it" with nothing selected moves the remembered batch whole
+    r = keys_ok(C(w, "move it 2 feet north"), "done")
+    assert r["changed"] >= 8, r["say"]
+    walls = [e for e in m.ents if e.kind == "wall"]
+    assert {p for e in walls for p in e.pts} == {
+        (0.0, 2.0), (12.0, 2.0), (12.0, 12.0), (0.0, 12.0)}
+    # ...and the macro anchor rides along: reshape still lands right
+    keys_ok(C(w, "make it 14 wide"), "done")
+    walls = [e for e in m.ents if e.kind == "wall"]
+    assert {p for e in walls for p in e.pts} == {
+        (0.0, 2.0), (14.0, 2.0), (14.0, 12.0), (0.0, 12.0)}
+    # "add another lav": repeats the kind 3'-0" past the row's end
+    lavs_before = [e for e in m.ents if e.kind == "fixture"
+                   and e.props["stencil"] == "lav"]
+    r = keys_ok(C(w, "add another lav"), "done")
+    lavs = [e for e in m.ents if e.kind == "fixture"
+            and e.props["stencil"] == "lav"]
+    assert len(lavs) == len(lavs_before) + 1
+    assert lavs[-1].pts[0] == (lavs_before[-1].pts[0][0] + 3.0,
+                               lavs_before[-1].pts[0][1])
+    assert abs(lavs[-1].props["rot"] - 180.0) < 1e-9   # facing rides along
+    assert "another lavatory" in r["say"] and "3'-0\"" in r["say"]
+    # bare "add another" repeats the remembered kind (the lav just placed)
+    keys_ok(C(w, "add another"), "done")
+    assert m.ents[-1].props["stencil"] == "lav"
+    assert m.ents[-1].pts[0][0] == lavs[-1].pts[0][0] + 3.0
+    # "delete that" removes the last created batch and forgets it
+    last_id = m.ents[-1].id
+    r = keys_ok(C(w, "delete that"), "done")
+    assert m.entity(last_id) is None and r["changed"] == 1
+    r = keys_ok(C(w, "delete that"), "refused")     # memory honestly gone
+    # no-memory repeats refuse honestly and never guess
+    m2 = DraftModel()
+    r = keys_ok(C(Weaver(m2), "add another lav"), "refused")
+    assert "repeat" in r["say"] and not m2.ents
+    # "undo that" still drives the model's undo stack
+    n = len(m.ents)
+    keys_ok(C(w, "add a wc at 40, 0"), "done")
+    keys_ok(C(w, "undo that"), "done")
+    assert len(m.ents) == n
+
+
+# --------------------------------------------------------------- view verbs --
+
+def test_view_verbs():
+    m = DraftModel()
+    a = m.add("fixture", [(6, 8)], stencil="wc")
+    m.add("fixture", [(30, 8)], stencil="lav")
+    w = Weaver(m)
+    before = json.dumps([e.to_dict() for e in m.ents])
+    r = keys_ok(C(w, "zoom fit"), "done")
+    assert r["view"] == {"action": "fit", "point": None}, r["view"]
+    assert r["changed"] == 0 and r["ents"] == []
+    r = keys_ok(C(w, "zoom in"), "done")
+    assert r["view"] == {"action": "in", "point": None}
+    r = keys_ok(C(w, "zoom out"), "done")
+    assert r["view"] == {"action": "out", "point": None}
+    r = keys_ok(C(w, "zoom extents"), "done")
+    assert r["view"]["action"] == "fit"
+    r = keys_ok(C(w, "zoom all"), "done")
+    assert r["view"]["action"] == "fit"
+    r = keys_ok(C(w, "zoom to the wc"), "done")
+    assert r["view"] == {"action": "goto", "point": (6.0, 8.0)}, r["view"]
+    assert "6'-0\"" in r["say"]
+    r = keys_ok(C(w, "zoom to 10, 20"), "done")
+    assert r["view"] == {"action": "goto", "point": (10.0, 20.0)}
+    # view verbs NEVER touched the model
+    assert json.dumps([e.to_dict() for e in m.ents]) == before
+    # an ambiguous target asks like any other reference
+    m.add("fixture", [(60, 8)], stencil="wc")
+    before2 = json.dumps([e.to_dict() for e in m.ents])
+    r = keys_ok(C(w, "zoom to the wc"), "ask")
+    assert r["options"] and len(r["options"]) == 2
+    r2 = keys_ok(C(w, a.id, pending=r), "done")
+    assert r2["view"]["point"] == (6.0, 8.0)
+    assert json.dumps([e.to_dict() for e in m.ents]) == before2
+    # only view results carry the key
+    r = keys_ok(C(w, "tally"), "done")
+    assert "view" not in r
+
+
+# ------------------------------------------------------------ question lane --
+
+def test_question_slope_table():
+    m = DraftModel()
+    w = Weaver(m)
+    before = json.dumps([e.to_dict() for e in m.ents])
+    # answered straight from pipewright's MIN_SLOPE table — no store needed
+    r = keys_ok(C(w, "what's the slope limit for 2 inch?"), "done")
+    assert '1/4"/ft' in r["say"] and "1/8" in r["say"], r["say"]
+    assert "verify against" in r["say"]
+    assert r["changed"] == 0 and r["ents"] == []
+    r = keys_ok(C(w, 'minimum slope for 4"?'), "done")
+    assert 'Minimum slope for 4"' in r["say"] and '1/8"/ft' in r["say"]
+    assert "verify against" in r["say"]
+    r = keys_ok(C(w, "what is the minimum slope?"), "done")
+    assert '1/4"/ft under 3"' in r["say"] and '1/8"/ft for 3"' in r["say"]
+    # "fall" speaks the same table; 3" sits on the 1/8 row
+    r = keys_ok(C(w, "how much fall for 3 inch?"), "done")
+    assert 'Minimum slope for 3"' in r["say"] and '1/8"/ft' in r["say"]
+    # questions never draw
+    assert json.dumps([e.to_dict() for e in m.ents]) == before
+
+
+def test_question_heartwood():
+    from rfi_stamper.heartwood import ingest
+    from rfi_stamper.heartwood.store import HeartwoodStore
+    # NO store -> the Old Hand referral, refused honestly
+    w = Weaver(DraftModel())
+    r = keys_ok(C(w, "what protects trap seals at floor drains?"),
+                "refused")
+    assert "Old Hand" in r["say"] and "Ctrl+/" in r["say"]
+    # an EMPTY store is the same honest referral
+    hw_empty = os.path.join(TMP, "weaver_q_empty.sqlite")
+    HeartwoodStore(hw_empty).close()
+    r = keys_ok(C(Weaver(DraftModel(), heartwood=hw_empty),
+                  "what protects trap seals at floor drains?"), "refused")
+    assert "Old Hand" in r["say"]
+    # a seeded store answers with cited blocks, status done, changed 0
+    hw = os.path.join(TMP, "weaver_q.sqlite")
+    st = HeartwoodStore(hw)
+    ingest.add_text(st, "Trap Seals",
+                    "The fixture trap shall maintain a 2 in water seal. "
+                    "Trap seal primers protect seals at floor drains.",
+                    trade="plumbing")
+    ingest.add_text(st, "Cleanout Access",
+                    "Provide a cleanout at each change of direction. "
+                    "Trap seal primers connect to the floor drain body.",
+                    trade="plumbing")
+    ingest.rebuild(st)
+    st.close()
+    w2 = Weaver(DraftModel(), heartwood=hw)
+    r = keys_ok(C(w2, "what protects trap seals at floor drains?"), "done")
+    assert "[source:" in r["say"] and "Trap Seals" in r["say"], r["say"]
+    assert r["changed"] == 0
+    # low confidence with a store -> refusal that still points at the gate
+    r = keys_ok(C(w2, "best pizza dough recipe?"), "refused")
+    assert "Old Hand" in r["say"]
+
+
+# ----------------------------------------------- pattern macros (lane 2) ----
+
+def test_macro_save_trust_replay():
+    from rfi_stamper.heartwood import ingest
+    from rfi_stamper.heartwood.store import HeartwoodStore
+    hw = os.path.join(TMP, "weaver_macro.sqlite")
+    # nothing drawn yet -> refuse
+    r = keys_ok(Weaver(DraftModel(), heartwood=hw).save_macro("std rr"),
+                "refused")
+    assert "Nothing to save" in r["say"]
+    m = DraftModel()
+    w = Weaver(m, heartwood=hw)
+    keys_ok(C(w, "draw a 12 by 10 restroom at 0,0 with two lavs and a wc"),
+            "done")
+    # no store attached -> refuse politely (memory alone is not enough)
+    w_nostore = Weaver(m)
+    r = keys_ok(w_nostore.save_macro("std rr"), "refused")
+    assert "Heartwood" in r["say"]
+    # save -> an UNVERIFIED note, origin "macro"
+    r = keys_ok(w.save_macro("std rr"), "done")
+    assert "UNVERIFIED" in r["say"]
+    st = HeartwoodStore(hw)
+    notes = [n for n in st.notes() if n["origin"] == "macro"]
+    assert len(notes) == 1 and notes[0]["status"] == "unverified"
+    assert notes[0]["text"].startswith("MACRO std rr")
+    st.close()
+    # a duplicate name refuses (one gate, one name)
+    r = keys_ok(w.save_macro("std rr"), "refused")
+    assert "already on file" in r["say"]
+    # replay BEFORE trust: refused, and it says exactly why
+    n = len(m.ents)
+    r = keys_ok(C(w, "draw a std rr at 40,0"), "refused")
+    assert "not trusted" in r["say"] and "Manage" in r["say"]
+    assert len(m.ents) == n
+    # the human gate: trust the note (the Old Hand Manage screen's call)
+    st = HeartwoodStore(hw)
+    note_id = [n2["id"] for n2 in st.notes() if n2["origin"] == "macro"][0]
+    assert ingest.trust_note(st, note_id)
+    st.close()
+    # replay AFTER trust: the saved template builds at the new anchor
+    r = keys_ok(C(w, "draw a std rr at 40,0"), "done")
+    assert r["changed"] == 9                       # 4 walls, door, tag, 3 fix
+    walls = [m.entity(i) for i in r["ents"]
+             if m.entity(i) and m.entity(i).kind == "wall"]
+    assert {p for e in walls for p in e.pts} == {
+        (40.0, 0.0), (52.0, 0.0), (52.0, 10.0), (40.0, 10.0)}
+    fixes = [m.entity(i) for i in r["ents"]
+             if m.entity(i) and m.entity(i).kind == "fixture"]
+    assert [e.props["stencil"] for e in fixes] == ["lav", "lav", "wc"]
+    tag = [m.entity(i) for i in r["ents"]
+           if m.entity(i) and m.entity(i).kind == "room"][0]
+    assert tag.props["name"] == "RESTROOM"
+    assert tag.props["number"] == "102"            # numbering continues
+    # an unknown name still lands on the ordinary "draw what?" ask
+    r = keys_ok(C(w, "draw a gizmo at 3,4"), "ask")
+    assert "draw what" in r["question"].lower()
+
+
 # ---------------------------------------------------------------- the Corral --
 
 def test_corral_by_construction():
@@ -721,7 +1107,7 @@ def test_corral_by_construction():
 # ------------------------------------------------------------------ corpus --
 
 def test_corpus_size():
-    assert len(PHRASES) >= 90, f"only {len(PHRASES)} phrasings exercised"
+    assert len(PHRASES) >= 160, f"only {len(PHRASES)} phrasings exercised"
 
 
 def main():
@@ -773,6 +1159,22 @@ def main():
     print("PASS say strings carry real feet-inches numbers")
     test_learning_optional()
     print("PASS heartwood lane-1 memory + proposals (and off-switch)")
+    test_room_macro()
+    print("PASS room macro: walls+door+tag+fixture row, one undo (Phase E)")
+    test_room_macro_flows()
+    print("PASS room-macro flows (ask, here, counts, refusals, warning)")
+    test_memory_reshape()
+    print("PASS memory: make it N wide/deep (+ honest no-memory refusals)")
+    test_memory_move_delete_repeat()
+    print("PASS memory: move it / delete that / add another lav")
+    test_view_verbs()
+    print("PASS view verbs: zoom fit/in/out/to -> the 'view' result key")
+    test_question_slope_table()
+    print("PASS slope questions answered from pipewright's MIN_SLOPE table")
+    test_question_heartwood()
+    print("PASS heartwood questions: cited blocks / Old Hand referral")
+    test_macro_save_trust_replay()
+    print("PASS pattern macros: save -> unverified -> trust -> replay")
     test_corral_by_construction()
     print("PASS Corral by construction (no network, no gui, no eval)")
     test_corpus_size()
