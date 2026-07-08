@@ -33,7 +33,7 @@ the **resolution lifecycle**:
 | **⌂ Home** | Animated blueprint hero, project bar, section cards, recents, smart drop zone |
 | **⛑ Field Management** | Task management, scheduling (animated Gantt), punch list, inspections |
 | **▤ Project Management** | RFIs (stamping), Resolution Board, submittals, change orders, budget, document management (register + combine + PDF tools), specifications (CSI-parsed spec book) |
-| **⬒ Plans & BIM** | Plan viewing & markup (measure, multiply, tool chest…), as-built drawings (auto-align compare + red-line flow), 3D BIM viewer with your 2D sheets placed at floor elevations — click a sheet in the model to open it |
+| **⬒ Plans & BIM** | Plan viewing & markup (measure, multiply, tool chest…), **The Loft** (draft a real plan from a blank sheet — walls, doors, fixtures, grids, dims), as-built drawings (auto-align compare + red-line flow), 3D BIM viewer with your 2D sheets placed at floor elevations — click a sheet in the model to open it |
 | **◫ Reporting** | Project snapshot, RFI log, pickup sheet, submittal log; printable field forms (daily report, safety inspection, QC punch walk, RFI follow-up) — blank or filled |
 | **⇌ App Integrations** | File-based bridges: task CSV import/export, punch/budget/CO CSVs, schedule → calendar (.ics), whole-project bundles, drop-folder scan. Offline by design — an "integration" is a local file another tool reads |
 | **◎ Ground Truth** | Animated KPIs, gauges and sparklines over the live project data, plus a rules-based insight feed where every insight names the rule that produced it |
@@ -93,6 +93,37 @@ whole system in 3D. Better still,
 **⌂ From plan** extrudes the plan's own vector linework into the 3D model —
 walls rise from your actual floor plan, in the same coordinate frame as the
 layout points, so every pin lands inside the real building.
+
+## The Loft — draft a plan from a blank sheet
+
+The mold loft was the floor where full-size lines were drawn before anything
+was built; **The Loft** (Plans & BIM) is that floor. It keeps the muscle
+memory every drafter already has — wheel zoom at the cursor, middle-drag pan,
+Esc chain, single-key tools, window-vs-crossing box selection, Shift for
+ortho — inside a deliberately original board: a compact **tool spool** with a
+per-tool options bar instead of a ribbon, the **Binder** tree on the left
+(**Plies**, **Stencils**, **Plates**), and the **Traits** panel on the right
+with a live **Tally** of wall footage and fixture counts.
+
+Under the cursor, the **Plumbline** system snaps to endpoints, midpoints,
+intersections, perpendiculars and grid lines — each with its own glyph — and
+a live temporary dimension reads out feet-and-inches and angle while you
+draw. The standards are real: the architectural scale ladder, 3/32" body
+text, pen-weight ladder, center-line grids with lettered/numbered bubbles
+(I and O skipped), architectural tick dimensions, and a stencil library with
+true plan-size plumbing fixtures. Walls chain like a drafter draws, doors
+hang on walls with swing and hand you can flip mid-placement, rooms tag and
+auto-increment, and undo runs a thousand deep.
+
+A draft saves as one `.loft.json` file, and leaves the Loft three ways:
+
+* **Plate PDF** — a titled, bordered sheet (title block, north arrow,
+  graphic scale bar) at any standard sheet size, auto-fitting the scale
+* **DXF** — R12 with your Plies as layers, importable by practically any
+  CAD tool
+* **Bridges** — extrude the draft into the 3D BIM viewer, send grid
+  intersections to Fieldstitch as layout points, or export the Tally as a
+  takeoff CSV for Reckoner
 
 ## Daybook, Reckoner, Crewpass
 

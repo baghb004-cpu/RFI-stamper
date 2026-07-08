@@ -29,6 +29,14 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Warp-Up** | animated boot splash | a loom's warp threads + warming up |
 | **Daybook** | progress journal: measurements, comments, photo refs | the foreman's daybook |
 | **Crewpass** | offline seat/device ledger + user reports | a crew's gate pass |
+| **The Loft** | 2D drafting mode (draw plans from scratch) | the mold loft: the floor where full-size lines are drawn before anything is built |
+| **Plies** | drafting layers | plywood plies |
+| **Plumbline** | snap/ortho precision system | the plumb line: construction's oldest truth reference |
+| **Stencils** | fixture/symbol library | plastic drafting templates |
+| **Plates** | exported sheets with title block | drawings in old books are "plates" |
+| **Binder** | Loft's left tree (plies/stencils/plates) | construction docs live in binders |
+| **Traits** | Loft's right properties panel | plain word, no baggage |
+| **Tally** | live takeoff readout in the Loft | tally counter |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -103,6 +111,28 @@ All items below are BUILT, tested (19 suites green) and pushed:
   sys._MEIPASS for frozen builds) and the window iconphoto.
 - v3.1.0. Branch merged to `main` — GitHub default may still point at the
   work branch; switch in repo Settings → Branches if needed.
+
+## Round 5 (IN FLIGHT): The Loft — original drafting mode
+
+Owner brief: a drawing mode that FEELS familiar to anyone who drafts in big
+CAD/BIM suites but is a visibly original design (no ribbon, no cloned UI).
+Built from an 8-agent industry-standards research pass + implementation:
+
+- **`rfi_stamper/draft.py`** (engine): DraftModel (feet, y-up = Fieldstitch
+  world frame), entity kinds wall/door/window/fixture/line/grid/room/text/
+  dim/callout, Plies (layers w/ weight+linetype+halftone+lock), Plumbline
+  snap engine (end/mid/intersection/perp/grid + ortho), real standards
+  numbers (scale ladder, 3/32"-1/8"-3/16" text, pen-weight mm ladder, NCS-ish
+  dash patterns, real wall thicknesses + fixture plan dims), undo×1000,
+  atomic `.loft.json`, exports: Plate PDF (title block, north arrow, scale
+  bar, auto-fit), DXF R12, PNG; bridges: takeoff_lines→Reckoner,
+  to_bim→extrude/BIM viewer, grid_points→Fieldstitch.
+- **`gui/tab_draft.py`** ("The Loft" tab in Plans & BIM): tool spool +
+  per-tool options bar, Binder tree, Traits panel w/ live Tally (CountUp),
+  drafting canvas (wheel zoom-at-cursor, middle-drag pan, snap glyphs, live
+  temp dims, rubber band, window/crossing box select, Esc chain, single-key
+  shorthand, Shift=ortho, Space rotate/flip), weave/ring placement
+  flourishes (quality-gated), DnD `.loft.json`, recents kind "loft".
 
 ## Roadmap (still open)
 

@@ -1,6 +1,6 @@
-"""Plans & BIM section: Plan Viewing (the markup editor), As-Built Drawings
-(record-set compare + as-built markup flow), and the 3D BIM viewer with 2D
-sheets placed in 3D space."""
+"""Plans & BIM section: Plan Viewing (the markup editor), the Loft (draft a
+plan from a blank sheet), As-Built Drawings (record-set compare + as-built
+markup flow), and the 3D BIM viewer with 2D sheets placed in 3D space."""
 from __future__ import annotations
 
 from tkinter import ttk
@@ -8,6 +8,7 @@ from tkinter import ttk
 from . import fx
 from .bim3d import Bim3DViewer
 from .tab_compare import CompareTab
+from .tab_draft import LoftTab
 from .tab_fieldstitch import FieldstitchTab
 from .tab_markup import MarkupTab
 from .theme import mix, section_color
@@ -52,6 +53,11 @@ class PlansSection(ttk.Frame):
 
         self.markup = MarkupTab(nb, theme, status, author=author)
         nb.add(self.markup, text="  Plan Viewing  ")
+
+        self.loft = LoftTab(nb, theme, status, root,
+                            on_bim=self._loft_to_3d,
+                            get_fieldstitch=lambda: self.fieldstitch)
+        nb.add(self.loft, text="  The Loft  ")
 
         self.fieldstitch = FieldstitchTab(nb, theme, status, root,
                                           on_pins=self._pins_to_3d)
@@ -135,6 +141,11 @@ class PlansSection(ttk.Frame):
 
         run_bg(self, work, done)
 
+    def _loft_to_3d(self, model):
+        """A drafted plan extrudes straight into the BIM viewer."""
+        self.bim.set_model(model)
+        self.nb.select(self.bim)
+
     def _pins_to_3d(self, pins):
         """Fieldstitch points arrive as world-coordinate 3D pins."""
         import rfi_stamper.bim as bim
@@ -174,5 +185,5 @@ class PlansSection(ttk.Frame):
         return ([("Open BIM demo model", "Plans",
                   lambda: self.nb.select(self.bim)),
                  ("Place plan sheets in 3D", "Plans", self._place_sheets)]
-                + self.fieldstitch.commands()
+                + self.loft.commands() + self.fieldstitch.commands()
                 + self.markup.commands() + self.asbuilt.compare.commands())

@@ -15,7 +15,7 @@ CARD_KEYS = ("field", "project", "plans", "reporting", "integrations",
 CARD_DESCS = {
     "field": "Tasks, schedule, punch list\nand inspections.",
     "project": "RFIs stamped & resolved, submittals,\nCOs, budget, documents, specs.",
-    "plans": "View and mark up sheets,\nas-builts, the 3D model.",
+    "plans": "View and mark up sheets, draft\nin the Loft, walk the 3D model.",
     "reporting": "Snapshots, logs, pickup\nsheets and field forms.",
     "integrations": "File bridges to spreadsheets,\ncalendars and other tools.",
     "truth": "Animated KPIs and a rules-\nbased insight feed.",
@@ -236,7 +236,7 @@ class HomeTab(ttk.Frame):
         ttk.Label(self.recent_box, text="Recent",
                   style="Title.TLabel").pack(anchor="w", pady=(0, 4))
         glyphs = {"markup": "✎", "plan": "▣", "combine": "⧉", "compare": "⇄",
-                  "project": "◆"}
+                  "project": "◆", "loft": "⊿"}
         for item in recent[:5]:
             if not isinstance(item, dict):      # corrupt prefs -> skip
                 continue

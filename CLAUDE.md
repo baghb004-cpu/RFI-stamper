@@ -85,6 +85,10 @@ run; the `*_report.txt` must end in PASS).
                               exporters, kits (bowline/clovehitch/fullspool)
     rfi_stamper/extrude.py    plan PDF vector linework -> extruded 3D wall model
                               in the Fieldstitch world frame
+    rfi_stamper/draft.py      The Loft engine: 2D drafting model (decimal feet,
+                              y-up = Fieldstitch world frame), Plies (layers),
+                              Plumbline snaps, Stencils, plate PDF / DXF R12 /
+                              PNG exports, bridges to reckoner/bim/fieldstitch
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
@@ -96,7 +100,8 @@ run; the `*_report.txt` must end in PASS).
                               theme (color-theory palettes + SECTIONS hues),
                               crud (schema-driven module panels), bim3d
                               (canvas 3D viewer), dnd, widgets, palette,
-                              overlay, viewer, prefs (~/.planloom), tab_home,
+                              overlay, viewer, prefs (~/.planloom), tab_draft
+                              (The Loft drafting board), tab_home,
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,
                               tab_truth, tab_stamp, tab_merge, tab_markup,

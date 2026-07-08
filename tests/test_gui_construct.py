@@ -551,6 +551,130 @@ def main():
                            os.path.abspath(__file__))))
     assert r.returncode == 0 and "merge" in r.stdout
 
+    # ---- The Loft: draft with real tools, snap, undo, tally, bridges
+    app.goto("plans")
+    loft = app.plans.loft
+    app.plans.nb.select(loft)
+    root.update()
+    import rfi_stamper.draft as draft_mod
+
+    class _LEv:
+        def __init__(self, x, y, state=0):
+            self.x, self.y, self.state = int(x), int(y), state
+
+    def click(tool_xy):
+        ev = _LEv(*loft.to_screen(*tool_xy))
+        loft._on_motion(ev)
+        loft._on_press(ev)
+
+    loft.ppf, loft.vx, loft.vy = 10.0, -5.0, 30.0     # known view transform
+    loft._select_tool("wall")
+    click((0.0, 0.0))
+    click((20.0, 0.0))       # wall 1: 20' along x
+    click((20.0, 12.0))      # wall 2 chains from the same point
+    root.update()
+    walls = [en for en in loft.model.ents if en.kind == "wall"]
+    assert len(walls) == 2, [e.kind for e in loft.model.ents]
+    loft._escape()           # end the wall chain
+
+    # Plumbline: hovering near a wall corner snaps to the endpoint
+    ev = _LEv(*loft.to_screen(0.05, -0.03))
+    loft._on_motion(ev)
+    assert loft._snap_hit is not None and loft._snap_hit.kind == "end", \
+        loft._snap_hit
+
+    # door hangs on the nearest wall with a sane param
+    loft._select_tool("door")
+    click((10.0, 0.2))
+    doors = [en for en in loft.model.ents if en.kind == "door"]
+    assert len(doors) == 1 and doors[0].props["host"] == walls[0].id
+    assert 0.3 < float(doors[0].props["t"]) < 0.7, doors[0].props
+
+    # fixture stencil places at the cursor
+    loft._select_tool("fixture")
+    loft._set_stencil("wc")
+    click((5.0, 5.0))
+    assert [en for en in loft.model.ents if en.kind == "fixture"]
+
+    # grids: verticals number, horizontal letters; intersections labeled
+    loft._select_tool("grid")
+    for a, b in (((2.0, -2.0), (2.0, 14.0)), ((8.0, -2.0), (8.0, 14.0)),
+                 ((-2.0, 6.0), (22.0, 6.0))):
+        click(a)
+        click(b)
+    grids = [en for en in loft.model.ents if en.kind == "grid"]
+    assert len(grids) == 3
+    assert {g.props["label"] for g in grids} == {"1", "2", "A"}, \
+        {g.props["label"] for g in grids}
+    gpts = draft_mod.grid_points(loft.model)
+    assert len(gpts) == 2, gpts
+
+    # dimension via three clicks; render carries the feet-inches text
+    loft._select_tool("dim")
+    for p in ((0.0, 0.0), (20.0, 0.0), (10.0, -3.0)):
+        click(p)
+    assert [en for en in loft.model.ents if en.kind == "dim"]
+    ops = draft_mod.render_ops(loft.model)
+    assert any(op[0] == "text" and "20'-0" in str(op[3]) for op in ops), \
+        "dim text should read 20'-0\""
+
+    # tally: two walls = 32 LF
+    st2 = loft.model.stats()
+    assert abs(st2["wall_lf"] - 32.0) < 1e-6, st2
+
+    # undo/redo through the model the GUI drives
+    n0 = len(loft.model.ents)
+    assert loft.model.undo() and loft.model.undo()
+    assert len(loft.model.ents) == n0 - 2
+    assert loft.model.redo() and loft.model.redo()
+    assert len(loft.model.ents) == n0
+
+    # window box-select grabs everything fully inside; Esc clears
+    loft._select_tool("select")
+    s0 = loft.to_screen(-4.0, -5.0)
+    s1 = loft.to_screen(24.0, 16.0)
+    loft._box_select(s0[0], s0[1], s1[0], s1[1])
+    assert len(loft.sel) == n0, (len(loft.sel), n0)
+    loft._traits_refresh()
+    root.update()
+    loft._escape()
+    assert not loft.sel
+
+    # binder: picking a stencil arms the fixture tool; ply toggle hides ops
+    loft._fill_binder()
+    if loft.binder.exists("st:lav"):
+        loft.binder.selection_set("st:lav")
+        root.update()
+        assert loft.tool == "fixture" and loft._last_stencil == "lav"
+    assert loft.model.ply("S-GRID") is not None
+    n_ops_vis = len(draft_mod.render_ops(loft.model))
+    loft.model.ply("S-GRID").visible = False
+    assert len(draft_mod.render_ops(loft.model)) < n_ops_vis
+    loft.model.ply("S-GRID").visible = True
+
+    # save -> recents routing round trip (save clears dirty; no dialogs)
+    lpath = os.path.join(tmp, "draft.loft.json")
+    loft.model.save(lpath)
+    assert os.path.exists(lpath) and not loft.model.dirty
+    app.route_paths([lpath])
+    root.update()
+    assert loft.path == lpath
+    assert app.prefs["recent"][0]["kind"] == "loft"
+
+    # plate PDF is a real one-page PDF at the chosen sheet size
+    plate = os.path.join(tmp, "plate.pdf")
+    res = draft_mod.plate_pdf(loft.model, plate, sheet="ARCH D")
+    from pypdf import PdfReader
+    rd = PdfReader(plate)
+    assert len(rd.pages) == 1
+    assert abs(float(rd.pages[0].mediabox.width) - 36 * 72) < 1.0, res
+
+    # draft extrudes into the BIM viewer through the section bridge
+    m3 = draft_mod.to_bim(loft.model, wall_height=9.0, floors=2)
+    app.plans._loft_to_3d(m3)
+    root.update()
+    assert app.plans.bim.model is m3
+
     # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
     from rfi_stamper.gui.app import resource_path
     icon_png = resource_path(os.path.join("assets", "planloom.png"))

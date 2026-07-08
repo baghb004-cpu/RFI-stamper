@@ -35,6 +35,7 @@ Alt+1..5      set markup status
 Del           delete selected markups     Esc   cancel the in-progress tool
 V P G L A R E C Q T N M   markup tools
 Ctrl+Wheel    zoom at cursor        Middle-drag   pan
+The Loft      V W D N F G M R T C L tools · Esc chain · Space rotate/flip
 """
 
 
@@ -130,6 +131,7 @@ class App:
 
         # recents + toasts riding on the embedded tools
         self.plans.markup.on_opened = lambda p: self.add_recent(p, "markup")
+        self.plans.loft.on_opened = lambda p: self.add_recent(p, "loft")
         st = self.projsec.stamp
         prev = st.on_scanned
         def scanned(plan, _prev=prev):
@@ -331,6 +333,12 @@ class App:
             self.route_paths(paths)
 
     def route_paths(self, paths):
+        lofts = [p for p in paths if p.lower().endswith(".loft.json")]
+        if lofts:
+            self.goto("plans")
+            self.plans.nb.select(self.plans.loft)
+            self.plans.loft.open_file(lofts[0])
+            return
         pdfs = [p for p in paths if p.lower().endswith(".pdf")
                 and not os.path.isdir(p)]
         other = [p for p in paths if p not in pdfs]
@@ -398,6 +406,10 @@ class App:
         if kind == "plan":
             self.goto("project")
             self.projsec.stamp.plan_var.set(path)
+        elif kind == "loft":
+            self.goto("plans")
+            self.plans.nb.select(self.plans.loft)
+            self.plans.loft.open_file(path)
         else:
             self.goto("plans")
             self.plans.markup.open_pdf(path)
