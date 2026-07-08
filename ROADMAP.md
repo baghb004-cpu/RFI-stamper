@@ -1,0 +1,190 @@
+# ROADMAP.md — Planloom: the road to a drawing-driving trade brain
+
+The owner's brief, in one line: **advanced 3D where it earns its keep, a
+self-growing trades-only brain that cannot break out, and the ability to
+type (or talk) to Planloom and have it draw — connect pipe and fittings,
+slope runs at 1/8" or 1/4" per foot, replace a fitting, cap open ends.**
+Everything from scratch. Nothing removed.
+
+This file chunks that into shippable rounds. Each phase lands green
+(`python tests/run_all.py`), scrubbed, committed, pushed. Names come from
+the registry in HANDOFF.md; new names are declared here.
+
+## New names (registry additions)
+
+| Name | What it is | Why the name |
+|---|---|---|
+| **Pipewright** | the from-scratch piping domain engine (runs, fittings, slopes, inverts) | a wright is a maker — shipwright, millwright, pipewright |
+| **The Weaver** | the drawing-driving agent: typed commands → drafted geometry | the one who works the loom |
+| **The Corral** | the self-learning containment design | the brain grows inside the fence, never acts outside it |
+
+## The honest architecture (why this works offline, from scratch)
+
+Talking-to-draw does NOT require a generative model. It decomposes into
+three provable parts:
+
+1. **Understanding** — a from-scratch command parser: a trade lexicon
+   (verbs, objects, sizes, slopes, directions), a slot-filling grammar, and
+   Heartwood's thesaurus + meaning vectors so *field words* land on
+   canonical tokens ("crapper" → water closet, "fall" → slope). When a slot
+   is missing, the Weaver asks back — a bounded clarifying question, not a
+   guess.
+2. **Deciding** — deterministic domain solvers. Fitting selection at a
+   junction is geometry + system rules (angle → elbow 90/45; three-way on
+   sanitary → wye/san-tee/combo by flow direction; open end → cap or
+   cleanout). Slope is arithmetic (invert elevations propagated through the
+   network). Code minimums are table lookups (e.g. small-bore sanitary
+   wants 1/4"/ft, 3"+ allows 1/8"/ft) that WARN, never silently "fix".
+3. **Acting** — existing, tested machinery: Loft entities with undo×1000,
+   ghost previews before multi-entity commits, pixel-honest rendering,
+   exports. Every command echoes back what it did in plain words and is
+   one Ctrl+Z from gone.
+
+The "AI" feel comes from 1 + Heartwood's learning; the trust comes from 2
+and 3 being deterministic. It cannot draw something it cannot justify.
+
+**Honesty note (talking):** offline speech-to-text from scratch is not a
+promise worth making — the Weaver is TYPED chat first. The command box
+lives in the Loft and the Old Hand drawer, so "talking" is conversational
+typing. If the OS ever supplies local dictation into a text field, the
+Weaver benefits for free.
+
+## The Corral — self-ballooning without breakout (standing rules)
+
+The brain may GROW from: uploads (PDFs/text/knowledge-base imports), what
+is typed (commands, questions, teachings), what is asked (query phrasing,
+click-to-reinforce feedback), and Planloom's own work (answered RFIs,
+daybook notes). It may NEVER:
+
+- touch the network (offline_guard stays default-on; the engine has no
+  networking imports — enforced by tests);
+- execute anything from KB content (knowledge is DATA; the parser maps to
+  a fixed verb set; there is no eval, no plugins-from-content);
+- promote facts on its own (lane 2 stays human-gated: unverified until
+  trusted — the Apprentice rule);
+- write files outside its store except through explicit user actions;
+- grow unbounded (store caps + compaction: feedback log pruning, vector
+  vocab cap, dedupe — with a Ground Truth gauge showing size/growth).
+
+## Phase A — Fieldstitch Pro (research done, build next)
+
+Point layout grows to field grade, per the 8-agent research pass:
+- point TYPES (control / layout / as-staked / check) + status lifecycle
+  (pending → staked → verified/rejected) with plan colors;
+- tolerance classes per trade (anchor bolts, embeds, sleeves…) with
+  numeric defaults; as-staked CSV import → design-vs-field ΔN/ΔE/ΔZ
+  delta report with pass/fail — the "verify construction against design
+  intent" loop, fully offline;
+- export dialog options from the owner's brief: point order (N,E,H /
+  E,N,H), output units incl. survey vs international foot, precision,
+  duplicate-number check, code column, header prefix, delimiter;
+- new exchange formats (an open XML survey format; a fixed-width
+  field-book format) as new kits, named per the knot registry;
+- auto point generation: wall corners (with corner offsets), points along
+  a line at spacing / divide-N, offset from baseline, rectangular bolt
+  arrays, line intersections — sourced from Loft geometry and vector plans;
+- walking-route sort (nearest-neighbor) for stake lists; work packages.
+
+Acceptance: engine tests for formats/deltas/generators; construct test
+drives the new tools; docs + registry updated.
+
+## Phase B — Pipewright v1: the piping engine (the hands)
+
+New engine `rfi_stamper/pipewright.py` + Loft integration:
+- **Data model**: pipe runs (polylines with system, diameter, material),
+  nodes, derived fittings. Systems: sanitary, vent, storm, domestic CW/HW,
+  gas. Loft gains a "pipe" tool (P) with system/size options; new plies
+  (P-SAN, P-VENT, P-DCW, P-DHW…).
+- **Auto-connect**: pipe ends snap-join within tolerance; fixture stencils
+  gain outlet points so a WC/lav connects to the nearest compatible main;
+  Manhattan + 45° routing between two picked points.
+- **Fitting derivation**: every junction resolves to a fitting by geometry
+  + system rules (elbow 90/45, tee, san-tee, wye, combo, coupling,
+  reducer, p-trap at fixture outlets, cleanout, cap). Plan symbols drawn
+  per drafting convention; fitting list feeds the Tally.
+- **Slope solver**: `slope(run, 1/8"|1/4" per ft, from=invert)` computes
+  invert elevations node-by-node through the connected network; IE
+  annotations on the plan; violations of table minimums → warnings panel.
+- **Edits**: replace fitting at a node; cap ALL open ends (one command);
+  resize a run up/downstream; insert cleanouts at rule spacing.
+- 3D: runs extrude as sloped solids into the BIM viewer (see Phase D).
+
+Acceptance: pipewright test suite (junction resolution truth table, slope
+math to 1/16", cap/replace/resize ops, takeoff counts); construct test
+draws a small sanitary tree by tool; Tally shows pipe LF by size +
+fitting counts.
+
+## Phase C — The Weaver v1: typed commands drive the drawing (the voice)
+
+New `rfi_stamper/weaver.py` + a command bar in the Loft (and a "weave:"
+mode in the Old Hand drawer):
+- **Lexicon + grammar**: ~20 verbs (run, connect, slope, cap, replace,
+  draw, add, move, delete, dimension, label, zoom…), objects (walls,
+  rooms, fixtures, grids, pipe systems, fitting types), qualifiers
+  (sizes, slopes "1/8 per foot", directions, counts, references "from the
+  water closet to the main", grid addresses "at B-2"). Reuses
+  `draft.parse_ftin`; Heartwood synonyms resolve field words.
+- **Slot filling + clarification**: missing size/system/target → ONE
+  pointed question back ("Which open end — at the lav or at the main?").
+- **Ghost + confirm**: multi-entity commands preview as a ghost overlay;
+  "weave it" / Enter commits, Esc discards; single-entity commands apply
+  immediately (undo covers everything).
+- **Explain + learn**: every command echoes plain-words results ("Ran
+  22'-6" of 4" sanitary at 1/8"/ft; added 2 wyes, 1 cleanout; IE drops
+  0'-2 13/16""). Successful phrasing→intent pairs land in Heartwood lane 1
+  (ranking memory); corrections teach the parser's synonym table via the
+  human gate.
+- Target commands from the brief, day one: `run 4" sanitary from the wc
+  to the main at 1/8 per foot` · `slope this run at 1/4` · `cap the open
+  ends` · `replace that wye with a combo` · plus draw/move/delete for
+  walls, fixtures, grids, dims.
+
+Acceptance: parser test corpus (≥80 phrasings incl. slang, ambiguity,
+refusals for out-of-trade commands); construct test types commands and
+asserts resulting geometry; every command undoable.
+
+## Phase D — 3D uplift: advanced where it earns its keep (the eyes)
+
+Canvas-only (no GPU), quality-tier honest, ambient-cost zero:
+- filled, flat-shaded wall faces with painter's-algorithm depth sort
+  (wireframe stays as a toggle and as the "reduced" tier);
+- Pipewright runs as sloped solids, system-colored, with a slope
+  exaggeration slider (1× to 10×) so 1/8"/ft is visible at building scale;
+- first-person WALK mode (eye height 5'-6", arrow/WASD, collision-free)
+  alongside orbit; isometric preset buttons (NE/NW/SE/SW);
+- depth-cued line weight/fade, 3D measure tool (pick two points, get
+  feet-inches + ΔZ), section-cut interplay with Horizon Slice preserved;
+- Loft→3D and extrude→3D keep one world frame with Fieldstitch pins.
+
+Acceptance: render correctness in construct test (face counts, cull
+behavior, walk-mode camera math), zero idle CPU preserved, quality "off"
+still fully usable.
+
+## Phase E — The Weaver v2: draw the whole plan by conversation
+
+- compound commands ("draw a 12 by 10 restroom at B-2 with two lavs, a
+  wc and a floor drain, vent through the wall") → room macro: walls,
+  door, fixtures placed at code-legal spacings, pipe stubs;
+- pattern macros learned from the user's own drafts (lane 2, gated);
+- multi-turn context ("make it 14 wide" edits the last room);
+- Weaver reads the Heartwood: "slope limits for 2 inch?" answered inline
+  with citations while drawing.
+
+## Phase F — Corral hardening + growth visible
+
+- store caps/compaction jobs + provenance browser (where every learned
+  item came from, one click to purge);
+- Ground Truth gauges: KB size, growth rate, unverified queue depth,
+  answer hit-rate;
+- learned-state export/import (one file, offline hand-off between
+  machines);
+- red-team test suite: prompt-injection-style content in uploaded PDFs
+  must never alter behavior (knowledge is data; the verb set is fixed).
+
+## Sequencing
+
+A (Fieldstitch Pro) → B (Pipewright) → C (Weaver v1) → D (3D uplift) →
+E (Weaver v2) → F (Corral hardening). B before C because the Weaver needs
+hands before a voice; D after C so the first wow is functional, not
+cosmetic. Each phase is independently shippable; the order can be changed
+by the owner at any time.
