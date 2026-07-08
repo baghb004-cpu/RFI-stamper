@@ -107,6 +107,11 @@ run; the `*_report.txt` must end in PASS).
                               y-up = Fieldstitch world frame), Plies (layers),
                               Plumbline snaps, Stencils, plate PDF / DXF R12 /
                               PNG exports, bridges to reckoner/bim/fieldstitch
+    rfi_stamper/pipewright.py Pipewright piping engine: Loft "pipe" runs, node
+                              network, deterministic fitting derivation,
+                              slope/invert solver, cap/replace/resize command
+                              APIs (Weaver-shaped report dicts), code-minimum
+                              checks, takeoff, sloped-3D bridge
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)

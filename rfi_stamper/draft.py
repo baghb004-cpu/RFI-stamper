@@ -119,6 +119,7 @@ CALLOUT_DIA_IN = 0.625         # detail-callout bubble diameter
 DIM_GAP_IN = 0.0625            # extension line stands 1/16" clear of the work
 DIM_OVERSHOOT_IN = 0.125       # extension line runs 1/8" past the dim line
 DIM_TICK_IN = 0.125            # 45° architectural tick length
+PIPE_SYM_IN = 0.09             # pipe fitting-symbol radius (Pipewright)
 
 UNDO_LIMIT = 1000
 
@@ -236,7 +237,8 @@ class Ent:
     geometry derives from the host wall and the ``t`` parameter, so they
     ride along automatically when the host moves."""
     id: str
-    kind: str          # wall|door|window|fixture|line|grid|room|text|dim|callout
+    kind: str          # wall|door|window|fixture|line|grid|room|text|dim|
+                       # callout|pipe
     ply: str
     pts: list = field(default_factory=list)
     props: dict = field(default_factory=dict)
@@ -261,6 +263,14 @@ DEFAULT_PLIES: list[Ply] = [
     Ply("A-DOOR", color="#27ae60", weight="medium"),
     Ply("A-GLAZ", color="#2980b9", weight="medium"),
     Ply("P-FIXT", color="#8e44ad", weight="medium"),
+    # Pipewright system plies — colors mirror pipewright.SYSTEMS; vents are
+    # dashed in plan (hidden linetype), gas draws phantom by convention.
+    Ply("P-SAN", color="#1e8449", weight="heavy"),
+    Ply("P-VENT", color="#52be80", weight="light", linetype="hidden"),
+    Ply("P-STRM", color="#7d6608", weight="heavy"),
+    Ply("P-DCW", color="#2471a3", weight="medium"),
+    Ply("P-DHW", color="#cb4335", weight="medium"),
+    Ply("P-GAS", color="#d4ac0d", weight="medium", linetype="phantom"),
     Ply("Q-EQPT", color="#d35400", weight="medium"),
     Ply("S-GRID", color="#16a085", weight="light", linetype="center"),
     Ply("G-DIMS", color="#b7950b", weight="fine"),
@@ -559,7 +569,13 @@ class DraftModel:
         pts = [(float(x), float(y)) for (x, y) in (pts or [])]
         props = dict(props)
         if ply is None:
-            ply = _DEFAULT_PLY.get(kind, "G-ANNO")
+            if kind == "pipe":     # ply follows the system (P-SAN, P-DCW...)
+                from .pipewright import SYSTEMS as _PIPE_SYSTEMS
+                spec = (_PIPE_SYSTEMS.get(str(props.get("system", "san")))
+                        or _PIPE_SYSTEMS["san"])
+                ply = spec["ply"]
+            else:
+                ply = _DEFAULT_PLY.get(kind, "G-ANNO")
         if kind == "wall":
             wtype = str(props.setdefault("wtype", "stud4"))
             if "thick_in" not in props:
@@ -583,6 +599,22 @@ class DraftModel:
         elif kind == "fixture":
             props.setdefault("rot", 0.0)
             props.setdefault("flip", False)
+        elif kind == "pipe":
+            # a run: pts is the flow polyline (first -> last vertex);
+            # invert_ft = invert elevation at the FIRST vertex, positive
+            # slope_in_ft (in/ft) falls toward the LAST vertex.
+            from .pipewright import SYSTEMS as _PIPE_SYSTEMS
+            spec = (_PIPE_SYSTEMS.get(str(props.setdefault("system", "san")))
+                    or _PIPE_SYSTEMS["san"])
+            props.setdefault("dia_in", spec["dia_in"])
+            props["dia_in"] = float(props["dia_in"])
+            props.setdefault("material", spec["material"])
+            props.setdefault("invert_ft", None)
+            props.setdefault("slope_in_ft", None)
+            if props["invert_ft"] is not None:
+                props["invert_ft"] = float(props["invert_ft"])
+            if props["slope_in_ft"] is not None:
+                props["slope_in_ft"] = float(props["slope_in_ft"])
         elif kind == "grid":
             props.setdefault("label", "")
             props.setdefault("bubble", "a")
@@ -1494,6 +1526,131 @@ def _callout_ops(ent, ratio, weight) -> list:
              "sub", ent.ply, "c", 0.0)]
 
 
+def _pipe_run_ie(ent) -> tuple | None:
+    """(invert_start, invert_end) of a pipe run in feet, or None when the
+    run carries no invert+slope context.  Positive slope (in/ft) falls
+    toward the LAST vertex, so the end invert is the lower one."""
+    inv = ent.props.get("invert_ft")
+    slope = ent.props.get("slope_in_ft")
+    if inv is None or slope is None or len(ent.pts) < 2:
+        return None
+    length = sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                 for a, b in zip(ent.pts, ent.pts[1:]))
+    return float(inv), float(inv) - float(slope) * length / 12.0
+
+
+def _pipe_ops(ent, ratio, weight, ltype) -> list:
+    """Single-line pipe run: the polyline in the ply's weight/linetype, the
+    size label ('4"') riding the half-length point on the left of travel,
+    and IE (invert elevation) notes at both ends on the right of travel
+    when the run has invert+slope context.  Clean drafting, no blobs."""
+    pts = ent.pts
+    if len(pts) < 2:
+        return []
+    ops = [("line", a[0], a[1], b[0], b[1], ent.ply, weight, ltype)
+           for a, b in zip(pts, pts[1:])]
+    lens = [math.hypot(b[0] - a[0], b[1] - a[1])
+            for a, b in zip(pts, pts[1:])]
+    total = sum(lens)
+    if total <= _EPS:
+        return ops
+    from .pipewright import fmt_dia_in       # lazy: no cycle at import time
+    half, run, seg_i = total / 2.0, 0.0, len(lens) - 1
+    for i, seg_len in enumerate(lens):
+        if run + seg_len >= half:
+            seg_i = i
+            break
+        run += seg_len
+    a, b = pts[seg_i], pts[seg_i + 1]
+    seg_len = max(lens[seg_i], _EPS)
+    mx, my = _lerp(a, b, min(1.0, max(0.0, (half - run) / seg_len)))
+    u = ((b[0] - a[0]) / seg_len, (b[1] - a[1]) / seg_len)
+    n = (-u[1], u[0])
+    ang = math.degrees(math.atan2(u[1], u[0]))
+    if ang <= -90.0 + 1e-9:
+        ang += 180.0                          # keep the label readable
+    elif ang > 90.0 + 1e-9:
+        ang -= 180.0
+    off = text_model_h("body", ratio) * 0.85
+    ops.append(("text", mx + n[0] * off, my + n[1] * off,
+                fmt_dia_in(ent.props.get("dia_in", 4.0)) + '"',
+                "body", ent.ply, "c", ang))
+    ie = _pipe_run_ie(ent)
+    if ie is not None:
+        off = text_model_h("sub", ratio) * 1.1
+        ends = ((pts[0], (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]),
+                 ie[0]),
+                (pts[-1], (pts[-1][0] - pts[-2][0], pts[-1][1] - pts[-2][1]),
+                 ie[1]))
+        for p, d, val in ends:
+            dl = math.hypot(d[0], d[1])
+            if dl <= _EPS:
+                continue
+            nn = (-d[1] / dl, d[0] / dl)      # left of travel; IE goes right
+            ops.append(("text", p[0] - nn[0] * off, p[1] - nn[1] * off,
+                        "IE " + fmt_ftin(val), "sub", ent.ply, "c", 0.0))
+    return ops
+
+
+def _branch_tick(x, y, bearing_deg, r, ply, weight) -> list:
+    """Short tick across a junction's branch leg (tee/wye/combo symbol)."""
+    t = math.radians(float(bearing_deg))
+    px, py = x + math.cos(t) * r * 0.8, y + math.sin(t) * r * 0.8
+    nn = (-math.sin(t), math.cos(t))
+    h = r * 0.55
+    return [("line", px - nn[0] * h, py - nn[1] * h,
+             px + nn[0] * h, py + nn[1] * h, ply, weight, "solid")]
+
+
+def _pipe_fitting_ops(model, shown: set, ratio, style) -> list:
+    """Fitting symbols at pipe nodes (Pipewright derives them): elbows as
+    the included-angle arc, junction fittings as a tick across the branch
+    leg (a tick per leg on a cross), caps as a short double tick across the
+    end, cleanouts as a small circled CO, p-traps as a little U.  Only
+    fittings touching a drawn pipe render, on that pipe's ply; symbols are
+    always solid — a dashed symbol reads as broken linework."""
+    from .pipewright import derive_fittings   # lazy: no cycle at import time
+    ops: list[tuple] = []
+    r = PIPE_SYM_IN * ratio / 12.0
+    for fit in derive_fittings(model):
+        eid = next((i for i in fit.ent_ids if i in shown), None)
+        if eid is None:
+            continue
+        ply = model.entity(eid).ply
+        weight = style(ply)[0]
+        x, y = fit.node_xy
+        kind = fit.kind
+        if kind in ("elbow45", "elbow90") and len(fit.legs_deg) >= 2:
+            a0, a1 = fit.legs_deg[0] % 360.0, fit.legs_deg[1] % 360.0
+            if (a1 - a0) % 360.0 > 180.0:
+                a0, a1 = a1, a0               # draw the minor (inside) sweep
+            ops.append(("arc", x, y, r, a0, a1, ply, weight, "solid"))
+        elif kind in ("tee", "santee", "wye", "combo") \
+                and fit.branch_deg is not None:
+            ops += _branch_tick(x, y, fit.branch_deg, r, ply, weight)
+        elif kind == "cross":
+            for leg in fit.legs_deg:
+                ops += _branch_tick(x, y, leg, r, ply, weight)
+        elif kind == "cap" and fit.legs_deg:
+            t = math.radians(fit.legs_deg[0])
+            d = (math.cos(t), math.sin(t))    # from the node into the run
+            nn = (-d[1], d[0])
+            h = r * 0.6
+            for back in (0.0, r * 0.4):       # double tick across the end
+                px, py = x - d[0] * back, y - d[1] * back
+                ops.append(("line", px - nn[0] * h, py - nn[1] * h,
+                            px + nn[0] * h, py + nn[1] * h,
+                            ply, weight, "solid"))
+        elif kind == "cleanout":
+            ops.append(("circle", x, y, r * 0.55, ply, weight, "solid"))
+            ops.append(("text", x, y, "CO", "body", ply, "c", 0.0))
+        elif kind == "ptrap" and fit.legs_deg:
+            a = (fit.legs_deg[0] + 90.0) % 360.0
+            ops.append(("arc", x, y, r * 0.7, a, (a + 180.0) % 360.0,
+                        ply, weight, "solid"))
+    return ops
+
+
 def render_ops(model: DraftModel, include=("all",), _ratio=None,
                _all_plies: bool = False) -> list:
     """Model -> display list of tagged model-space ops.
@@ -1538,6 +1695,7 @@ def render_ops(model: DraftModel, include=("all",), _ratio=None,
 
     ops: list[tuple] = []
     shown_walls: set[str] = set()
+    shown_pipes: set[str] = set()
     for ent in model.ents:
         if not wanted(ent):
             continue
@@ -1575,6 +1733,9 @@ def render_ops(model: DraftModel, include=("all",), _ratio=None,
             ops += _dim_ops(ent, ratio, weight)
         elif kind == "callout":
             ops += _callout_ops(ent, ratio, weight)
+        elif kind == "pipe":
+            ops += _pipe_ops(ent, ratio, weight, ltype)
+            shown_pipes.add(ent.id)
     # miter patches close the L-corners of the walls actually drawn
     for join in wall_joins(model):
         id_a, id_b = join["walls"]
@@ -1584,6 +1745,9 @@ def render_ops(model: DraftModel, include=("all",), _ratio=None,
             ops += [("line", p[0], p[1], q[0], q[1],
                      wall_a.ply, weight, "solid")
                     for p, q in join["segs"]]
+    # fitting symbols at the nodes of the pipes actually drawn
+    if shown_pipes:
+        ops += _pipe_fitting_ops(model, shown_pipes, ratio, style)
     return ops
 
 
