@@ -112,7 +112,7 @@ All items below are BUILT, tested (19 suites green) and pushed:
 - v3.1.0. Branch merged to `main` — GitHub default may still point at the
   work branch; switch in repo Settings → Branches if needed.
 
-## Round 5 (IN FLIGHT): The Loft — original drafting mode
+## Round 5 (SHIPPED, v3.2.0): The Loft — original drafting mode
 
 Owner brief: a drawing mode that FEELS familiar to anyone who drafts in big
 CAD/BIM suites but is a visibly original design (no ribbon, no cloned UI).

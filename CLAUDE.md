@@ -190,6 +190,13 @@ were proven on real export files. GUI constructs under xvfb.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.
+- Loft (draft.py) model space is decimal feet, y UP (= Fieldstitch world
+  frame, E=x N=y); the GUI canvas flips y in its view transform only. Doors/
+  windows are host-parametric (`pts=[]`, everything derives from host wall +
+  `t`) — they ride wall moves for free, and deleting a wall CASCADES to its
+  hosted doors/windows (remove() returns the full count). Paper-relative
+  sizes (text, bubbles, dash patterns) convert via
+  `model_ft = paper_in * scale_ratio / 12`.
 
 ## Summaries
 
