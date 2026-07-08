@@ -122,6 +122,19 @@ def _as_dict(item) -> dict:
     return dict(item)
 
 
+#: Leading characters a spreadsheet may interpret as a formula (CSV injection).
+_CSV_INJECT = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def _csv_safe(v):
+    """Neutralize spreadsheet formula injection: prefix a text value that
+    begins with a formula trigger (= + - @ TAB CR LF) with a single quote.
+    Non-string values pass through untouched (numbers stay numeric)."""
+    if isinstance(v, str) and v[:1] in _CSV_INJECT:
+        return "'" + v
+    return v
+
+
 def _export_csv(project, kind: str, out_path: str, log) -> int:
     headers = _CSV_HEADERS[kind]
     buf = io.StringIO()
@@ -130,7 +143,8 @@ def _export_csv(project, kind: str, out_path: str, log) -> int:
     n = 0
     for item in project.items(kind):
         d = _as_dict(item)
-        w.writerow(["" if d.get(h) is None else d.get(h, "") for h in headers])
+        w.writerow([_csv_safe("" if d.get(h) is None else d.get(h, ""))
+                    for h in headers])
         n += 1
     _atomic_write_bytes(buf.getvalue().encode("utf-8"), out_path)
     log(f"  wrote {out_path} ({n} {kind.replace('_', ' ')} row(s))")
@@ -196,7 +210,11 @@ def import_tasks_csv(project, path: str, log=print) -> int:
 
     def cell(row: list, key: str) -> str:
         i = cols.get(key)
-        return row[i].strip() if i is not None and i < len(row) else ""
+        v = row[i].strip() if i is not None and i < len(row) else ""
+        # undo the CSV-injection guard apostrophe for clean round-trips
+        if len(v) > 1 and v[0] == "'" and v[1] in _CSV_INJECT:
+            v = v[1:]
+        return v
 
     added = skipped = 0
     for row in rows[1:]:
@@ -281,7 +299,7 @@ def export_schedule_ics(project, out_path: str, log=print) -> int:
             continue
         end = _ics_date(d.get("end")) or start        # one-day if no end
         end_excl = max(end, start) + timedelta(days=1)
-        uid = d.get("id") or f"schedule-{n + 1}"
+        uid = _ics_escape(str(d.get("id") or f"schedule-{n + 1}"))
         title = str(d.get("title") or "(untitled)")
         desc_bits = []
         if d.get("crew"):
