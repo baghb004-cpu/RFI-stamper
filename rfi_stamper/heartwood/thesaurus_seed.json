@@ -1,0 +1,826 @@
+{
+  "comment": "Heartwood's curated trade thesaurus: field words <-> canonical code/spec words. Every entry is operator-reviewable data, not code. 'field' is what the crew says; 'canonical' is what the code book and the drawings say. approved:true = shipped, citable (loaded into hw_thesaurus as status 'seed'). Mined proposals live in the store (hw_thesaurus, status 'unverified') until a human approves them.",
+  "entries": [
+    {
+      "field": "hot wire",
+      "canonical": "ungrounded conductor",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "hot",
+      "canonical": "ungrounded conductor",
+      "trade": "electrical",
+      "approved": true,
+      "note": "slang; context: wiring"
+    },
+    {
+      "field": "neutral",
+      "canonical": "grounded conductor",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "ground wire",
+      "canonical": "equipment grounding conductor",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "romex",
+      "canonical": "NM cable",
+      "trade": "electrical",
+      "approved": true,
+      "note": "genericized field slang for nonmetallic-sheathed cable"
+    },
+    {
+      "field": "NM cable",
+      "canonical": "nonmetallic-sheathed cable",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "MC cable",
+      "canonical": "metal-clad cable",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "EMT",
+      "canonical": "electrical metallic tubing",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "rigid",
+      "canonical": "rigid metal conduit",
+      "trade": "electrical",
+      "approved": true,
+      "note": "context: conduit"
+    },
+    {
+      "field": "flex",
+      "canonical": "flexible metal conduit",
+      "trade": "electrical",
+      "approved": true,
+      "note": "context: conduit"
+    },
+    {
+      "field": "greenfield",
+      "canonical": "flexible metal conduit",
+      "trade": "electrical",
+      "approved": true,
+      "note": "older field slang"
+    },
+    {
+      "field": "smurf tube",
+      "canonical": "electrical nonmetallic tubing",
+      "trade": "electrical",
+      "approved": true,
+      "note": "slang, from the blue color"
+    },
+    {
+      "field": "pigtail",
+      "canonical": "splice jumper conductor",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "home run",
+      "canonical": "branch circuit run to the panelboard",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "panel",
+      "canonical": "panelboard",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "breaker",
+      "canonical": "circuit breaker",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "GFI",
+      "canonical": "ground-fault circuit interrupter",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "GFCI",
+      "canonical": "ground-fault circuit interrupter",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "AFCI",
+      "canonical": "arc-fault circuit interrupter",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "wire nut",
+      "canonical": "twist-on wire connector",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "j-box",
+      "canonical": "junction box",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "can light",
+      "canonical": "recessed luminaire",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "light fixture",
+      "canonical": "luminaire",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "lug",
+      "canonical": "terminal connector",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "three-way",
+      "canonical": "three-way switch",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "kcmil",
+      "canonical": "thousand circular mils",
+      "trade": "electrical",
+      "approved": true
+    },
+    {
+      "field": "low voltage",
+      "canonical": "class 2 circuit",
+      "trade": "low-voltage",
+      "approved": true
+    },
+    {
+      "field": "p-trap",
+      "canonical": "fixture trap",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "DWV",
+      "canonical": "drainage waste and vent",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "c.o.",
+      "canonical": "cleanout",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "sillcock",
+      "canonical": "hose bibb",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "closet flange",
+      "canonical": "water closet flange",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "sweating",
+      "canonical": "soldering",
+      "trade": "plumbing",
+      "approved": true,
+      "note": "joining copper tube with solder"
+    },
+    {
+      "field": "sweat fitting",
+      "canonical": "solder-joint fitting",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "toilet",
+      "canonical": "water closet",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "commode",
+      "canonical": "water closet",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "lav",
+      "canonical": "lavatory",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "sink",
+      "canonical": "lavatory",
+      "trade": "plumbing",
+      "approved": true,
+      "note": "in restrooms; kitchen sinks stay sinks"
+    },
+    {
+      "field": "soil stack",
+      "canonical": "drainage stack",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "santee",
+      "canonical": "sanitary tee",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "street ell",
+      "canonical": "street elbow",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "wye",
+      "canonical": "wye fitting",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "no-hub",
+      "canonical": "hubless cast-iron coupling",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "shock arrestor",
+      "canonical": "water hammer arrestor",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "angle stop",
+      "canonical": "fixture supply stop valve",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "ballcock",
+      "canonical": "fill valve",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "corp stop",
+      "canonical": "corporation stop",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "curb stop",
+      "canonical": "curb valve",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "pex",
+      "canonical": "cross-linked polyethylene tubing",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "k copper",
+      "canonical": "type K copper tube",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "l copper",
+      "canonical": "type L copper tube",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "hot water heater",
+      "canonical": "water heater",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "BFP",
+      "canonical": "backflow preventer",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "trap primer",
+      "canonical": "trap seal primer",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "clean out",
+      "canonical": "cleanout",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "flushometer",
+      "canonical": "flushometer valve",
+      "trade": "plumbing",
+      "approved": true
+    },
+    {
+      "field": "RTU",
+      "canonical": "rooftop unit",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "AHU",
+      "canonical": "air handling unit",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "air handler",
+      "canonical": "air handling unit",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "plenum",
+      "canonical": "air plenum",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "lineset",
+      "canonical": "refrigerant line set",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "register",
+      "canonical": "supply air outlet with damper",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "diffuser",
+      "canonical": "supply air outlet",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "grille",
+      "canonical": "return air inlet",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "VAV",
+      "canonical": "variable air volume terminal unit",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "flex duct",
+      "canonical": "flexible air duct",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "b-vent",
+      "canonical": "type B gas vent",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "condenser",
+      "canonical": "condensing unit",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "mini split",
+      "canonical": "ductless split system",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "stat",
+      "canonical": "thermostat",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "ductboard",
+      "canonical": "rigid fiberglass duct panel",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "makeup air",
+      "canonical": "replacement outdoor air",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "economizer",
+      "canonical": "outdoor air economizer",
+      "trade": "hvac",
+      "approved": true
+    },
+    {
+      "field": "mud",
+      "canonical": "concrete",
+      "trade": "concrete",
+      "approved": true,
+      "note": "slang; drywall crews mean joint compound"
+    },
+    {
+      "field": "screed",
+      "canonical": "strike-off leveling",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "control joint",
+      "canonical": "sawcut joint",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "rebar",
+      "canonical": "reinforcing bar",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "footer",
+      "canonical": "footing",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "flatwork",
+      "canonical": "slab-on-grade concrete",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "honeycomb",
+      "canonical": "surface voids",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "vapor barrier",
+      "canonical": "vapor retarder",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "expansion joint",
+      "canonical": "isolation joint",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "pencil rod",
+      "canonical": "smooth form tie rod",
+      "trade": "concrete",
+      "approved": true
+    },
+    {
+      "field": "king stud",
+      "canonical": "full-height stud at opening",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "jack stud",
+      "canonical": "trimmer stud",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "cripple stud",
+      "canonical": "short stud above or below opening",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "header",
+      "canonical": "beam over opening",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "top plate",
+      "canonical": "double top plate",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "sole plate",
+      "canonical": "bottom plate",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "mudsill",
+      "canonical": "sill plate",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "fire blocking",
+      "canonical": "fireblocking",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "OSB",
+      "canonical": "oriented strand board",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "o.c.",
+      "canonical": "on center",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "toenail",
+      "canonical": "toe-nailed connection",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "LVL",
+      "canonical": "laminated veneer lumber",
+      "trade": "framing",
+      "approved": true
+    },
+    {
+      "field": "i-beam",
+      "canonical": "wide flange beam",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "angle iron",
+      "canonical": "steel angle",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "bar joist",
+      "canonical": "open web steel joist",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "puddle weld",
+      "canonical": "arc spot weld",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "kicker",
+      "canonical": "diagonal brace",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "gusset",
+      "canonical": "gusset plate",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "embed",
+      "canonical": "embedded plate",
+      "trade": "steel",
+      "approved": true
+    },
+    {
+      "field": "rock",
+      "canonical": "gypsum board",
+      "trade": "drywall",
+      "approved": true,
+      "note": "slang"
+    },
+    {
+      "field": "drywall",
+      "canonical": "gypsum board",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "drywall mud",
+      "canonical": "joint compound",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "tape and float",
+      "canonical": "joint taping and finishing",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "hat channel",
+      "canonical": "furring channel",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "RC channel",
+      "canonical": "resilient channel",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "greenboard",
+      "canonical": "moisture-resistant gypsum board",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "cement board",
+      "canonical": "cementitious backer unit",
+      "trade": "drywall",
+      "approved": true
+    },
+    {
+      "field": "TPO",
+      "canonical": "thermoplastic polyolefin membrane",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "EPDM",
+      "canonical": "ethylene propylene diene monomer membrane",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "cricket",
+      "canonical": "saddle",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "BUR",
+      "canonical": "built-up roof",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "torch down",
+      "canonical": "modified bitumen membrane",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "cap sheet",
+      "canonical": "granule-surfaced membrane top ply",
+      "trade": "roofing",
+      "approved": true
+    },
+    {
+      "field": "grubbing",
+      "canonical": "clearing and grubbing",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "swale",
+      "canonical": "drainage channel",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "proof roll",
+      "canonical": "proof rolling",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "potholing",
+      "canonical": "utility exploration excavation",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "lift",
+      "canonical": "compacted soil layer",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "spoils",
+      "canonical": "excavated material",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "benching",
+      "canonical": "stepped excavation",
+      "trade": "sitework",
+      "approved": true
+    },
+    {
+      "field": "FDC",
+      "canonical": "fire department connection",
+      "trade": "fire",
+      "approved": true
+    },
+    {
+      "field": "PIV",
+      "canonical": "post indicator valve",
+      "trade": "fire",
+      "approved": true
+    },
+    {
+      "field": "head",
+      "canonical": "sprinkler",
+      "trade": "fire",
+      "approved": true,
+      "note": "slang; context: fire protection"
+    },
+    {
+      "field": "GC",
+      "canonical": "general contractor",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "sub",
+      "canonical": "subcontractor",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "RFI",
+      "canonical": "request for information",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "as-builts",
+      "canonical": "record drawings",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "POC",
+      "canonical": "point of connection",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "AFF",
+      "canonical": "above finished floor",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "NTS",
+      "canonical": "not to scale",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "typ",
+      "canonical": "typical",
+      "trade": "general",
+      "approved": true
+    },
+    {
+      "field": "UNO",
+      "canonical": "unless noted otherwise",
+      "trade": "general",
+      "approved": true
+    }
+  ]
+}
