@@ -55,6 +55,7 @@ from .fieldstitch import (
     STATUS_RANK,
     _atomic_bytes,
     _split_label,
+    export_csv_pnezd,
     frame_hash,
     read_point_csv,
 )
@@ -543,13 +544,98 @@ def brackets(checks, records) -> list:
     return out
 
 
+# ------------------------------------------------------------- station log --
+
+#: Station-setup methods.  A resection needs 2-4 known targets (2 minimum
+#: for angle+distance, 3+ preferred); occupy+backsight needs 1.
+STATION_METHODS = ("occupy+backsight", "resection")
+
+#: Per-target residual verdict bands for building work (decimal feet).
+STATION_PASS_FT = 0.010
+STATION_WARN_FT = 0.020
+
+
+def station_verdict(residuals) -> str:
+    """pass <= 0.010 ft per target, warn <= 0.020, fail above (worst
+    target governs); '' when no residuals were logged."""
+    vals = [abs(float(r)) for r in (residuals or ())]
+    if not vals:
+        return ""
+    worst = max(vals)
+    if worst <= STATION_PASS_FT:
+        return "pass"
+    return "warn" if worst <= STATION_WARN_FT else "fail"
+
+
+@dataclass
+class StationLog:
+    """One instrument-setup session (brief section 1.7).  Every delta
+    committed while the session is open carries its ``session_id``, so a
+    bad setup quarantines exactly the points it touched — the ledger
+    groups by session for the same reason.
+
+    ``prism_constant_mm`` matters more than it looks: a mismatch
+    (0 / -30 / -17.5 mm) is a radial bias bigger than nearly every
+    tolerance and invisible per-point."""
+    session_id: str = ""
+    date_iso: str = ""
+    method: str = "occupy+backsight"   # occupy+backsight | resection
+    occupied: str = ""                 # point label, or 'free' (resection)
+    targets: list = None               # backsight/target point labels
+    residuals: list = None             # per-target residual, ft, 3 decimals
+    expected_ft: float | None = None   # expected check distance
+    observed_ft: float | None = None   # observed check distance
+    prism_constant_mm: float = 0.0     # 0 / -30 / -17.5
+    verdict: str = ""                  # pass | warn | fail
+    note: str = ""
+
+    def to_dict(self) -> dict:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StationLog":
+        kw = {f.name: d[f.name] for f in fields(cls) if f.name in d}
+        return cls(**kw)
+
+
+def make_station(session_id: str, method: str = "occupy+backsight", *,
+                 occupied: str = "", targets=(), residuals=(),
+                 expected_ft=None, observed_ft=None,
+                 prism_constant_mm: float = 0.0, note: str = "",
+                 ts: str = "") -> StationLog:
+    """Validated StationLog: method checked, target counts enforced
+    (occupy+backsight: exactly 1 backsight; resection: 2-4 knowns),
+    verdict computed from the residuals (:func:`station_verdict`)."""
+    method = str(method).strip().lower()
+    if method not in STATION_METHODS:
+        raise ValueError(f"unknown station method {method!r}; expected one "
+                         f"of {STATION_METHODS}")
+    targets = [str(t) for t in targets]
+    if method == "occupy+backsight" and len(targets) != 1:
+        raise ValueError("occupy+backsight takes exactly 1 backsight "
+                         f"target (got {len(targets)})")
+    if method == "resection" and not 2 <= len(targets) <= 4:
+        raise ValueError("a resection needs 2-4 known targets (2 minimum, "
+                         f"3+ preferred; got {len(targets)})")
+    residuals = [float(r) for r in residuals]
+    return StationLog(
+        session_id=str(session_id), date_iso=ts or _now_iso(),
+        method=method,
+        occupied=str(occupied) or ("free" if method == "resection" else ""),
+        targets=targets, residuals=residuals,
+        expected_ft=None if expected_ft is None else float(expected_ft),
+        observed_ft=None if observed_ft is None else float(observed_ft),
+        prism_constant_mm=float(prism_constant_mm),
+        verdict=station_verdict(residuals), note=str(note))
+
+
 # ---------------------------------------------------------------- QA store --
 
 class QAStore:
     """Per-plan QA sidecar (``<plan.pdf>.fieldqa.json``): every staked
-    attempt per point uid (chronological — kept forever, latest governs)
-    plus the check-shot ledger.  Same conventions as the other sidecars:
-    versioned JSON, atomic writes, tolerant load."""
+    attempt per point uid (chronological — kept forever, latest governs),
+    the check-shot ledger, and the station log.  Same conventions as the
+    other sidecars: versioned JSON, atomic writes, tolerant load."""
 
     SUFFIX = ".fieldqa.json"
 
@@ -558,6 +644,7 @@ class QAStore:
         self.path = (pdf_path + self.SUFFIX) if pdf_path else None
         self.records: dict[str, list] = {}       # uid -> [DeltaRecord...]
         self.checks: list = []                    # [CheckShot...]
+        self.stations: list = []                  # [StationLog...]
         if self.path and os.path.exists(self.path):
             self.load()
 
@@ -593,13 +680,39 @@ class QAStore:
         self.checks.sort(key=lambda c: c.date_iso)
         self._autosave()
 
+    # ---------------------------------------------------------- stations --
+
+    def add_station(self, log: StationLog) -> None:
+        if not log.session_id:
+            raise ValueError("StationLog.session_id must be set")
+        self.stations.append(log)
+        self.stations.sort(key=lambda s: s.date_iso)
+        self._autosave()
+
+    def station(self, session_id: str) -> StationLog | None:
+        """Latest station log for a session id (deltas link to it through
+        their own ``session_id``)."""
+        for log in reversed(self.stations):
+            if log.session_id == session_id:
+                return log
+        return None
+
+    def session_uids(self, session_id: str) -> list:
+        """Point uids with at least one attempt in this session — the exact
+        set a bad setup quarantines."""
+        return [uid for uid, recs in self.records.items()
+                if any(r.session_id == session_id for r in recs)]
+
     # ------------------------------------------------------- persistence --
 
     def to_dict(self) -> dict:
-        return {"version": _VERSION,
-                "records": {uid: [r.to_dict() for r in recs]
-                            for uid, recs in self.records.items()},
-                "checks": [c.to_dict() for c in self.checks]}
+        out = {"version": _VERSION,
+               "records": {uid: [r.to_dict() for r in recs]
+                           for uid, recs in self.records.items()},
+               "checks": [c.to_dict() for c in self.checks]}
+        if self.stations:
+            out["stations"] = [s.to_dict() for s in self.stations]
+        return out
 
     def save(self, path: str | None = None) -> None:
         path = path or self.path
@@ -634,7 +747,15 @@ class QAStore:
             except Exception:
                 continue
         checks.sort(key=lambda c: c.date_iso)
+        stations = []
+        for d in data.get("stations") or []:
+            try:
+                stations.append(StationLog.from_dict(d))
+            except Exception:
+                continue
+        stations.sort(key=lambda s: s.date_iso)
         self.records, self.checks = records, checks
+        self.stations = stations
 
     def _autosave(self) -> None:
         if self.path:
@@ -928,9 +1049,7 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
 
     all_recs = qa.all_records()
     if not foot:
-        foot = ("international foot (0.3048 m exactly)"
-                if job.units == "ft" else "meters" if job.units == "m"
-                else job.units)
+        foot = FOOT_LABELS.get(str(job.units).lower(), job.units)
     prov = [
         ("Project", project or "-"), ("Area / sheet", area or "-"),
         ("Date", _now_iso()), ("Crew", crew or "-"),
@@ -1054,13 +1173,18 @@ QA_CSV_HEADERS = ["point_id", "layer", "status", "design_n", "design_e",
                   "pass", "reason", "staked_by", "staked_at"]
 
 
-def export_ledger_csv(job: LayoutJob, qa: QAStore, out_path: str) -> int:
+def export_ledger_csv(job: LayoutJob, qa: QAStore, out_path: str,
+                      points=None) -> int:
     """The ``_qa.csv`` companion: one row per staked point (the GOVERNING —
-    latest — attempt; the PDF ledger prints every attempt).  ASCII, CRLF,
-    no BOM, atomic.  Returns the row count."""
+    latest — attempt; the PDF ledger prints every attempt).  ``points``
+    optionally filters to a package's point set.  ASCII, CRLF, no BOM,
+    atomic.  Returns the row count."""
+    keep = None if points is None else {p.id for p in points}
     lines = [",".join(QA_CSV_HEADERS)]
     count = 0
     for rec in qa.governing():
+        if keep is not None and rec.point_uid not in keep:
+            continue
         p = job.get(rec.point_uid)
         layer = p.layer if p is not None else ""
         status = p.status if p is not None else ""
@@ -1191,3 +1315,660 @@ def walk_route(job: LayoutJob, points=None, start=None,
         last = coords[order[-1]]
         anchor = last
     return result
+
+
+# ==================================================== coordinate upgrades ===
+# Brief section 2: the two feet, grid-to-ground, and the control-fit math.
+
+#: International foot: 0.3048 m EXACTLY.
+FT_INTL = 0.3048
+#: US survey foot: 1200/3937 m EXACTLY (0.30480060960121924 m).  Deprecated
+#: 2023-01-01, but 40 states legislated it and legacy control persists
+#: indefinitely.  The two differ by 2 ppm — invisible on distances, fatal
+#: on absolute state-plane coordinates.
+FT_US = 1200.0 / 3937.0
+
+#: Unit name -> meters-per-unit.  "ft" is accepted as the legacy spelling
+#: of the international foot.
+_UNIT_TO_M = {"m": 1.0, "ift": FT_INTL, "ft": FT_INTL, "usft": FT_US}
+
+#: Human labels stamped into export headers and reports — every deliverable
+#: says WHICH foot.
+FOOT_LABELS = {
+    "ft": "international foot (0.3048 m exactly)",
+    "ift": "international foot (0.3048 m exactly)",
+    "usft": "US survey foot (1200/3937 m exactly)",
+    "m": "meters",
+}
+
+
+def convert_units(v: float, frm: str, to: str) -> float:
+    """Convert a length between m / ift / usft THROUGH THE EXACT METER
+    VALUE only — never chained approximate ratios (that is how the 2 ppm
+    difference stops being exact)."""
+    try:
+        f = _UNIT_TO_M[str(frm).lower()]
+        t = _UNIT_TO_M[str(to).lower()]
+    except KeyError:
+        bad = frm if str(frm).lower() not in _UNIT_TO_M else to
+        raise ValueError(f"unknown unit {bad!r}; expected one of "
+                         f"{sorted(_UNIT_TO_M)}") from None
+    return float(v) * f / t
+
+
+#: Tripwire block threshold (brief 2.2): above this shift the import must
+#: stop and ask which foot the file is in.
+TRIPWIRE_BLOCK_FT = 0.05
+
+
+def unit_shift_tripwire(n: float, e: float) -> dict:
+    """How far a coordinate moves if the wrong foot is assumed: shift =
+    2.0e-6 x max(|N|, |E|) (the ift/usft ratio is 0.999998).  ``block``
+    is True above 0.05 ft — an untagged file must then present the chooser
+    ("these differ by X ft — which foot is this file in?"); below it,
+    proceed and log the assumption."""
+    shift = 2.0e-6 * max(abs(float(n)), abs(float(e)))
+    block = shift > TRIPWIRE_BLOCK_FT
+    msg = ""
+    if block:
+        msg = (f"the two feet differ by {shift:.2f} ft at this coordinate "
+               "magnitude — which foot is this file in? (blocked until "
+               "chosen; the file carries no unit tag)")
+    return {"shift_ft": shift, "block": block, "message": msg}
+
+
+# ------------------------------------------------------- grid-to-ground -----
+
+#: Mean earth radius for the elevation factor, in feet and meters.
+EARTH_R_FT = 20906000.0
+EARTH_R_M = 6371000.0
+
+
+def elevation_factor(h: float, radius: float = EARTH_R_FT) -> float:
+    """EF = R / (R + h) — h is the ellipsoid height in the same unit as
+    ``radius`` (feet default; pass EARTH_R_M for meters)."""
+    return float(radius) / (float(radius) + float(h))
+
+
+def combined_scale_factor(k: float, ef: float) -> float:
+    """CSF = k x EF (projection grid factor x elevation factor)."""
+    return float(k) * float(ef)
+
+
+def grid_to_ground(n: float, e: float, csf: float, origin=(0.0, 0.0)):
+    """ground = grid / CSF, scaled about the declared origin — if CSF != 1
+    the origin MUST be persisted (job.csf_origin) or the basis is
+    irreproducible.  Apply only in the world frame: local building-grid
+    coordinates are ALWAYS ground (plans are dimensioned in ground
+    truth)."""
+    csf = float(csf)
+    if csf <= 0:
+        raise ValueError(f"bad CSF {csf!r}")
+    on, oe = float(origin[0]), float(origin[1])
+    return (on + (float(n) - on) / csf, oe + (float(e) - oe) / csf)
+
+
+def ground_to_grid(n: float, e: float, csf: float, origin=(0.0, 0.0)):
+    """grid = ground x CSF about the same origin (inverse of
+    :func:`grid_to_ground`)."""
+    csf = float(csf)
+    if csf <= 0:
+        raise ValueError(f"bad CSF {csf!r}")
+    on, oe = float(origin[0]), float(origin[1])
+    return (on + (float(n) - on) * csf, oe + (float(e) - oe) * csf)
+
+
+def set_job_csf(job: LayoutJob, csf: float, origin: str = "", *,
+                k: float | None = None, ef: float | None = None) -> None:
+    """Persist the job CSF (8 decimals), its scaling origin and optionally
+    its k/EF parts in the sidecar.  A CSF != 1 with no origin refuses —
+    the factor is meaningless without its pivot."""
+    csf = round(float(csf), 8)
+    if csf <= 0:
+        raise ValueError(f"bad CSF {csf!r}")
+    if csf != 1.0 and not origin:
+        raise ValueError("CSF != 1 requires csf_origin (the point it "
+                         "scales about) or the basis is irreproducible")
+    job.csf = csf
+    job.csf_origin = str(origin)
+    parts = {}
+    if k is not None:
+        parts["k"] = float(k)
+    if ef is not None:
+        parts["ef"] = float(ef)
+    job.csf_parts = parts
+    job._autosave()
+
+
+# -------------------------------------------------- transform fit (2.4) -----
+
+def azimuth_of_plan_north(rotation_deg: float) -> float:
+    """The bearing of the plan's up direction in world azimuth terms.
+
+    ``rotation_deg`` is stored CCW-positive (matching ``to_world``'s
+    east = vx / north = -vy axes); azimuths run clockwise from north, so
+    ``azimuth = (360 - rotation) mod 360``.  Derivation (unit-tested — the
+    /Rotate-90 lesson applies verbatim): page-up = (0, -1) flips to
+    (east, north) = (0, 1); rotating CCW by theta gives e' = -sin(theta),
+    n' = cos(theta); atan2(e', n') = -theta."""
+    return (360.0 - float(rotation_deg)) % 360.0
+
+
+def dms(d: float, m: float = 0.0, s: float = 0.0) -> float:
+    """DDD MM' SS" -> decimal degrees (sign rides on the degrees)."""
+    sign = -1.0 if float(d) < 0 else 1.0
+    return sign * (abs(float(d)) + float(m) / 60.0 + float(s) / 3600.0)
+
+
+def format_dms(deg: float) -> str:
+    """Decimal degrees -> ``DDD-MM'SS"`` (azimuth style, normalized
+    0-360)."""
+    v = float(deg) % 360.0
+    total = int(round(v * 3600.0)) % (360 * 3600)
+    d, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{d:03d}-{m:02d}'{s:02d}\""
+
+
+def fit_from_control(pairs) -> dict:
+    """Fit the page->world frame from control pairs (brief 2.4).
+
+    ``pairs`` is ``[((page_x, page_y), (world_n, world_e)), ...]`` — 2
+    pairs give the exact similarity (rotation + translation + scale); 3+
+    give the 2D Helmert least-squares fit.  The result plugs straight into
+    the job frame (``apply_fit``): base at the centroids, rotation
+    CCW-positive per ``to_world``'s convention, ``real_per_pt`` the scale.
+
+    Returns::
+
+        {"base_page_xy", "base_world", "rotation_deg", "real_per_pt",
+         "azimuth_plan_north_deg",
+         "residuals": [{"dn", "de", "hmiss"}...],   # observed - fitted, ft
+         "rms_ft", "max_ft"}
+
+    Residuals of a least-squares fit are NOT verification — an independent
+    check shot (a point that did not serve in the fit) still gates the
+    frame; 2-point fits stay flagged unverified until a third point is
+    shot.  Sign traps stack three deep here (page y-down vs survey y-up,
+    CCW math vs clockwise azimuth, N-before-E vs (x, y)) — hence numeric
+    unit tests, not eyeballing."""
+    pairs = [((float(p[0][0]), float(p[0][1])),
+              (float(p[1][0]), float(p[1][1]))) for p in pairs]
+    if len(pairs) < 2:
+        raise ValueError("fit_from_control needs at least 2 control pairs "
+                         "(3+ for a least-squares fit with residuals)")
+    cx = sum(p[0][0] for p in pairs) / len(pairs)
+    cy = sum(p[0][1] for p in pairs) / len(pairs)
+    cn = sum(p[1][0] for p in pairs) / len(pairs)
+    ce = sum(p[1][1] for p in pairs) / len(pairs)
+    # page vector -> survey axes: u = east' = dx, v = north' = -dy
+    us = [p[0][0] - cx for p in pairs]
+    vs = [-(p[0][1] - cy) for p in pairs]
+    nn = [p[1][0] - cn for p in pairs]
+    ee = [p[1][1] - ce for p in pairs]
+    S = sum(u * u + v * v for u, v in zip(us, vs))
+    if S <= 0:
+        raise ValueError("control page points coincide — no scale/rotation "
+                         "is recoverable")
+    # model (to_world convention): n = b*u + a*v ; e = a*u - b*v
+    # with a = s*cos(theta), b = s*sin(theta)
+    a = sum(v * n + u * e for u, v, n, e in zip(us, vs, nn, ee)) / S
+    b = sum(u * n - v * e for u, v, n, e in zip(us, vs, nn, ee)) / S
+    scale = math.hypot(a, b)
+    if scale <= 0:
+        raise ValueError("degenerate fit: zero scale")
+    theta = math.degrees(math.atan2(b, a)) % 360.0
+    residuals = []
+    for u, v, n, e in zip(us, vs, nn, ee):
+        fn = b * u + a * v
+        fe = a * u - b * v
+        dn, de = n - fn, e - fe
+        residuals.append({"dn": dn, "de": de, "hmiss": math.hypot(dn, de)})
+    hs = [r["hmiss"] for r in residuals]
+    return {
+        "base_page_xy": (cx, cy), "base_world": (cn, ce),
+        "rotation_deg": theta, "real_per_pt": scale,
+        "azimuth_plan_north_deg": azimuth_of_plan_north(theta),
+        "residuals": residuals,
+        "rms_ft": math.sqrt(sum(h * h for h in hs) / len(hs)),
+        "max_ft": max(hs),
+    }
+
+
+def apply_fit(job: LayoutJob, fit: dict, unit: str = "ft") -> None:
+    """Install a :func:`fit_from_control` result as the job frame.  The
+    rotation pivots about the fitted anchor (the centroid), never page
+    (0, 0) — a pivot error masquerades as a translation growing with
+    distance."""
+    from .markups.measure import ScaleCal
+    job.base_page_xy = tuple(fit["base_page_xy"])
+    job.base_world = tuple(fit["base_world"])
+    job.rotation_deg = float(fit["rotation_deg"])
+    job.cal = ScaleCal(real_per_pt=float(fit["real_per_pt"]), unit=unit)
+    job._autosave()
+
+
+# ------------------------------------------------------- tape check (2.4) ---
+
+#: Band edges for the offline diagnosis.
+TAPE_AGREE_PPM = 1.0
+TAPE_FOOT_PPM = (1.0, 4.0)         # the ift/usft ratio is 2 ppm
+TAPE_GROSS_PPM = 1000.0
+
+
+def tape_check(d_computed: float, d_measured: float,
+               csf: float | None = None) -> dict:
+    """Inverse-between-knowns vs the taped/record distance, with rule-based
+    offline diagnosis (brief 2.4 gate 3).
+
+    Returns ``{"ppm", "band", "diagnosis"}``.  Bands: ``agree`` (<= 1 ppm),
+    ``foot`` (~2 ppm — smells like survey-foot vs international-foot),
+    ``csf`` (misfit matching the job's own CSF — grid coordinates used as
+    ground), ``gross`` (> 1000 ppm — wrong point / wrong datum),
+    ``unexplained`` otherwise."""
+    dc, dm = float(d_computed), float(d_measured)
+    if dc <= 0:
+        raise ValueError("computed distance must be positive")
+    ppm = (dm - dc) / dc * 1e6
+    mag = abs(ppm)
+    band, why = "unexplained", ""
+    if mag > TAPE_GROSS_PPM:
+        band = "gross"
+        why = ("gross misfit — wrong point, wrong datum, or a typo; "
+               "re-identify both monuments before touching the frame")
+    else:
+        csf_ppm = None
+        if csf and float(csf) > 0 and float(csf) != 1.0:
+            csf_ppm = (1.0 / float(csf) - 1.0) * 1e6
+        if csf_ppm is not None and (
+                abs(ppm - csf_ppm) <= max(10.0, 0.3 * abs(csf_ppm))
+                or abs(ppm + csf_ppm) <= max(10.0, 0.3 * abs(csf_ppm))):
+            band = "csf"
+            why = (f"misfit ({ppm:+.0f} ppm) matches the job CSF "
+                   f"({float(csf):.8f}) — these are grid coordinates being "
+                   "used as ground (or vice versa); check the GROUND/GRID "
+                   "badge and the scaling origin")
+        elif mag <= TAPE_AGREE_PPM:
+            band = "agree"
+            why = "distances agree within 1 ppm"
+        elif TAPE_FOOT_PPM[0] < mag <= TAPE_FOOT_PPM[1]:
+            band = "foot"
+            why = (f"{ppm:+.1f} ppm smells like survey-foot vs "
+                   "international-foot (the two differ by exactly 2 ppm); "
+                   "check which foot the record distance is in")
+    return {"ppm": ppm, "band": band, "diagnosis": why}
+
+
+# ======================================================== error budget ======
+# Brief section 5.5: the pre-flight budget meter.
+
+ARCSEC_PER_RAD = 206264.8
+
+#: The target-centering default (1.5 mm) is SPECIFIED for a hand-held pole
+#: with an adjusted 8-arcmin vial at up to this reference height; the pole
+#: component below charges only the tilt lever ABOVE it.
+POLE_REF_M = 1.5
+
+_MM_PER_FT = FT_INTL * 1000.0
+
+
+def point_sigma(dist_ft: float, arcsec: float, edm_a_mm: float = 2.0,
+                edm_b_ppm: float = 2.0, pole_h_ft: float = 6.5,
+                vial_arcmin: float = 8.0, instr_center_mm: float = 1.0,
+                target_center_mm: float = 1.5) -> dict:
+    """One-shot horizontal error budget at a layout distance (brief 5.5).
+
+    Components (all mm):
+
+    * angular: ``e = D * arcsec / 206264.8`` (5" is 0.74 mm at 100 ft);
+    * EDM: ``sigma_D = a + b ppm * D`` (2 mm + 2 ppm default — the ppm
+      term is noise at building range);
+    * instrument centering (plummet over the point, 1.0 mm default);
+    * target centering (1.5 mm default: hand-held pole, adjusted 8' vial
+      at <= 1.5 m);
+    * pole tilt: the residual-tilt lever ABOVE the 1.5 m reference the
+      target-centering number already covers —
+      ``(h - 1.5 m) * sin(vial/2)`` (a rod at 1.3-1.5 m drops the pole
+      term to zero, the ~30-40 percent reduction the doctrine quotes).
+
+    ``sigma_pt = sqrt(sum of squares)``; the 95 percent value is
+    ``1.96 * sigma`` — spec sheets quote 1-sigma, and a "1/16-in" claim at
+    1-sigma fails about one shot in three, so reports must state the
+    confidence level.  With the defaults at 100 ft this reproduces the
+    brief's worked example: ~2.9 mm 1-sigma, ~0.22 in at 95 percent — a
+    5-arcsec gun cannot honestly certify 1/8 in at 95 percent."""
+    dist_mm = float(dist_ft) * _MM_PER_FT
+    e_ang = dist_mm * float(arcsec) / ARCSEC_PER_RAD
+    e_edm = float(edm_a_mm) + float(edm_b_ppm) * 1e-6 * dist_mm
+    lever_mm = max(0.0, float(pole_h_ft) * FT_INTL - POLE_REF_M) * 1000.0
+    tilt = math.radians(float(vial_arcmin) / 2.0 / 60.0)
+    e_pole = lever_mm * math.sin(tilt)
+    sigma = math.sqrt(e_ang ** 2 + e_edm ** 2
+                      + float(instr_center_mm) ** 2
+                      + float(target_center_mm) ** 2 + e_pole ** 2)
+    p95 = 1.96 * sigma
+    return {
+        "e_ang_mm": e_ang, "e_edm_mm": e_edm,
+        "e_instr_mm": float(instr_center_mm),
+        "e_target_mm": float(target_center_mm), "e_pole_mm": e_pole,
+        "sigma_mm": sigma, "sigma_ft": sigma / _MM_PER_FT,
+        "p95_mm": p95, "p95_ft": p95 / _MM_PER_FT,
+        "p95_in": p95 / 25.4,
+    }
+
+
+def budget_check(job: LayoutJob, points, setup_xy, profile=None) -> dict:
+    """Pre-flight: from a proposed setup position ``(N, E)`` and a gun
+    profile (keyword args for :func:`point_sigma`; ``arcsec`` defaults 5),
+    color every point whose 95 percent budget exceeds its tolerance class.
+
+    Returns ``{"rows": [{"uid", "label", "dist_ft", "p95_ft", "p95_in",
+    "tol_h", "tol_class", "ok"}...], "over": [labels], "ok_count"}`` —
+    points with no horizontal tolerance on their class pass trivially."""
+    prof = dict(profile or {})
+    prof.setdefault("arcsec", 5.0)
+    sn, se = float(setup_xy[0]), float(setup_xy[1])
+    rows = []
+    for p in points:
+        n, e, _z = job.to_world(p)
+        d = math.hypot(n - sn, e - se)
+        sig = point_sigma(d, **prof)
+        tol = tolerance_for(job, p)
+        ok = tol.h_ft is None or sig["p95_ft"] <= tol.h_ft
+        rows.append({"uid": p.id, "label": job.composed(p), "dist_ft": d,
+                     "p95_ft": sig["p95_ft"], "p95_in": sig["p95_in"],
+                     "tol_h": tol.h_ft, "tol_class": tol.name, "ok": ok})
+    return {"rows": rows,
+            "over": [r["label"] for r in rows if not r["ok"]],
+            "ok_count": sum(1 for r in rows if r["ok"])}
+
+
+# ======================================================= stake packages =====
+# Brief section 6.4: nobody exports the whole job — per area/level/trade
+# bundles with a saved route, own export files, and the paper manifest.
+
+#: Printed on every bundle manifest — the morning ritual.
+CHECK_SHOT_RITUAL = (
+    "Before staking: occupy, then shoot TWO known control points and log "
+    "the residuals (pass <= 0.010 ft each). Stake nothing until both "
+    "check.")
+
+
+def _package_json(job: LayoutJob, pts, route_labels, name: str) -> dict:
+    cal = job.cal
+    layers: dict[str, int] = {}
+    for p in pts:
+        layers[p.layer] = layers.get(p.layer, 0) + 1
+    classes = {}
+    for p in pts:
+        tc = tolerance_for(job, p)
+        classes[tc.name] = tc.to_dict()
+    control = []
+    for p in job.points:
+        if p.kind == "CONTROL":
+            n, e, z = job.to_world(p)
+            control.append({"label": job.composed(p), "n": n, "e": e,
+                            "z": z, "monument": p.monument,
+                            "last_checked": p.last_checked,
+                            "where": p.where_note})
+    return {
+        "package": name,
+        "created": _now_iso(),
+        "points": len(pts),
+        "layers": layers,
+        "route": list(route_labels),
+        "tolerances": classes,
+        "tolerance_note": f"{TOLERANCE_DISCLAIMER} {LAYOUT_BUDGET_NOTE}",
+        "control": control,
+        "units": job.units,
+        "foot": FOOT_LABELS.get(str(job.units).lower(), job.units),
+        "csf": job.csf, "csf_origin": job.csf_origin,
+        "frame": {
+            "base_world": list(job.base_world),
+            "base_page_xy": list(job.base_page_xy),
+            "rotation_deg": job.rotation_deg,
+            "real_per_pt": cal.real_per_pt if cal else None,
+            "hash": frame_hash(job),
+        },
+        "ritual": CHECK_SHOT_RITUAL,
+    }
+
+
+def _package_sheet_pdf(job: LayoutJob, out_path: str,
+                       name: str, pts, route_labels, pkg: dict) -> None:
+    """The one-page paper manifest — a first-class deliverable for the
+    clipboard-and-tape crew, doubling as the morning briefing."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    W, H = letter
+    m = 40.0
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    accent = transmittal.ACCENT
+
+    c.setFillColor(accent)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(m, H - m - 8, f"STAKE PACKAGE — {name}")
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+    c.setFont("Helvetica", 8)
+    y = H - m - 24
+    csf_note = ("distances are ground (CSF 1.00000000)"
+                if job.csf == 1.0 else
+                f"CSF {job.csf:.8f} about {job.csf_origin or '?'} — "
+                "GROUND = GRID / CSF")
+    for line in (
+            f"{len(pts)} point(s) — created {pkg['created']}",
+            f"Units: {job.units} — {pkg['foot']};  {csf_note}",
+            f"Frame hash: {pkg['frame']['hash']}  (as-staked files must "
+            "come back against this frame)"):
+        c.drawString(m, y, line)
+        y -= 11
+    c.setFillColor(colors.Color(0.72, 0.18, 0.12))
+    c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(m, y, CHECK_SHOT_RITUAL)
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+    y -= 8
+    c.setStrokeColor(accent)
+    c.setLineWidth(1.2)
+    c.line(m, y, W - m, y)
+    y -= 10
+
+    # ---- plan thumbnail (fitz render) + pins -----------------------------
+    thumb_h = 170.0
+    thumb_w = W - 2 * m
+    page_no = 1
+    if pts:
+        counts: dict[int, int] = {}
+        for p in pts:
+            counts[p.page] = counts.get(p.page, 0) + 1
+        page_no = max(counts, key=counts.get)
+    drew = False
+    if job.pdf_path and os.path.exists(job.pdf_path):
+        try:
+            import fitz
+            doc = fitz.open(job.pdf_path)
+            try:
+                page = doc[page_no - 1]
+                zoom = 0.75
+                pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                img = ImageReader(io.BytesIO(pix.tobytes("png")))
+                pw, ph = page.rect.width, page.rect.height
+                s = min(thumb_w / pw, thumb_h / ph)
+                iw, ih = pw * s, ph * s
+                ix, iy = m, y - ih
+                c.drawImage(img, ix, iy, width=iw, height=ih)
+                c.setStrokeColorRGB(0.6, 0.6, 0.62)
+                c.setLineWidth(0.6)
+                c.rect(ix, iy, iw, ih)
+                for p in pts:
+                    if p.page != page_no:
+                        continue
+                    px, py = ix + p.x * s, iy + ih - p.y * s
+                    ly = job.layer(p.layer)
+                    try:
+                        c.setFillColor(colors.HexColor(
+                            ly.color if ly else "#d84c3f"))
+                    except ValueError:
+                        c.setFillColorRGB(0.85, 0.3, 0.25)
+                    c.circle(px, py, 1.6, stroke=0, fill=1)
+                y = iy - 12
+                drew = True
+            finally:
+                doc.close()
+        except Exception:
+            drew = False
+    if not drew:
+        c.setStrokeColorRGB(0.6, 0.6, 0.62)
+        c.setLineWidth(0.6)
+        c.rect(m, y - 60, thumb_w, 60)
+        c.setFont("Helvetica-Oblique", 8)
+        c.drawString(m + 8, y - 34, "(no plan thumbnail — raster/absent "
+                                    "plan; pins live in the DXF)")
+        y -= 72
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+
+    # ---- control table ----------------------------------------------------
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(accent)
+    c.drawString(m, y, "Control held")
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+    y -= 11
+    c.setFont("Helvetica", 7.5)
+    if pkg["control"]:
+        for ctl in pkg["control"][:6]:
+            z = "-" if ctl["z"] is None else f"{ctl['z']:.3f}"
+            c.drawString(
+                m, y,
+                f"{ctl['label']}   N {ctl['n']:.3f}   E {ctl['e']:.3f}   "
+                f"Z {z}   {ctl['monument'] or '-'}"
+                + (f"   ({ctl['where']})" if ctl["where"] else ""))
+            y -= 9.5
+        if len(pkg["control"]) > 6:
+            c.drawString(m, y, f"... {len(pkg['control']) - 6} more in "
+                               f"{name}.json")
+            y -= 9.5
+    else:
+        c.drawString(m, y, "(no control points in the job — set control "
+                           "before staking)")
+        y -= 9.5
+    y -= 4
+
+    # ---- layer legend with counts -----------------------------------------
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(accent)
+    c.drawString(m, y, "Layers")
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+    y -= 11
+    c.setFont("Helvetica", 7.5)
+    x = m
+    for lname, count in sorted(pkg["layers"].items()):
+        ly = job.layer(lname)
+        try:
+            c.setFillColor(colors.HexColor(ly.color if ly else "#d84c3f"))
+        except ValueError:
+            c.setFillColorRGB(0.85, 0.3, 0.25)
+        c.rect(x, y - 1.5, 6, 6, stroke=0, fill=1)
+        c.setFillColorRGB(0.24, 0.24, 0.24)
+        label = f"{lname} ({count})"
+        c.drawString(x + 9, y, label)
+        x += 9 + c.stringWidth(label, "Helvetica", 7.5) + 14
+        if x > W - m - 90:
+            x = m
+            y -= 10
+    y -= 16
+
+    # ---- checkbox route table ---------------------------------------------
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(accent)
+    c.drawString(m, y, "Walk order")
+    c.setFillColorRGB(0.24, 0.24, 0.24)
+    y -= 12
+    c.setFont("Helvetica", 7.5)
+    by_label = {job.composed(p): p for p in pts}
+    max_rows = max(4, int((y - m - 18) // 9.5))
+    shown = list(route_labels)[:max_rows]
+    for i, lb in enumerate(shown, 1):
+        p = by_label.get(lb)
+        c.setStrokeColorRGB(0.35, 0.35, 0.38)
+        c.setLineWidth(0.7)
+        c.rect(m, y - 1.5, 6, 6, stroke=1, fill=0)
+        line = f"{i:>3}.  {lb}"
+        if p is not None:
+            n, e, z = job.to_world(p)
+            line += (f"   {p.desc or p.code or p.layer}   N {n:.3f}  "
+                     f"E {e:.3f}" + ("" if z is None else f"  Z {z:.3f}"))
+        c.drawString(m + 10, y, line[:118])
+        y -= 9.5
+    if len(route_labels) > len(shown):
+        c.drawString(m + 10, y, f"... {len(route_labels) - len(shown)} "
+                                f"more — full route in {name}.csv (route "
+                                "order) and {0}.json".format(name))
+        y -= 9.5
+
+    c.setFont("Helvetica-Oblique", 7)
+    c.setFillColorRGB(0.4, 0.4, 0.42)
+    c.drawString(m, m - 14, ROUNDING_FOOTNOTE[:150])
+    c.showPage()
+    c.save()
+    transmittal._atomic_write_bytes(buf.getvalue(), out_path)
+
+
+def export_package(job: LayoutJob, qa: QAStore, out_dir: str, name: str,
+                   points, route=None, log=print) -> dict:
+    """Write a stake package (day bundle, brief 6.4) into ``out_dir``:
+
+    * ``<name>.csv`` — PNEZD wire CSV in ROUTE ORDER (headerless, ``#``
+      comment header with the frame hash so the as-staked round trip
+      gates);
+    * ``<name>_qa.csv`` — the delta companion for this package's points;
+    * ``<name>.json`` — route, tolerance classes in play, control list,
+      frame snapshot + hash, units incl. WHICH foot, CSF + origin;
+    * ``<name>.dxf`` — the attribute-block tier (plain POINTs included);
+    * ``<name>_sheet.pdf`` — the one-page paper manifest (plan thumbnail
+      with pins, control table, layer legend with counts, checkbox route
+      table, units + CSF statement, check-shot ritual reminder).
+
+    ``route`` is an optional pre-sorted point list (e.g. from
+    :func:`walk_route`); default keeps the given order.  Everything stays
+    open-format — office/field round-trip never needs licensed software.
+    Returns ``{"files": [...], "points": n, "name": name}``."""
+    from . import fieldwire
+    pts = list(points)
+    if not pts:
+        raise ValueError("a stake package needs at least one point")
+    route_pts = list(route) if route is not None else pts
+    if {p.id for p in route_pts} != {p.id for p in pts}:
+        raise ValueError("route must be a reordering of the package points")
+    route_labels = [job.composed(p) for p in route_pts]
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.join(out_dir, name)
+    files = []
+
+    csv_path = base + ".csv"
+    export_csv_pnezd(job, csv_path, points=route_pts,
+                     options={"header": False, "comment_header": True})
+    files.append(csv_path)
+
+    qa_path = base + "_qa.csv"
+    export_ledger_csv(job, qa, qa_path, points=pts)
+    files.append(qa_path)
+
+    pkg = _package_json(job, pts, route_labels, name)
+    json_path = base + ".json"
+    _atomic_bytes(json.dumps(pkg, indent=2,
+                             sort_keys=True).encode("utf-8"), json_path)
+    files.append(json_path)
+
+    dxf_path = base + ".dxf"
+    fieldwire.export_dxf_blocks(job, dxf_path, points=pts)
+    files.append(dxf_path)
+
+    sheet_path = base + "_sheet.pdf"
+    _package_sheet_pdf(job, sheet_path, name, pts, route_labels, pkg)
+    files.append(sheet_path)
+
+    log(f"  stake package {name!r}: {len(pts)} point(s), "
+        f"{len(files)} file(s) in {out_dir}")
+    return {"files": files, "points": len(pts), "name": name}

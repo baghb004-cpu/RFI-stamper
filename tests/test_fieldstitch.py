@@ -470,7 +470,8 @@ def test_kits(tmp):
     assert export_job_json(job, os.path.join(tmp, "job.json")) == 2
 
     expect(ValueError, export_kit, job, tmp, "grannyknot")
-    assert set(KITS) == {"bowline", "clovehitch", "fullspool"}
+    assert set(KITS) == {"bowline", "clovehitch", "fullspool",
+                         "sheetbend", "marlinspike"}   # A2 adds wire kits
     # nothing leaves temp files behind
     leftovers = [f for _, _, fs in os.walk(tmp) for f in fs
                  if f.endswith(".part")]

@@ -83,7 +83,24 @@ hand it to whichever tablet the crew carries:
 * **Clovehitch Kit** — XLSX (X/Y/Z, point number, prefix/suffix,
   description, category, layer) + DXF, the import pair for grid-layout
   tablets
+* **Sheetbend Kit** — LandXML CgPoints + PNEZD CSV, for office survey
+  suites and modern controllers
+* **Marlinspike Kit** — GSI-8/16 fieldbook + SP-record fieldbook (.rw5),
+  for the classic fixed-width and record-based collectors (widths and
+  unit digits handled exactly; big state-plane coordinates auto-switch
+  the whole file to the wide format)
 * **Full Spool** — everything at once, plus the re-loadable job JSON
+
+Every wire file is ASCII/CRLF/no-BOM with the frame hash embedded, every
+export declares *which foot* (international vs US survey — exact
+conversions through meters only), and a grid-to-ground **CSF** with its
+scaling origin rides the job when you set one. Frames can be fit straight
+from control pairs (2-point exact or least squares with per-pair
+residuals), and an **error-budget preflight** colors any point whose 95%
+shot budget exceeds its tolerance class before the crew ever leaves.
+**Stake packages** bundle a day's work — route-ordered CSV, QA companion,
+DXF (attribute-block tier), job JSON snapshot, and a one-page printable
+manifest with the plan thumbnail, control table, and checkbox walk list.
 
 And the loop closes: import the crew's **as-staked shots**, review the
 pairing in a human-confirmation table, and Planloom judges every point

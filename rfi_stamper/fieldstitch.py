@@ -403,6 +403,16 @@ class LayoutJob:
         self.retired: set[int] = set()            # tombstoned numbers
         self.tolerances: dict = {}                # job tolerance overrides
         self.stitch_codes: dict = {}              # job Stitch Code overrides
+        # ---- coordinate upgrades (fieldpro; ride the sidecar when used) --
+        #: survey/world anchor: {n, e, z, h_datum, v_datum, unit} — the
+        #: second origin next to base_world (the building-grid Anchor).
+        self.survey_anchor: dict = {}
+        #: combined scale factor (grid<->ground), stored to 8 decimals.
+        #: When != 1 the scaling origin MUST be persisted (csf_origin) or
+        #: the basis is irreproducible.
+        self.csf: float = 1.0
+        self.csf_origin: str = ""                 # point id/label it scales about
+        self.csf_parts: dict = {}                 # {"k": ..., "ef": ...}
         if self.path and os.path.exists(self.path):
             self.load()
 
@@ -873,6 +883,14 @@ class LayoutJob:
             out["tolerances"] = dict(self.tolerances)
         if self.stitch_codes:
             out["stitch_codes"] = dict(self.stitch_codes)
+        if self.survey_anchor:
+            out["survey_anchor"] = dict(self.survey_anchor)
+        if self.csf != 1.0:
+            out["csf"] = self.csf
+        if self.csf_origin:
+            out["csf_origin"] = self.csf_origin
+        if self.csf_parts:
+            out["csf_parts"] = dict(self.csf_parts)
         return out
 
     def save(self, path: str | None = None) -> None:
@@ -934,6 +952,15 @@ class LayoutJob:
         self.tolerances = dict(tol) if isinstance(tol, dict) else {}
         codes = data.get("stitch_codes")
         self.stitch_codes = dict(codes) if isinstance(codes, dict) else {}
+        anchor = data.get("survey_anchor")
+        self.survey_anchor = dict(anchor) if isinstance(anchor, dict) else {}
+        try:
+            self.csf = float(data.get("csf", 1.0))
+        except (TypeError, ValueError):
+            self.csf = 1.0
+        self.csf_origin = str(data.get("csf_origin", ""))
+        parts = data.get("csf_parts")
+        self.csf_parts = dict(parts) if isinstance(parts, dict) else {}
 
     def _autosave(self) -> None:
         if self.path:
@@ -1479,9 +1506,33 @@ def import_csv(job: LayoutJob, path: str, log=print, *,
     data = read_point_csv(path, order=order)
     for lineno, row in data["bad"]:
         log(f"  !! row {lineno}: bad N/E {row!r}, skipped")
+    return apply_import_rows(job, data["rows"], log,
+                             on_collision=on_collision,
+                             zero_elev_is_null=zero_elev_is_null)
 
+
+def apply_import_rows(job: LayoutJob, rows, log=print, *,
+                      on_collision: str = "quarantine",
+                      zero_elev_is_null: bool = False) -> int:
+    """Apply already-parsed point rows to a job — the shared back half of
+    every importer (:func:`import_csv` and the :mod:`rfi_stamper.fieldwire`
+    wire-format readers all land here, so collision policy, quarantine and
+    CONTROL protection behave identically on every dialect).
+
+    Each row is ``{"id", "n", "e", "z", "desc"}`` (``z`` may be ``None``)
+    plus two optional extension keys the wire formats carry: ``"kind"``
+    (e.g. LandXML ``state="existing"`` / GSI station words import as
+    CONTROL) and ``"code"``.  Semantics are exactly those documented on
+    :func:`import_csv`; returns how many rows were applied."""
+    if job.cal is None:
+        raise ValueError(
+            "no scale set: calibrate the plan (ScaleCal) and store it in "
+            "job.scale before importing world coordinates")
+    if on_collision not in ("quarantine", "keep", "replace", "refuse"):
+        raise ValueError(f"unknown on_collision {on_collision!r}; expected "
+                         "quarantine | keep | replace | refuse")
     if on_collision == "refuse":
-        colliding = sorted({r["id"] for r in data["rows"]
+        colliding = sorted({r["id"] for r in rows
                             if _split_label(r["id"])[1] is not None
                             and job.find_by_num(_split_label(r["id"])[1])})
         if colliding:
@@ -1489,7 +1540,7 @@ def import_csv(job: LayoutJob, path: str, log=print, *,
                              + ", ".join(colliding))
 
     added = 0
-    for rec in data["rows"]:
+    for rec in rows:
         n, e = rec["n"], rec["e"]
         z = rec["z"]
         if zero_elev_is_null and z == 0.0:
@@ -1522,9 +1573,14 @@ def import_csv(job: LayoutJob, path: str, log=print, *,
             num, layer = qnum, QUARANTINE_LAYER
         if job.layer(layer) is None:
             job.layers.append(PointLayer(layer))
+        kind = str(rec.get("kind", "") or "DESIGN").upper()
+        if kind not in KINDS:
+            kind = "DESIGN"
         job.points.append(LayoutPoint.new(
             num=num, prefix=prefix, suffix=suffix, page=1, x=x, y=y,
-            elev=z, desc=rec["desc"], layer=layer))
+            elev=z, desc=rec["desc"], layer=layer, kind=kind,
+            code=str(rec.get("code", "") or ""),
+            locked=(kind == "CONTROL")))
         job.next_num = max(job.next_num, num + 1)
         added += 1
     if added:
@@ -1624,13 +1680,22 @@ def validate_import_csv(job: LayoutJob, path: str,
 # --------------------------------------------------------------- field kits --
 
 #: Export bundles matched to what a crew's tablet ingests, keyed by rigging
-#: knot (no vendor names): a simple CSV+DXF rig, an XLSX+DXF rig, and the
-#: everything bundle.
+#: knot (no vendor names): a simple CSV+DXF rig, an XLSX+DXF rig, the
+#: everything bundle, and the two wire-format rigs from
+#: :mod:`rfi_stamper.fieldwire` — ``sheetbend`` (the knot that joins two
+#: different ropes: LandXML + CSV for office suites and modern controllers)
+#: and ``marlinspike`` (the rigger's fieldbook spike: GSI + SP-record
+#: fieldbook for the classic fixed-width/record collectors).
 KITS = {
     "bowline": ("csv", "dxf"),
     "clovehitch": ("xlsx", "dxf"),
     "fullspool": ("csv", "xlsx", "dxf", "json"),
+    "sheetbend": ("landxml", "csv"),
+    "marlinspike": ("gsi", "sp"),
 }
+
+#: Kit format tag -> file extension where they differ.
+_KIT_EXT = {"landxml": "xml", "sp": "rw5"}
 
 
 def export_kit(job: LayoutJob, out_dir: str, kit: str,
@@ -1643,14 +1708,23 @@ def export_kit(job: LayoutJob, out_dir: str, kit: str,
     os.makedirs(out_dir, exist_ok=True)
     pts = _export_points(job)
     files: list[str] = []
-    for ext in KITS[kit]:
-        out = os.path.join(out_dir, f"{stem}.{ext}")
-        if ext == "csv":
+    for fmt in KITS[kit]:
+        out = os.path.join(out_dir, f"{stem}.{_KIT_EXT.get(fmt, fmt)}")
+        if fmt == "csv":
             export_csv_pnezd(job, out, points=pts)
-        elif ext == "xlsx":
+        elif fmt == "xlsx":
             export_xlsx(job, out, points=pts)
-        elif ext == "dxf":
+        elif fmt == "dxf":
             export_dxf(job, out, points=pts)
+        elif fmt in ("landxml", "gsi", "sp"):
+            from . import fieldwire          # local import: no cycle at load
+            if fmt == "landxml":
+                fieldwire.export_landxml(job, out, points=pts)
+            elif fmt == "gsi":
+                fieldwire.export_gsi(job, out, points=pts)
+            else:
+                fieldwire.export_sp(job, out, points=pts,
+                                    log=lambda m: None)
         else:
             export_job_json(job, out)
         files.append(out)

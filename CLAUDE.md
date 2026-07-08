@@ -84,12 +84,23 @@ run; the `*_report.txt` must end in PASS).
                               tombstones), statuses, witness points, world
                               coords, PNEZD/PENZD CSV (+.tag.txt, frame hash) /
                               XLSX (hand-rolled OOXML) / DXF R12 exporters,
-                              kits (bowline/clovehitch/fullspool), advisory
-                              import validators
+                              kits (bowline/clovehitch/fullspool/sheetbend/
+                              marlinspike), advisory import validators
     rfi_stamper/fieldpro.py   layout QA: tolerance classes, Stitch Codes,
                               delta math, as-staked pairing/commit, check-shot
                               brackets, As-Staked Ledger PDF + _qa.csv,
-                              walking-route sort
+                              walking-route sort; two-feet/CSF/Helmert-fit
+                              coordinate math, error-budget preflight,
+                              station log, stake packages (day bundles)
+    rfi_stamper/fieldwire.py  the wire formats: LandXML 1.2 CgPoints,
+                              GSI-8/16 fieldbook, SP-record fieldbook (.rw5),
+                              DXF attribute-block tier + CAD layer-name
+                              rules; ONE shared coordinate-order writer table
+    rfi_stamper/harvest.py    model-to-points generators (PURE — proposals
+                              only, commit happens in the GUI): gridiron,
+                              wall corners, along/offset line w/ per-trade
+                              stride rules, bolt cage, line intersections,
+                              reharvest diff (orphans never auto-deleted)
     rfi_stamper/extrude.py    plan PDF vector linework -> extruded 3D wall model
                               in the Fieldstitch world frame
     rfi_stamper/draft.py      The Loft engine: 2D drafting model (decimal feet,
@@ -206,6 +217,16 @@ were proven on real export files. GUI constructs under xvfb.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.
+- Wire-format coordinate order differs per dialect (PNEZD/LandXML are
+  N-first, the GSI fieldbook is E-first — WI 81 = Easting, DXF group 10 =
+  X = Easting) and a swapped N/E imports without any error, mirrored about
+  the N=E diagonal.  The order lives ONLY in `fieldwire.WRITER_ORDER`;
+  every exporter calls `fieldwire.ordered()` — never inline it.
+- `fieldpro.point_sigma`'s 1.5 mm target-centering default is SPECIFIED at
+  a <= 1.5 m rod (adjusted 8' vial); the pole term charges only the tilt
+  lever ABOVE that reference — that is what makes the brief's worked
+  example land (~2.9 mm 1-sigma / ~0.22 in 95% for a 5" gun at 100 ft).
+  Don't "fix" it to h*sin(vial/2) of the full height.
 - Loft (draft.py) model space is decimal feet, y UP (= Fieldstitch world
   frame, E=x N=y); the GUI canvas flips y in its view transform only. Doors/
   windows are host-parametric (`pts=[]`, everything derives from host wall +

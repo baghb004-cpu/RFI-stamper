@@ -24,6 +24,11 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Bowline Kit** | export bundle: PNEZD CSV + DXF | the rigger's most trusted knot; the robotic-total-station tablet workflow |
 | **Clovehitch Kit** | export bundle: XLSX + DXF | the stake-tying knot; the grid-layout tablet workflow |
 | **Full Spool** | export bundle: everything (CSV+XLSX+DXF+job JSON) | empty the spool |
+| **Sheetbend Kit** | export bundle: LandXML + PNEZD CSV | the knot that joins two different ropes — office suites + modern controllers |
+| **Marlinspike Kit** | export bundle: GSI + SP-record fieldbook (.rw5) | the rigger's fieldbook spike; the classic fixed-width/record collectors |
+| **Harvest** | model-to-points generators (proposals only) | harvesting stakeable points out of the model |
+| **Gridiron** | the grid-intersection generator | the gridiron; NOT "building control points" (originality fence) |
+| **Stride rules** | per-trade hanger/support spacing table | named for the walk stride; each row cites its basis |
 | **Strata** | layer manager (visibility, color override, lock, filter) | geological layers |
 | **Horizon Slice** | 3D elevation view-range clip (animated section cut) | slicing the model at a horizon |
 | **Warp-Up** | animated boot splash | a loom's warp threads + warming up |
@@ -192,6 +197,55 @@ the implementation):
 - Deferred to A2: LandXML/GSI/SP-record wire formats, DXF attribute
   blocks, Harvest generators, two-feet/CSF/Helmert coordinate upgrades,
   error-budget preflight, stake packages, Field Mode + gun profiles.
+
+## Round 8 (SHIPPED): Fieldstitch Pro A2 — wire formats + Harvest (engine)
+
+Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
+
+- **fieldwire.py (new)**: LandXML 1.2 CgPoints export/import (N E [Z]
+  INSIDE the element, Units Imperial/Metric — linearUnit says WHICH foot,
+  state proposed/existing <-> kind, namespace-agnostic import); GSI-8/16
+  fieldbook (exact word map, feet digit 1 / meter digit 0, E-N-Z order,
+  whole-file GSI-16 auto-switch on >8-digit data or ids — never mixed);
+  SP-record fieldbook (JB/MO headers, UN0|UN1|UN2 encodes the foot, SF =
+  CSF, null-EL excluded w/ warning unless EL0.000 opt-in, import scans
+  ONLY SP lines and ignores all observation records); DXF attribute-block
+  tier (LAYPT block, PT/ELEV/DESC ATTDEFs, INSERT+ATTRIBx3+SEQEND per
+  point alongside the plain POINT, CAD layer-name rules enforced at
+  creation via add_cad_layer). Coordinate order centralized in
+  fieldwire.WRITER_ORDER (see the CLAUDE.md gotcha). All ASCII CRLF
+  no-BOM atomic. Kits: sheetbend (landxml+csv), marlinspike (gsi+sp).
+- **harvest.py (new)**: PURE generators returning proposal dicts
+  ({n,e|x,y, elev, z_ref, name, desc, code, layer, provenance{gen,key,
+  rule,params}, witness?}) — gridiron (explicit line runs or the Loft
+  bridge), wall_corners (+inset, witness spec), along_line (stride w/
+  remainder center|end, divide-N, insets, sloped-Z interpolation),
+  offset_line (signed side, O/S lath grammar), bolt_cage (children
+  -A/-B/-C/-D, BOLT_GROUP_NOTE), line_intersections (dedupe 1/16 in,
+  extend toggle), reharvest_diff (unchanged/drifted w/ dN dE/orphaned —
+  never auto-deleted/new). STRIDE_RULES per-trade size->spacing ladders.
+- **fieldpro.py additions**: FT_INTL/FT_US + convert_units (exact meters
+  only), unit_shift_tripwire (block > 0.05 ft), elevation_factor/
+  combined_scale_factor/grid_to_ground/ground_to_grid/set_job_csf,
+  fit_from_control (2-pt exact + Helmert LSQ, residuals + RMS,
+  azimuth_of_plan_north = (360 - rot) % 360 — unit-tested), apply_fit,
+  dms/format_dms, tape_check (agree/foot/csf/gross bands), point_sigma
+  (verified vs the brief's worked example) + budget_check, StationLog +
+  make_station + QAStore.stations/station()/session_uids, export_package
+  (csv + _qa.csv + json + dxf + one-page _sheet.pdf manifest w/ fitz
+  thumbnail, control table, layer legend, checkbox route, CSF statement,
+  check-shot ritual). LayoutJob grew survey_anchor/csf/csf_origin/
+  csf_parts (sidecar extras, lean).
+- fieldstitch: apply_import_rows extracted from import_csv (all wire
+  importers share collision policy; rows may carry kind/code — CONTROL
+  imports locked); KITS + export_kit dispatch (test_fieldstitch.py kit-set
+  assertion updated accordingly).
+- tests/test_fieldwire.py + tests/test_harvest.py: 371 asserts + 43
+  expected-error checks. All 39 suites green.
+- Deferred to the next round (GUI): Harvest drawer (ghost pins + commit
+  lever), story-pole band filter, Field Mode, gun profiles, residual
+  arrows on-plan, Two-Ties/Setup cards, cut-sheet/stake-strip variants,
+  JobXML import subset (3.6), as-staked XLSX ledger mirror.
 
 ## Roadmap (still open)
 
