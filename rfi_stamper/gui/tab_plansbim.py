@@ -60,7 +60,8 @@ class PlansSection(ttk.Frame):
         nb.add(self.loft, text="  The Loft  ")
 
         self.fieldstitch = FieldstitchTab(nb, theme, status, root,
-                                          on_pins=self._pins_to_3d)
+                                          on_pins=self._pins_to_3d,
+                                          get_loft=lambda: self.loft)
         nb.add(self.fieldstitch, text="  Fieldstitch Layout  ")
 
         self.asbuilt = AsBuiltPanel(nb, theme, status,

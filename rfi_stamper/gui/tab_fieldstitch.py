@@ -32,17 +32,24 @@ SCALES = (
 KIT_LABELS = [
     ("bowline", "Bowline Kit — PNEZD CSV + DXF (robotic-total-station tablets)"),
     ("clovehitch", "Clovehitch Kit — XLSX + DXF (grid layout tablets)"),
+    ("sheetbend", "Sheetbend Kit — LandXML + CSV (office suites + modern "
+                  "controllers)"),
+    ("marlinspike", "Marlinspike Kit — GSI + SP fieldbook (fixed-width/"
+                    "record collectors)"),
     ("fullspool", "Full Spool — CSV + XLSX + DXF + job JSON"),
 ]
 
 
 class FieldstitchTab(ttk.Frame):
-    def __init__(self, parent, theme, status, root, on_pins=None):
+    def __init__(self, parent, theme, status, root, on_pins=None,
+                 get_loft=None):
         super().__init__(parent)
         self.theme = theme
         self.status = status
         self.root = root
         self.on_pins = on_pins          # app hook: pins ready for the 3D view
+        self.get_loft = get_loft        # Harvest source: the Loft draft
+        self._ghosts = []               # Harvest proposals awaiting commit
         self.job: fs.LayoutJob | None = None
         self.qa: fieldpro.QAStore | None = None
         self._route = None            # walk-order display list (never stored)
@@ -138,6 +145,24 @@ class FieldstitchTab(ttk.Frame):
             b = ttk.Button(qa, text=label, style="Tool.TButton", command=cmd)
             b.pack(side="left", padx=1)
             Tooltip(b, tip, theme)
+        hv = ttk.Menubutton(qa, text="Harvest ▾", style="Tool.TButton")
+        hv.pack(side="left", padx=(6, 1))
+        hmenu = tk.Menu(hv, tearoff=0)
+        hmenu.add_command(label="Gridiron — Loft grid intersections",
+                          command=self.harvest_gridiron)
+        hmenu.add_command(label="Wall corners — Loft walls…",
+                          command=self.harvest_corners)
+        hmenu.add_command(label="Bolt cage at selection…",
+                          command=self.harvest_cage)
+        hv.configure(menu=hmenu)
+        Tooltip(hv, "Model-to-points generators — ghost pins preview, "
+                    "nothing exists until you commit", theme)
+        ttk.Button(qa, text="Stake package…", style="Tool.TButton",
+                   command=self.stake_package).pack(side="left", padx=1)
+        self.hv_commit = ttk.Button(qa, text="", style="Accent.TButton",
+                                    command=self._harvest_commit)
+        self.hv_drop = ttk.Button(qa, text="Discard", style="Tool.TButton",
+                                  command=self._harvest_discard)
         self.route_lbl = ttk.Label(qa, text="", style="Muted.TLabel")
         self.route_lbl.pack(side="right")
 
@@ -526,7 +551,7 @@ class FieldstitchTab(ttk.Frame):
                            tags=("pt",))
             cv.create_line(cx, cy - r - 5, cx, cy + r + 5, fill=col,
                            tags=("pt",))
-            t = cv.create_text(cx + r + 6, cy - r - 4, anchor="w",
+            t = cv.create_text(cx + r + 6, cy - r - 4, anchor="w",   # label
                                text=self.job.composed(p), fill=col,
                                font=(FAMILY, 9, "bold"), tags=("pt",))
             box = cv.bbox(t)
@@ -534,6 +559,7 @@ class FieldstitchTab(ttk.Frame):
                                       box[3] + 1, fill="white", outline="",
                                       tags=("pt",))
             cv.tag_raise(t, bgr)
+        self._draw_ghosts()
 
     def _pulse(self, p):
         """Placement pulse: an expanding, fading ring — pure wow."""
@@ -1039,6 +1065,204 @@ class FieldstitchTab(ttk.Frame):
             toast(self.root, self.theme, f"QA CSV — {n} row(s)")
 
         run_bg(self, lambda: fieldpro.export_ledger_csv(job, qa, out), done)
+
+    # -------------------------------------------------- Harvest (A2 GUI)
+    def _world_ready(self) -> bool:
+        if not self.job:
+            messagebox.showinfo("Harvest", "Open a plan first.")
+            return False
+        try:
+            self.job.from_world(0.0, 0.0)
+        except Exception:   # noqa: BLE001 -- no scale/basepoint yet
+            messagebox.showwarning(
+                "Harvest", "Set the Fieldstitch scale and basepoint first — "
+                           "harvested points need the world frame.")
+            return False
+        return True
+
+    def _loft_model(self):
+        loft = self.get_loft() if self.get_loft else None
+        model = getattr(loft, "model", None)
+        if model is None or not model.ents:
+            messagebox.showinfo(
+                "Harvest", "Draft something in the Loft first — Harvest "
+                           "reads its grids and walls.")
+            return None
+        return model
+
+    def harvest_gridiron(self):
+        if not self._world_ready():
+            return
+        model = self._loft_model()
+        if model is None:
+            return
+        from .. import harvest
+        props = harvest.gridiron(model)
+        self._harvest_show(props, "Gridiron")
+
+    def harvest_corners(self):
+        if not self._world_ready():
+            return
+        model = self._loft_model()
+        if model is None:
+            return
+        ans = simpledialog.askstring(
+            "Wall corners", "Corner inset ft, witness offset ft "
+                            "(0 = none)  e.g.  0, 2:",
+            initialvalue="0, 2", parent=self)
+        if ans is None:
+            return
+        try:
+            parts = [float(v.strip()) for v in ans.split(",")]
+            inset = parts[0]
+            wit = parts[1] if len(parts) > 1 else 0.0
+        except (ValueError, IndexError):
+            messagebox.showwarning("Harvest", "Format:  inset, witness")
+            return
+        from .. import harvest
+        witness = {"offset_ft": wit, "azimuth": 0.0} if wit > 0 else None
+        props = harvest.wall_corners(model.wall_segments(), inset_ft=inset,
+                                     witness=witness)
+        self._harvest_show(props, "Wall corners")
+
+    def harvest_cage(self):
+        if not self._world_ready():
+            return
+        p = self.job.get(self.selection) if self.selection else None
+        if p is None:
+            self.status.set("Select the column work point first", "err")
+            return
+        ans = simpledialog.askstring(
+            "Bolt cage", "rows, cols, gauge N/S in, gauge E/W in, "
+                         "rotation deg:", initialvalue="2, 2, 8, 8, 0",
+            parent=self)
+        if ans is None:
+            return
+        try:
+            r, c, gns, gew, rot = [float(v.strip()) for v in ans.split(",")]
+        except (ValueError, IndexError):
+            messagebox.showwarning("Harvest", "Format:  rows, cols, gaugeNS, "
+                                              "gaugeEW, rotation")
+            return
+        n0, e0, _z = self.job.to_world(p)
+        from .. import harvest
+        props = harvest.bolt_cage((e0, n0), rows=int(r), cols=int(c),
+                                  gauge_ns_in=gns, gauge_ew_in=gew,
+                                  rot_deg=rot,
+                                  name=self.job.composed(p))
+        self._harvest_show(props, "Bolt cage")
+
+    def _harvest_show(self, props, label):
+        """Ghost pins: the proposals exist on screen only, until the lever."""
+        resolved = []
+        for pr in props:
+            try:
+                if pr.get("frame") == "page":
+                    x, y = pr["x"], pr["y"]
+                else:
+                    x, y = self.job.from_world(pr["n"], pr["e"])
+                resolved.append((x, y, pr))
+            except Exception:   # noqa: BLE001 -- out-of-frame proposal
+                continue
+        self._ghosts = resolved
+        self.redraw_points()
+        if not resolved:
+            self.status.set(f"{label}: nothing to harvest", "err")
+            return
+        self.hv_commit.configure(text=f"Commit {len(resolved)} point(s)")
+        self.hv_commit.pack(side="left", padx=(8, 1))
+        self.hv_drop.pack(side="left", padx=1)
+        self.status.set(f"{label}: {len(resolved)} ghost pin(s) — commit "
+                        f"or discard", "ok")
+
+    def _draw_ghosts(self):
+        cv = self.viewer.canvas
+        cv.delete("ghost")
+        if not self._ghosts or not self.viewer.doc:
+            return
+        s = self.viewer.scale
+        col = mix(self.accent, self.theme.colors["fg"], 0.2)
+        for x, y, _pr in self._ghosts:
+            cx, cy = x * s, y * s
+            r = max(4.0, 5.5 * s ** 0.5)
+            cv.create_polygon(cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy,
+                              fill="", outline=col, width=1.6, dash=(3, 2),
+                              tags=("ghost",))
+
+    def _harvest_discard(self):
+        self._ghosts = []
+        self.hv_commit.pack_forget()
+        self.hv_drop.pack_forget()
+        self.redraw_points()
+
+    def _harvest_commit(self):
+        if not self._ghosts or not self.job:
+            return
+        page = self.viewer.page_no
+        added, witnessed = 0, 0
+        for x, y, pr in self._ghosts:
+            kw = {"desc": pr.get("desc", ""), "code": pr.get("code", ""),
+                  "z_ref": pr.get("z_ref", "FF")}
+            if pr.get("elev") is not None:
+                kw["elev"] = pr["elev"]
+            if pr.get("provenance"):
+                kw["provenance"] = pr["provenance"]
+            if pr.get("layer") and self.job.layer(pr["layer"]):
+                kw["layer"] = pr["layer"]
+            try:
+                pt = self.job.add_point(page, x, y, **kw)
+            except ValueError as e:     # spool full / label cap
+                self.status.set(str(e), "err")
+                break
+            added += 1
+            wit = pr.get("witness")
+            if wit and wit.get("offset_ft"):
+                try:
+                    self.job.add_witness(pt, offset_ft=wit["offset_ft"],
+                                         offset_azimuth=wit.get("azimuth",
+                                                                0.0))
+                    witnessed += 1
+                except ValueError:
+                    pass
+        self.job.save()
+        self._harvest_discard()
+        self.fill_table()
+        self.redraw_points()
+        toast(self.root, self.theme,
+              f"Harvest: {added} point(s)"
+              + (f" + {witnessed} witness(es)" if witnessed else ""))
+
+    def stake_package(self):
+        """A crew-day bundle: CSV + QA + DXF + JSON + the printable sheet."""
+        if not self.job or not self.job.points:
+            messagebox.showinfo("Stake package", "Place points first.")
+            return
+        if not self._world_ready():
+            return
+        name = simpledialog.askstring(
+            "Stake package", "Package name (area / level / trade):",
+            initialvalue="L1-layout", parent=self)
+        if not name:
+            return
+        out_dir = filedialog.askdirectory(title="Folder for the package")
+        if not out_dir:
+            return
+        job, qa = self.job, self.qa
+        pts = list(self._route) if self._route is not None \
+            else list(job.points)
+        route = list(self._route) if self._route is not None else None
+
+        def done(res, err):
+            if err:
+                self.status.set(f"Package failed: {err}", "err")
+                return
+            toast(self.root, self.theme,
+                  f"Stake package '{res['name']}' — {res['points']} "
+                  f"point(s), {len(res['files'])} file(s)")
+            open_path(out_dir)
+
+        run_bg(self, lambda: fieldpro.export_package(
+            job, qa, out_dir, name, pts, route=route), done)
 
     def commands(self):
         return [

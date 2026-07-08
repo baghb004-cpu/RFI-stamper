@@ -740,6 +740,29 @@ def main():
     root.update()
     assert app.plans.bim.model is m3
 
+    # ---- Harvest: Loft grids -> ghost pins -> committed layout points
+    fsth = app.plans.fieldstitch
+    app.plans.nb.select(fsth)
+    root.update()
+    # the blank-sheet regression above swapped in an uncalibrated job:
+    # Harvest needs the world frame, so establish it (the GUI warns
+    # instead when it's missing — that path blocks headless)
+    fsth.set_scale('1/8" = 1\'-0"', 8.0 / 72.0, "ft")
+    fsth.job.base_page_xy = (100.0, 700.0)
+    fsth.job.base_world = (5000.0, 2000.0)
+    n_before = len(fsth.job.points)
+    fsth.harvest_gridiron()
+    root.update()
+    assert fsth._ghosts, "gridiron should propose the grid intersections"
+    ghosts = len(fsth._ghosts)
+    assert ghosts == 2, ghosts          # grids 1,2 x A in the Loft draft
+    fsth._harvest_commit()
+    root.update()
+    assert len(fsth.job.points) == n_before + ghosts
+    newest = fsth.job.points[-1]
+    assert newest.provenance and newest.provenance.get("gen") == "gridiron"
+    assert not fsth._ghosts, "commit clears the ghost tray"
+
     # ---- The Old Hand + Heartwood: drawer plumbing, cited ask, refusal
     hwdb = os.path.join(tmp, "hw.db")
     app.oldhand.db_path = hwdb            # keep the test KB out of ~/
