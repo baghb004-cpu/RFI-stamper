@@ -247,6 +247,28 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   arrows on-plan, Two-Ties/Setup cards, cut-sheet/stake-strip variants,
   JobXML import subset (3.6), as-staked XLSX ledger mirror.
 
+## Round 9 (SHIPPED, v3.6.0): Pipewright — the piping engine (ROADMAP Phase B)
+
+- **pipewright.py**: pipe runs as Loft "pipe" entities (flow = first→last
+  vertex; system san/vent/storm/dcw/dhw/gas w/ per-system plies + line
+  conventions — vents dashed, gas phantom), network graph, deterministic
+  fitting derivation (elbow45/90 by angle bands, tee/santee/wye/combo by
+  drainage rules + notes, reducers, p-traps/closet flanges at fixtures),
+  command APIs shaped for the Weaver (cap_open_ends / replace_fitting /
+  slope_run w/ downstream invert propagation / resize_run — each one
+  snapshot = one undo), check() findings (slope-min per diameter "verify
+  against project code", open ends, drainage crosses, downstream
+  reduction; never silent fixes), takeoff → Reckoner, to_bim (sloped runs
+  at their inverts, Strata-toggle systems).
+- **Loft GUI**: Pipe tool (P) with system/size options, Slope run… (accepts
+  "1/8, 98.5"), Cap open ends, Check ✓ findings dialog (double-click jumps
+  to the run), pipe Traits (system/dia/slope/IE), size labels + IE
+  annotations render on-plan, tally + To-3D include pipes.
+- tests/test_pipewright.py: 241 checks (fall math pinned: 1/8"/ft over
+  22'-6" = exactly 0'-2 13/16"). 40 suites green.
+- Known flake (once, unreproduced): construct test failed one run_all pass
+  then passed twice — watch under the next round's runs.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

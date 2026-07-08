@@ -740,6 +740,40 @@ def main():
     root.update()
     assert app.plans.bim.model is m3
 
+    # ---- Pipewright: draw a run by tool, slope it, cap it, check it
+    import rfi_stamper.pipewright as pw
+    app.plans.nb.select(loft)
+    root.update()
+    loft._select_tool("pipe")
+    loft._opt_vars["psys"].set("san")
+    loft._opt_vars["pdia"].set("4")
+    for p in ((30.0, 0.0), (50.0, 0.0), (50.0, 8.0)):
+        click(p)
+    loft._finish_poly()
+    root.update()
+    pipes = [en for en in loft.model.ents if en.kind == "pipe"]
+    assert len(pipes) == 1 and pipes[0].props["system"] == "san"
+    assert abs(float(pipes[0].props["dia_in"]) - 4.0) < 1e-9
+    res = pw.slope_run(loft.model, pipes[0].id, 0.125,
+                       start_invert_ft=100.0)
+    assert res["total_fall"] == "0'-3 1/2\"", res["total_fall"]  # 28 LF
+    ops_p = draft_mod.render_ops(loft.model)
+    assert any(op[0] == "text" and str(op[3]) == '4"' for op in ops_p), \
+        "pipe size label missing"
+    assert any(op[0] == "text" and str(op[3]).startswith("IE ")
+               for op in ops_p), "invert annotations missing"
+    warns0 = [w["code"] for w in pw.check(loft.model)]
+    assert "open-end" in warns0, warns0
+    loft.pipe_cap()
+    root.update()
+    assert "open-end" not in [w["code"] for w in pw.check(loft.model)]
+    assert loft.model.undo()          # one command = one undo
+    assert "open-end" in [w["code"] for w in pw.check(loft.model)]
+    assert loft.model.redo()
+    tl_pipe = pw.takeoff(loft.model)
+    assert any(t.kind == "length" and abs(t.qty - 28.0) < 0.1
+               for t in tl_pipe), [(t.subject, t.qty) for t in tl_pipe]
+
     # ---- Harvest: Loft grids -> ghost pins -> committed layout points
     fsth = app.plans.fieldstitch
     app.plans.nb.select(fsth)

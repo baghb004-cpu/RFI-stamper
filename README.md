@@ -143,6 +143,18 @@ true plan-size plumbing fixtures. Walls chain like a drafter draws, doors
 hang on walls with swing and hand you can flip mid-placement, rooms tag and
 auto-increment, and undo runs a thousand deep.
 
+And the Loft runs pipe. Draw a run flow-wise with the **Pipe tool** —
+sanitary, vent (dashed, as convention demands), storm, domestic hot/cold,
+gas — and **Pipewright** derives every fitting deterministically from the
+geometry and the system: elbows by angle, wye vs san-tee vs combo by
+drainage rules, reducers where sizes meet, p-traps at fixtures. Tell it
+**Slope run… `1/8, 98.5`** and invert elevations propagate down the
+network, printed on the plan as `IE 98'-4 1/2"`. **Cap open ends** closes
+every loose end in one command; **Check ✓** lists findings — under-minimum
+slopes, drainage reductions, uncapped ends — and never silently "fixes"
+anything. Every command is one undo. Pipe footage and fitting counts land
+in the Tally, and **To 3D** carries the runs at their true inverts.
+
 A draft saves as one `.loft.json` file, and leaves the Loft three ways:
 
 * **Plate PDF** — a titled, bordered sheet (title block, north arrow,

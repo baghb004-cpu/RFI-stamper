@@ -37,6 +37,7 @@ TOOLS = (
     ("door", "Door", "d"),
     ("window", "Window", "n"),
     ("fixture", "Fixture", "f"),
+    ("pipe", "Pipe", "p"),
     ("grid", "Grid", "g"),
     ("dim", "Dimension", "m"),
     ("room", "Room", "r"),
@@ -46,6 +47,7 @@ TOOLS = (
 )
 TOOL_GROUPS = (("Modify", ("select",)),
                ("Build", ("wall", "door", "window", "fixture")),
+               ("Pipe", ("pipe",)),
                ("Datum", ("grid", "dim")),
                ("Note", ("room", "text", "callout", "line")))
 
@@ -70,6 +72,8 @@ HINTS = {
     "text": "Type the note in the options bar, then click to place it",
     "callout": "Set detail + plate in the options bar, then click",
     "line": "Click points · Enter or double-click finishes · Esc cancels",
+    "pipe": "Click the run flow-wise (upstream → downstream) · Enter "
+            "finishes · Pipewright derives the fittings",
 }
 
 # screen widths per pen weight (constant px, like a drafting screen display)
@@ -218,6 +222,32 @@ class LoftTab(ttk.Frame):
                 "rot", tk.StringVar(value="0")).get())
             ttk.Spinbox(self.opts, from_=0, to=315, increment=45, width=5,
                         textvariable=v["rot"]).pack(side="left")
+        elif t == "pipe":
+            from .. import pipewright as pw
+            lab("System")
+            v["psys"] = tk.StringVar(value=v.get(
+                "psys", tk.StringVar(value="san")).get())
+            keys = list(pw.SYSTEMS)
+            cbp = ttk.Combobox(self.opts, width=16, state="readonly",
+                               values=[pw.SYSTEMS[k]["label"] for k in keys])
+            cbp.current(keys.index(v["psys"].get())
+                        if v["psys"].get() in keys else 0)
+            cbp.bind("<<ComboboxSelected>>", lambda e, ks=keys, c=cbp:
+                     v["psys"].set(ks[c.current()]))
+            cbp.pack(side="left")
+            lab("Size")
+            v["pdia"] = tk.StringVar(value=v.get(
+                "pdia", tk.StringVar(value="4")).get())
+            ttk.Combobox(self.opts, width=5, textvariable=v["pdia"],
+                         values=[f"{s:g}" for s in pw.SIZES_IN]
+                         ).pack(side="left")
+            ttk.Button(self.opts, text="Slope run…", style="Tool.TButton",
+                       command=self.pipe_slope).pack(side="left",
+                                                     padx=(10, 1))
+            ttk.Button(self.opts, text="Cap open ends", style="Tool.TButton",
+                       command=self.pipe_cap).pack(side="left", padx=1)
+            ttk.Button(self.opts, text="Check ✓", style="Tool.TButton",
+                       command=self.pipe_check).pack(side="left", padx=1)
         elif t == "grid":
             lab("Label")
             v["glabel"] = tk.StringVar(value="")
@@ -575,7 +605,7 @@ class LoftTab(ttk.Frame):
             if ply is not None and (not ply.visible or ply.locked):
                 continue
             d = None
-            if ent.kind in ("wall", "line", "grid"):
+            if ent.kind in ("wall", "line", "grid", "pipe"):
                 pts = ent.pts
                 for a, b in zip(pts, pts[1:]):
                     dd = self._seg_d(x, y, a, b)
@@ -718,15 +748,31 @@ class LoftTab(ttk.Frame):
         self._pts.append((x, y))
         self._hint(HINTS["line"])
 
+    def _click_pipe(self, x, y, _e):
+        self._pts.append((x, y))
+        self._hint(HINTS["pipe"])
+
     def _finish_poly(self):
         if self.tool == "line" and len(self._pts) >= 2:
             self.model.add("line", list(self._pts))
             self._after_mutate()
+        elif self.tool == "pipe" and len(self._pts) >= 2:
+            v = self._opt_vars
+            try:
+                dia = float(v["pdia"].get()) if "pdia" in v else 4.0
+            except ValueError:
+                dia = 4.0
+            ent = self.model.add("pipe", list(self._pts),
+                                 system=v["psys"].get()
+                                 if "psys" in v else "san", dia_in=dia)
+            self._after_mutate()
+            self._flourish_seg(self._pts[0], self._pts[-1])
+            self.sel = {ent.id}
         self._pts = []
         self._draw_overlay()
 
     def _on_double(self, e):
-        if self.tool == "line":
+        if self.tool in ("line", "pipe"):
             self._finish_poly()
 
     def _nearest_wall(self, x, y):
@@ -877,7 +923,7 @@ class LoftTab(ttk.Frame):
         if self._pts:
             # never throw away committed work: a polyline with 2+ vertexes
             # lands as drawn, only the elastic segment dies
-            if self.tool == "line" and len(self._pts) >= 2:
+            if self.tool in ("line", "pipe") and len(self._pts) >= 2:
                 self._finish_poly()
             else:
                 self._pts = []
@@ -962,7 +1008,8 @@ class LoftTab(ttk.Frame):
                            anchor="w", fill=ac, font=("Segoe UI", 8),
                            tags="ov")
         # rubber band + live temp dimension
-        if self._pts and self.tool in ("wall", "line", "grid", "dim"):
+        if self._pts and self.tool in ("wall", "line", "grid", "dim",
+                                       "pipe"):
             a = self._pts[-1]
             sa, sb = self.to_screen(*a), self.to_screen(hx, hy)
             cv.create_line(sa[0], sa[1], sb[0], sb[1], fill=ac,
@@ -1151,6 +1198,26 @@ class LoftTab(ttk.Frame):
             entry("Rotation", "rot", 7, parse=lambda s: (
                 float(s) if s.lstrip("-").replace(".", "", 1).isdigit()
                 else None))
+        elif ent.kind == "pipe":
+            from .. import pipewright as pw
+            keys = list(pw.SYSTEMS)
+            r = row("System")
+            cbp = ttk.Combobox(r, width=14, state="readonly",
+                               values=[pw.SYSTEMS[k]["label"] for k in keys])
+            cur = ent.props.get("system", "san")
+            cbp.current(keys.index(cur) if cur in keys else 0)
+            cbp.bind("<<ComboboxSelected>>", lambda _e: (
+                self.model.update(ent.id, system=keys[cbp.current()]),
+                self._after_mutate()))
+            cbp.pack(side="left")
+            entry("Dia (in)", "dia_in", 6, parse=lambda s: (
+                float(s) if s.replace(".", "", 1).isdigit() else None))
+            entry("Slope in/ft", "slope_in_ft", 6)
+            entry("IE start ft", "invert_ft", 8)
+            length = sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                         for a, b in zip(ent.pts, ent.pts[1:]))
+            ttk.Label(f, text=f"Run {draft.fmt_ftin(length)}",
+                      style="Muted.TLabel").pack(anchor="w", pady=(3, 0))
         elif ent.kind == "grid":
             entry("Label", "label", 6)
             combo("Bubble", "bubble", ["a", "b", "both"])
@@ -1451,6 +1518,9 @@ class LoftTab(ttk.Frame):
 
     def export_tally(self):
         lines = draft.takeoff_lines(self.model)
+        if any(e.kind == "pipe" for e in self.model.ents):
+            from .. import pipewright as pw
+            lines = lines + pw.takeoff(self.model)
         if not lines:
             toast(self.root, self.theme, "Nothing to tally yet", "info")
             return
@@ -1491,12 +1561,22 @@ class LoftTab(ttk.Frame):
         try:
             model3d = draft.to_bim(self.model, wall_height=height,
                                    floors=floors)
+            if any(e.kind == "pipe" for e in self.model.ents):
+                from .. import pipewright as pw
+                pipes3d = pw.to_bim(self.model)
+                model3d.segments.extend(pipes3d.segments)
+                have = {s[0] for s in model3d.systems}
+                model3d.systems.extend(s for s in pipes3d.systems
+                                       if s[0] not in have)
         except Exception as e:      # noqa: BLE001
             messagebox.showerror("To 3D", str(e))
             return
         if self.on_bim:
             self.on_bim(model3d)
-            toast(self.root, self.theme, "Draft extruded into the 3D model")
+            toast(self.root, self.theme, "Draft extruded into the 3D model"
+                  + (" — pipes ride at their inverts"
+                     if any(e.kind == "pipe" for e in self.model.ents)
+                     else ""))
 
     def grids_to_fieldstitch(self):
         pts = draft.grid_points(self.model)
@@ -1526,6 +1606,97 @@ class LoftTab(ttk.Frame):
         toast(self.root, self.theme,
               f"{n} grid intersection(s) → Fieldstitch layout points")
 
+    # ---------------------------------------------------------- Pipewright
+    def _sel_pipe(self):
+        for eid in self.sel:
+            ent = self.model.entity(eid)
+            if ent is not None and ent.kind == "pipe":
+                return ent
+        return None
+
+    def pipe_slope(self):
+        """The command the whole feature was named for: 1/8 or 1/4 per
+        foot, invert elevations propagated down the network."""
+        from .. import pipewright as pw
+        ent = self._sel_pipe()
+        if ent is None:
+            self._hint("Select a pipe run first (V), then Slope run…")
+            return
+        ans = simpledialog.askstring(
+            "Slope run", "Slope in/ft, start invert ft  "
+                         "(e.g.  1/8, 98.5):", initialvalue="1/8, 100.0",
+            parent=self)
+        if not ans:
+            return
+        try:
+            parts = [v.strip() for v in ans.split(",")]
+            num = parts[0]
+            slope = (float(num.split("/")[0]) / float(num.split("/")[1])
+                     if "/" in num else float(num))
+            invert = float(parts[1]) if len(parts) > 1 else None
+        except (ValueError, IndexError, ZeroDivisionError):
+            messagebox.showwarning("Slope run", "Format:  1/8, 98.5")
+            return
+        try:
+            res = pw.slope_run(self.model, ent.id, slope,
+                               start_invert_ft=invert)
+        except ValueError as e:
+            self.status.set(str(e), "err")
+            return
+        self._after_mutate()
+        msg = res["report"]
+        if res.get("warnings"):
+            msg += "  ⚠ " + "; ".join(res["warnings"])
+            self.status.set(msg, "err")
+        else:
+            self.status.set(msg, "ok")
+        toast(self.root, self.theme,
+              f"Sloped {res['changed']} run(s) — total fall "
+              f"{res['total_fall']}")
+
+    def pipe_cap(self):
+        from .. import pipewright as pw
+        res = pw.cap_open_ends(self.model)
+        if res["changed"]:
+            self._after_mutate()
+        toast(self.root, self.theme, res["report"])
+
+    def pipe_check(self):
+        from .. import pipewright as pw
+        warns = pw.check(self.model)
+        if not warns:
+            toast(self.root, self.theme, "Pipewright: no findings — clean")
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Pipewright check — findings, never silent fixes")
+        dlg.transient(self.root)
+        frm = ttk.Frame(dlg, padding=10)
+        frm.pack(fill="both", expand=True)
+        from .widgets import make_tree
+        frame, tree = make_tree(
+            frm, self.theme,
+            [("lvl", "LVL"), ("code", "CODE"), ("msg", "FINDING")],
+            (44, 110, 420), height=min(12, max(4, len(warns))))
+        frame.pack(fill="both", expand=True)
+        for i, w in enumerate(warns):
+            tree.insert("", "end", iid=str(i),
+                        values=(w["level"], w["code"], w["msg"]))
+
+        def jump(_e):
+            sel = tree.selection()
+            if sel:
+                w = warns[int(sel[0])]
+                if w.get("ent_id"):
+                    self.sel = {w["ent_id"]}
+                    self.redraw()
+                    self._traits_refresh()
+        tree.bind("<Double-Button-1>", jump)
+        ttk.Label(frm, style="Muted.TLabel",
+                  text="double-click a finding to select its run · "
+                       "minimums say 'verify against project code'"
+                  ).pack(anchor="w", pady=(4, 0))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
     # ------------------------------------------------------------- palette
     def commands(self):
         return [
@@ -1538,4 +1709,7 @@ class LoftTab(ttk.Frame):
             ("Grid points → Fieldstitch", "Loft",
              self.grids_to_fieldstitch),
             ("Tally CSV (takeoff)", "Loft", self.export_tally),
+            ("Pipewright: cap open ends", "Loft", self.pipe_cap),
+            ("Pipewright: check the piping", "Loft", self.pipe_check),
+            ("Pipewright: slope selected run", "Loft", self.pipe_slope),
         ]
