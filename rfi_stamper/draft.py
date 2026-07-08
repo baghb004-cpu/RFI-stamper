@@ -2085,13 +2085,17 @@ def takeoff_lines(model: DraftModel, book=None) -> list:
     return lines
 
 
-def to_bim(model: DraftModel, wall_height: float = 10.0, floors: int = 1):
+def to_bim(model: DraftModel, wall_height: float = 10.0, floors: int = 1,
+           faces: bool = False):
     """Wall centerlines -> extruded wireframe.  Loft model space IS the
     Fieldstitch world frame (E = x, N = y), so segments pass straight
-    through to the extruder."""
+    through to the extruder.  ``faces=True`` also fills ``model.faces``
+    (one quad per wall per floor) for shaded 3D; segments are identical
+    either way."""
     from . import extrude
     return extrude.build_model(model.wall_segments(),
-                               wall_height=wall_height, floors=floors)
+                               wall_height=wall_height, floors=floors,
+                               faces=faces)
 
 
 def grid_points(model: DraftModel) -> list:

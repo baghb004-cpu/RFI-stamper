@@ -88,6 +88,21 @@ class Segment:
     color: str = "#8899aa"
     width: float = 1.0
     system: str = ""
+    #: pipe radius in world units; 0.0 = draw as a plain line.  Pipewright
+    #: sets this (dia_in / 24 -> radius in feet) so the viewer's shaded mode
+    #: can extrude the run into an octagonal solid.  Additive: everything
+    #: that builds Segments without it keeps today's wireframe behavior.
+    radius: float = 0.0
+
+
+@dataclass
+class Face:
+    """One filled, flat-shaded polygon for the viewer's shaded mode.
+    ``pts`` is 3+ (x, y, z) vertices in drawing order (assumed near-planar);
+    ``system`` ties the face to the legend toggles like Segment.system."""
+    pts: list
+    color: str = "#8f9aa8"
+    system: str = ""
 
 
 @dataclass
@@ -103,6 +118,7 @@ class Model:
     segments: list = field(default_factory=list)
     planes: list = field(default_factory=list)
     systems: list = field(default_factory=list)     # [(system_name, color)]
+    faces: list = field(default_factory=list)       # [Face] — shaded mode
 
     def bounds(self) -> tuple:
         """((minx,miny,minz),(maxx,maxy,maxz)); unit cube at origin if empty."""
@@ -112,11 +128,81 @@ class Model:
             pts.append(s.b)
         for pl in self.planes:
             pts.extend(pl.corners)
+        for f in self.faces:
+            pts.extend(f.pts)
         if not pts:
             return ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
         a = np.asarray(pts, dtype=float)
         mn, mx = a.min(axis=0), a.max(axis=0)
         return (tuple(float(v) for v in mn), tuple(float(v) for v in mx))
+
+
+# ------------------------------------------------------- face construction ---
+
+def wall_faces(world_segs, wall_height: float, floors: int = 1,
+               slab_gap: float = 0.8, color: str = "#9aab9e",
+               system: str = "walls") -> list:
+    """One quad :class:`Face` per wall per floor, mirroring the z math of
+    ``extrude.build_model`` exactly (floor i: z0 = i * (wall_height +
+    slab_gap), top = z0 + wall_height).  ``world_segs`` is
+    ``[((E, N), (E, N)), ...]``; bim axes are x east / y north / z up."""
+    wall_height = float(wall_height)
+    if wall_height <= 0:
+        raise ValueError(f"wall_height must be positive, got {wall_height}")
+    floors = max(1, int(floors))
+    slab_gap = float(slab_gap)
+    faces: list = []
+    for i in range(floors):
+        z0 = i * (wall_height + slab_gap)
+        z1 = z0 + wall_height
+        for a, b in world_segs:
+            ea, na = float(a[0]), float(a[1])
+            eb, nb = float(b[0]), float(b[1])
+            faces.append(Face([(ea, na, z0), (eb, nb, z0),
+                               (eb, nb, z1), (ea, na, z1)], color, system))
+    return faces
+
+
+def tube_faces(a, b, radius: float, sides: int = 8, color: str = "#8899aa",
+               system: str = "") -> list:
+    """Octagonal-prism approximation of a pipe segment: ``sides`` side quads
+    plus the two end caps, as :class:`Face` objects around the a->b axis.
+    Degenerate input (zero length or radius) returns []."""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    axis = b - a
+    length = float(np.linalg.norm(axis))
+    r = float(radius)
+    sides = max(3, int(sides))
+    if length < _EPS or r <= 0.0:
+        return []
+    axis = axis / length
+    ref = np.array([0.0, 0.0, 1.0])
+    if abs(float(axis @ ref)) > 0.98:            # near-vertical: new reference
+        ref = np.array([1.0, 0.0, 0.0])
+    u = np.cross(axis, ref)
+    u = u / max(float(np.linalg.norm(u)), _EPS)
+    v = np.cross(axis, u)
+    ring_a, ring_b = [], []
+    for k in range(sides):
+        th = 2.0 * math.pi * k / sides
+        off = u * (r * math.cos(th)) + v * (r * math.sin(th))
+        ring_a.append(tuple(float(c) for c in (a + off)))
+        ring_b.append(tuple(float(c) for c in (b + off)))
+    faces = [Face([ring_a[k], ring_a[(k + 1) % sides],
+                   ring_b[(k + 1) % sides], ring_b[k]], color, system)
+             for k in range(sides)]
+    faces.append(Face(list(ring_a), color, system))
+    faces.append(Face(list(ring_b), color, system))
+    return faces
+
+
+def exaggerate_z(pt, z_mid: float, factor: float) -> tuple:
+    """Scale a point's z-delta about ``z_mid`` by ``factor`` (x, y pass
+    through).  The viewer's slope-exaggeration slider applies this at render
+    time only — the model itself is never mutated."""
+    return (pt[0], pt[1],
+            float(z_mid) + (float(pt[2]) - float(z_mid)) * float(factor))
 
 
 # ----------------------------------------------------------- demo building ---

@@ -1643,7 +1643,7 @@ class LoftTab(ttk.Frame):
             return
         try:
             model3d = draft.to_bim(self.model, wall_height=height,
-                                   floors=floors)
+                                   floors=floors, faces=True)
             if any(e.kind == "pipe" for e in self.model.ents):
                 from .. import pipewright as pw
                 pipes3d = pw.to_bim(self.model)

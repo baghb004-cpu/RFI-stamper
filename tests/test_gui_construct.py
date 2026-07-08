@@ -876,6 +876,111 @@ def main():
     root.update()
     assert not app.oldhand.open_
 
+    # ---- Phase D: 3D uplift — shaded faces, pipe solids, walk, iso, measure
+    bv3 = app.plans.bim
+    app.goto("plans")
+    app.plans.nb.select(bv3)
+    root.update()
+    # faces ride the Loft bridge; segments stay identical (regression pin)
+    m4p = draft_mod.to_bim(loft.model, wall_height=9.0, floors=2)
+    m4f = draft_mod.to_bim(loft.model, wall_height=9.0, floors=2, faces=True)
+    assert m4f.faces and len(m4f.segments) == len(m4p.segments)
+    bv3.set_model(m4f)
+    root.update()
+    assert not bv3.shaded_var.get(), "quality 'off': wireframe by default"
+    assert not bv3.canvas.find_withtag("face")
+    bv3.shaded_var.set(True)
+    bv3._render()
+    root.update()
+    n_faces = len(bv3.canvas.find_withtag("face"))
+    assert n_faces > 0, "shaded mode should draw wall faces"
+    # Horizon Slice and legend toggles cull faces exactly like segments
+    bv3.slice_var.set(20.0)
+    bv3._on_slice()
+    root.update()
+    assert len(bv3.canvas.find_withtag("face")) < n_faces
+    bv3.slice_var.set(100.0)
+    bv3._on_slice()
+    root.update()
+    bv3.toggle_system("walls")
+    root.update()
+    assert not bv3.canvas.find_withtag("face"), "hidden system leaked faces"
+    bv3.toggle_system("walls")
+    root.update()
+
+    # pipe solids + slope exaggeration (render-time only, model untouched)
+    pdm = draft_mod.DraftModel()
+    prun = pdm.add("pipe", [(0.0, 0.0), (40.0, 0.0)])
+    pw.slope_run(pdm, prun.id, 0.25, start_invert_ft=10.0)
+    m5p = pw.to_bim(pdm)
+    assert m5p.segments[0].radius > 0, "pipewright should set the radius"
+    bv3.set_model(m5p)
+    root.update()
+    bv3.cam.yaw, bv3.cam.pitch = 0.0, 0.0    # broadside: z maps to screen-y
+    bv3._render()
+    root.update()
+    box1 = bv3.canvas.bbox("pipe3d")
+    assert box1, "pipe run should render as a solid in shaded mode"
+    z0ab = (m5p.segments[0].a[2], m5p.segments[0].b[2])
+    bv3.slope_var.set(5.0)
+    bv3._on_slope()
+    root.update()
+    assert "×5" in bv3.slope_lbl.cget("text")
+    box5 = bv3.canvas.bbox("pipe3d")
+    assert (box5[3] - box5[1]) > (box1[3] - box1[1]) + 2, (box1, box5)
+    assert (m5p.segments[0].a[2], m5p.segments[0].b[2]) == z0ab, \
+        "the slider must never mutate the model"
+    bv3.slope_var.set(1.0)
+    bv3._on_slope()
+    root.update()
+
+    # walk mode: enter at eye height, step forward, Esc restores orbit cam
+    cam0 = (bv3.cam.yaw, bv3.cam.pitch, bv3.cam.dist, bv3.cam.target,
+            bv3.cam.ortho)
+    bv3.toggle_walk()
+    root.update()
+    assert bv3.walking
+    assert bv3.canvas.find_withtag("hud"), "you-are-here chip missing"
+    t_walk = bv3.cam.target
+    assert bv3.walk_key("w"), "walk step not handled"
+    root.update()
+    assert bv3.cam.target != t_walk, "step must move the camera"
+    bv3._on_escape(None)
+    root.update()
+    assert not bv3.walking
+    assert (bv3.cam.yaw, bv3.cam.pitch, bv3.cam.dist, bv3.cam.target,
+            bv3.cam.ortho) == cam0, "Esc must restore the orbit camera"
+
+    # isometric presets: quality "off" snaps straight to the corner
+    bv3.iso_view("NE")
+    root.update()
+    assert abs(bv3.cam.yaw % 360.0 - 45.0) < 1e-6, bv3.cam.yaw
+    assert abs(bv3.cam.pitch - 30.0) < 1e-6, bv3.cam.pitch
+    bv3.iso_view("SW")
+    root.update()
+    assert abs(bv3.cam.yaw % 360.0 - 315.0) < 1e-6, bv3.cam.yaw
+
+    # 3D measure: two snapped clicks -> feet-inches tape; third click clears
+    bv3.toggle_measure()
+    assert bv3.measuring
+    w3 = bv3.canvas.winfo_width()
+    h3 = bv3.canvas.winfo_height()
+    scr3 = bim3.project_points([m5p.segments[0].a, m5p.segments[-1].b],
+                               bv3.cam, w3, h3)
+    bv3._measure_click(int(scr3[0][0]), int(scr3[0][1]))
+    bv3._measure_click(int(scr3[1][0]), int(scr3[1][1]))
+    root.update()
+    m_texts = [bv3.canvas.itemcget(i, "text")
+               for i in bv3.canvas.find_withtag("measure")
+               if bv3.canvas.type(i) == "text"]
+    assert any("'" in t and "ΔZ" in t for t in m_texts), m_texts
+    bv3._measure_click(5, 5)                      # third click clears
+    root.update()
+    assert not bv3.canvas.find_withtag("measure")
+    bv3._on_escape(None)                          # Esc exits measure mode
+    assert not bv3.measuring
+    bv3.shaded_var.set(False)
+
     # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
     from rfi_stamper.gui.app import resource_path
     icon_png = resource_path(os.path.join("assets", "planloom.png"))

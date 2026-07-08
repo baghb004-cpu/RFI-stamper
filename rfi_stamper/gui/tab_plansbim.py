@@ -125,7 +125,8 @@ class PlansSection(ttk.Frame):
         def work():
             from .. import extrude
             return extrude.model_from_plan(pdf, page_no=page, job=snap,
-                                           wall_height=height, floors=floors)
+                                           wall_height=height, floors=floors,
+                                           faces=True)
 
         def done(res, err):
             if err:

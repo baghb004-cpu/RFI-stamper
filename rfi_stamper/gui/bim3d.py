@@ -1,4 +1,4 @@
-"""3D BIM-lite wireframe viewer on a plain tk canvas.
+"""3D BIM-lite viewer on a plain tk canvas — wireframe plus Phase D uplift.
 
 Painter's-algorithm renderer: segments and sheet planes are depth-sorted far
 to near and redrawn as canvas items.  Idle cost is zero — the scene redraws
@@ -6,6 +6,37 @@ only on interaction, resize, or theme change; there is no continuous render
 loop.  Adaptive detail keeps orbiting smooth: each frame's draw time is
 measured and, past ~28 ms, the segment set is decimated for the next frame;
 full detail is restored when frames are fast again / interaction ends.
+
+Phase D (all pure canvas, no GPU):
+
+* Shaded mode — when the model carries ``bim.Face`` quads they are drawn as
+  flat-shaded polygons, depth-sorted among themselves (painter's algorithm
+  by face-centroid camera distance) and laid down BENEATH the wireframe
+  lines.  Flat shade = face color mixed toward the canvas bg by the face
+  normal against a fixed light — pure math, no alpha.  Defaults ON at fx
+  quality "full", OFF otherwise; always user-toggleable.  hidden_systems
+  and the Horizon Slice cull faces exactly like segments: a face is dropped
+  when its CENTROID z sits above the cut (centroid test, not polygon
+  clipping — cheap, and it matches the segment-midpoint rule).
+* Pipe solids — segments carrying ``radius > 0`` (Pipewright sets
+  dia_in/24) render as 8-sided prisms in shaded mode, replacing their
+  centerline; wireframe mode keeps them as plain lines.
+* Slope exaggeration — the "slope ×N" slider scales only the z-delta of
+  pipe segments/solids about the model's z-midpoint AT RENDER TIME; the
+  model is never mutated and the Horizon Slice culls on true z.
+* Walk mode — first-person camera at eye height 5'-6" above z=0 (above the
+  Horizon band floor while slicing; a model far from z=0 falls back to its
+  own floor).  WASD/arrows step on the xy plane — one fixed step per key
+  press, hold-to-walk comes from OS key-repeat, NO free-running loop.
+  Mouse drag turns (pitch clamped ±60°); Esc or the button restores the
+  saved orbit camera.  A "you are here" chip shows the position in feet.
+* Isometric presets — NE/NW/SE/SW buttons tween yaw to 45/135/225/315 and
+  pitch to 30 through one fx.animate call (quality "off" snaps).
+* Depth cueing — line and face colors mix toward the canvas bg with camera
+  distance (bucketed continuous fade, subtle); skipped at quality "off".
+* Measure — two clicks snap (12 px) to drawn segment endpoints and show a
+  dashed tape labeled with the TRUE feet-inches distance and ΔZ, even when
+  the slope slider distorts the drawing; a third click clears, Esc exits.
 
 Interactions: left-drag orbit, middle-drag (or shift+left) pan, wheel zoom
 toward the cursor, double-click fit.  Clicking a sheet plane or its label
@@ -28,8 +59,41 @@ FAST_FRAME = 0.012      # below this, climb back toward full detail
 MIN_LOD = 0.2
 HINT = "drag orbit · middle pan · wheel zoom · click a sheet chip to open it"
 
+# fixed light for flat shading (unit vector, from the south-west and above)
+_LIGHT = np.array([0.45, 0.35, 0.82])
+_LIGHT = _LIGHT / np.linalg.norm(_LIGHT)
+
+_ISO_YAW = {"NE": 45.0, "NW": 135.0, "SE": 225.0, "SW": 315.0}
+
+
+def _fx_quality() -> str:
+    try:
+        from . import fx
+        return fx.quality()
+    except Exception:                       # noqa: BLE001 -- no fx module
+        return "full"
+
+
+def _hex_rgb(color) -> tuple:
+    s = str(color).strip().lstrip("#")
+    if len(s) == 3:
+        s = "".join(ch * 2 for ch in s)
+    n = int(s[:6], 16)
+    return ((n >> 16) & 255, (n >> 8) & 255, n & 255)
+
+
+def _mix(c1, c2, t: float) -> str:
+    a, b = _hex_rgb(c1), _hex_rgb(c2)
+    return "#%02x%02x%02x" % tuple(
+        max(0, min(255, int(round(a[i] + (b[i] - a[i]) * t))))
+        for i in range(3))
+
 
 class Bim3DViewer(ttk.Frame):
+    WALK_EYE_FT = 5.5           # first-person eye height
+    WALK_STEP_FT = 2.0          # one key press = one step
+    MEASURE_SNAP_PX = 12.0
+
     def __init__(self, parent, theme, on_open_sheet=None):
         super().__init__(parent)
         self.theme = theme
@@ -45,6 +109,10 @@ class Bim3DViewer(ttk.Frame):
         self._slice_frac = 1.0      # Horizon Slice: fraction of height shown
         self.pins = []              # layout pins: (x, y, z, label, color)
         self.hidden_systems = set() # Strata: systems toggled off via legend
+        self._walk = None           # {"x","y","z","yaw","pitch"} in walk mode
+        self._saved_cam = None      # orbit camera to restore on walk exit
+        self.measuring = False      # 3D measure mode on/off
+        self._measure_pts = []      # up to 2 picked (true_pt, drawn_pt)
 
         bar = ttk.Frame(self)
         bar.pack(fill="x")
@@ -70,6 +138,34 @@ class Bim3DViewer(ttk.Frame):
         ttk.Label(bar, text="Horizon Slice", style="Muted.TLabel"
                   ).pack(side="right")
 
+        # Phase D toolbar row: shaded / walk / measure / iso / slope
+        bar2 = ttk.Frame(self)
+        bar2.pack(fill="x")
+        self.shaded_var = tk.BooleanVar(
+            master=self, value=_fx_quality() == "full")
+        ttk.Checkbutton(bar2, text="Shaded", variable=self.shaded_var,
+                        command=self._render).pack(side="left", padx=(0, 6))
+        self.walk_btn = ttk.Button(bar2, text="Walk", style="Tool.TButton",
+                                   command=self.toggle_walk)
+        self.walk_btn.pack(side="left", padx=2)
+        self.measure_btn = ttk.Button(bar2, text="Measure",
+                                      style="Tool.TButton",
+                                      command=self.toggle_measure)
+        self.measure_btn.pack(side="left", padx=2)
+        ttk.Separator(bar2, orient="vertical").pack(side="left", fill="y",
+                                                    padx=6, pady=2)
+        for corner in ("NE", "NW", "SE", "SW"):
+            ttk.Button(bar2, text=corner, width=3, style="Tool.TButton",
+                       command=lambda cc=corner: self.iso_view(cc)
+                       ).pack(side="left", padx=1)
+        self.slope_var = tk.DoubleVar(master=self, value=1.0)
+        sc = ttk.Scale(bar2, from_=1.0, to=10.0, variable=self.slope_var,
+                       length=110, command=self._on_slope)
+        sc.pack(side="right", padx=(4, 10))
+        self.slope_lbl = ttk.Label(bar2, text="slope ×1",
+                                   style="Muted.TLabel")
+        self.slope_lbl.pack(side="right")
+
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
@@ -86,11 +182,22 @@ class Bim3DViewer(ttk.Frame):
         cv.bind("<Button-4>", lambda e: self._zoom(1 / 1.15, e.x, e.y))
         cv.bind("<Button-5>", lambda e: self._zoom(1.15, e.x, e.y))
         cv.bind("<Configure>", self._on_configure)
+        # walk-mode steps: one fixed step per press; holding a key repeats
+        # via OS key-repeat — never a free-running after loop (fx house rule)
+        for ks in ("w", "a", "s", "d", "W", "A", "S", "D",
+                   "Up", "Down", "Left", "Right"):
+            cv.bind(f"<KeyPress-{ks}>", self._on_key)
+        cv.bind("<Escape>", self._on_escape)
 
         theme.register(self._on_theme)
 
     # ------------------------------------------------------------ public ---
     def set_model(self, model) -> None:
+        if self._walk is not None:          # new model: quietly leave walk
+            self._walk = None
+            self._saved_cam = None
+            self.walk_btn.configure(text="Walk")
+        self._measure_pts = []              # stale world points
         self.model = model
         self._lod = 1.0
         self._build_legend()
@@ -102,17 +209,27 @@ class Bim3DViewer(ttk.Frame):
         self.pins = list(pins)
         self._render()
 
+    @property
+    def walking(self) -> bool:
+        return self._walk is not None
+
     def _on_slice(self, _v=None):
         self._slice_frac = float(self.slice_var.get()) / 100.0
         self._render()
 
+    def _on_slope(self, _v=None):
+        v = round(float(self.slope_var.get()), 1)
+        self.slope_lbl.configure(text=f"slope ×{v:g}")
+        self._render()
+
     def _cancel_cam_anim(self):
-        """User input owns the camera: stop any fly-in / fit tween so it
-        can't keep overwriting yaw/pitch/dist mid-drag."""
+        """User input owns the camera: stop any fly-in / fit / iso tween so
+        it can't keep overwriting yaw/pitch/dist mid-drag."""
         try:
             from . import fx
             fx.cancel(self, "flyin")
             fx.cancel(self, "fit")
+            fx.cancel(self, "iso")
         except Exception:                       # noqa: BLE001 -- no fx module
             pass
 
@@ -121,6 +238,7 @@ class Bim3DViewer(ttk.Frame):
         try:
             from . import fx
             fx.cancel(self, "fit")              # never fight a running fit
+            fx.cancel(self, "iso")
             if fx.quality() == "off":
                 self._render()
                 return
@@ -165,13 +283,15 @@ class Bim3DViewer(ttk.Frame):
         self._render()
 
     def fit(self):
-        """Frame the model; short eased yaw/dist transition when fx exists."""
-        if self.model is None:
+        """Frame the model; short eased yaw/dist transition when fx exists.
+        No-op while walking — the walker owns the camera (Esc exits)."""
+        if self.model is None or self._walk is not None:
             return
         yaw1, pitch1, dist1, target1 = self._fit_params()
         try:
             from . import fx                    # optional; fall back silently
             fx.cancel(self, "flyin")            # never fight a running fly-in
+            fx.cancel(self, "iso")
             cam = self.cam
             y0, p0, d0 = cam.yaw, cam.pitch, cam.dist
             t0 = np.asarray(cam.target, dtype=float)
@@ -189,6 +309,187 @@ class Bim3DViewer(ttk.Frame):
         except Exception:                       # noqa: BLE001 -- no fx module
             self._fit_instant()
             self._render()
+
+    def iso_view(self, corner: str) -> None:
+        """Isometric preset: yaw NE/NW/SE/SW -> 45/135/225/315, pitch 30,
+        through ONE fx tween (quality "off" snaps straight to the end by
+        fx.animate's contract).  Takes the nearest angular route."""
+        yaw1 = _ISO_YAW.get(str(corner).upper())
+        if self.model is None or yaw1 is None:
+            return
+        if self._walk is not None:
+            self._walk_exit(restore=True)
+        cam = self.cam
+        y0, p0 = cam.yaw, cam.pitch
+        y1 = y0 + ((yaw1 - y0 + 180.0) % 360.0 - 180.0)
+
+        def step(t):
+            cam.yaw = y0 + (y1 - y0) * t
+            cam.pitch = p0 + (30.0 - p0) * t
+            self._render()
+
+        try:
+            from . import fx
+            fx.cancel(self, "flyin")
+            fx.cancel(self, "fit")
+            fx.animate(self, "iso", 0.0, 1.0, 260, step,
+                       easing="ease_in_out_cubic")
+        except Exception:                       # noqa: BLE001 -- no fx module
+            step(1.0)
+
+    # -------------------------------------------------------------- walk ---
+    def toggle_walk(self):
+        if self._walk is not None:
+            self._walk_exit(restore=True)
+        else:
+            self._walk_enter()
+
+    def _walk_enter(self):
+        """First-person camera at eye height above z=0 — above the Horizon
+        band floor while slicing; a model living far from z=0 falls back to
+        its own floor so the walker never spawns under/over the geometry."""
+        if self.model is None:
+            return
+        self._cancel_cam_anim()
+        cam = self.cam
+        self._saved_cam = (cam.yaw, cam.pitch, cam.dist, cam.target,
+                           cam.ortho)
+        (mnx, mny, mnz), (mxx, mxy, mxz) = self.model.bounds()
+        base = mnz if self._slice_frac < 0.999 else 0.0
+        eye = base + self.WALK_EYE_FT
+        if not (mnz - 2.0 <= eye <= mxz + 2.0):
+            eye = mnz + self.WALK_EYE_FT
+        self._walk = {"x": (mnx + mxx) / 2.0, "y": (mny + mxy) / 2.0,
+                      "z": eye, "yaw": cam.yaw, "pitch": 0.0}
+        cam.ortho = False                   # walking is perspective-only
+        cam.dist = 2.0                      # target sits just ahead (below)
+        self.walk_btn.configure(text="Exit (Esc)")
+        self.canvas.focus_set()
+        self._walk_apply()
+
+    def _walk_exit(self, restore: bool = True):
+        if self._walk is None:
+            return
+        self._walk = None
+        self.walk_btn.configure(text="Walk")
+        if restore and self._saved_cam is not None:
+            cam = self.cam
+            (cam.yaw, cam.pitch, cam.dist, cam.target,
+             cam.ortho) = self._saved_cam
+        self._saved_cam = None
+        self._render()
+
+    def _walk_apply(self):
+        """Reuse the orbit Camera math for first person: with eye = target -
+        fwd * dist, placing target = eye_pos + fwd * dist puts the eye
+        exactly at the walker's head."""
+        st = self._walk
+        cam = self.cam
+        cam.yaw, cam.pitch = st["yaw"], st["pitch"]
+        yr = math.radians(st["yaw"])
+        pr = math.radians(st["pitch"])
+        fwd = (-math.sin(yr) * math.cos(pr),
+               math.cos(yr) * math.cos(pr), -math.sin(pr))
+        d = cam.dist
+        cam.target = (st["x"] + fwd[0] * d, st["y"] + fwd[1] * d,
+                      st["z"] + fwd[2] * d)
+        self._render()
+
+    def walk_key(self, keysym: str) -> bool:
+        """One walk step (w/up forward, s/down back, a/left and d/right
+        strafe) on the xy plane; returns True when handled."""
+        if self._walk is None:
+            return False
+        mv = {"w": (1, 0), "up": (1, 0), "s": (-1, 0), "down": (-1, 0),
+              "a": (0, -1), "left": (0, -1),
+              "d": (0, 1), "right": (0, 1)}.get(str(keysym).lower())
+        if mv is None:
+            return False
+        f, st = mv
+        yr = math.radians(self._walk["yaw"])
+        fxv, fyv = -math.sin(yr), math.cos(yr)      # forward, xy plane
+        rxv, ryv = math.cos(yr), math.sin(yr)       # strafe right
+        self._walk["x"] += (fxv * f + rxv * st) * self.WALK_STEP_FT
+        self._walk["y"] += (fyv * f + ryv * st) * self.WALK_STEP_FT
+        self._walk_apply()
+        return True
+
+    def _on_key(self, e):
+        if self.walk_key(getattr(e, "keysym", "")):
+            return "break"
+
+    def _on_escape(self, _e=None):
+        if self.measuring:
+            self.toggle_measure()               # off + clear the tape
+        elif self._walk is not None:
+            self._walk_exit(restore=True)
+
+    # ------------------------------------------------------------ measure ---
+    def toggle_measure(self):
+        self.measuring = not self.measuring
+        self._measure_pts = []
+        self.measure_btn.configure(
+            text="Measuring… (Esc)" if self.measuring else "Measure")
+        self._render()
+
+    def _measure_click(self, x, y):
+        """Measure pick: snap to the nearest DRAWN segment endpoint within
+        MEASURE_SNAP_PX.  Two points draw the dashed tape; a third click
+        clears it.  The label always reads the TRUE geometry, even when the
+        slope slider distorts the drawing."""
+        if len(self._measure_pts) >= 2:
+            self._measure_pts = []
+            self._render()
+            return
+        hit = self._snap_endpoint(x, y)
+        if hit is None:
+            return
+        self._measure_pts.append(hit)
+        self._render()
+
+    def _snap_endpoint(self, x, y):
+        """(true_pt, drawn_pt) of the closest visible segment endpoint
+        within the snap radius, or None.  Visibility mirrors _render:
+        hidden systems and the Horizon Slice cull, pipe z exaggerated."""
+        m = self.model
+        if m is None or not m.segments:
+            return None
+        (_, _, mnz), (_, _, mxz) = m.bounds()
+        z_cut = None
+        if self._slice_frac < 0.999:
+            z_cut = mnz + (mxz - mnz) * self._slice_frac
+        exag = float(self.slope_var.get())
+        z_mid = (mnz + mxz) / 2.0
+        true_pts, drawn_pts = [], []
+        for s in m.segments:
+            if s.system in self.hidden_systems:
+                continue
+            if z_cut is not None and (s.a[2] + s.b[2]) * 0.5 > z_cut:
+                continue
+            for p in (s.a, s.b):
+                p = tuple(float(v) for v in p)
+                true_pts.append(p)
+                if getattr(s, "radius", 0.0) > 0 and abs(exag - 1.0) > 1e-9:
+                    drawn_pts.append(bim.exaggerate_z(p, z_mid, exag))
+                else:
+                    drawn_pts.append(p)
+        if not drawn_pts:
+            return None
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        if w < 4 or h < 4:
+            w, h = 800, 600
+        scr = bim.project_points(drawn_pts, self.cam, w, h)
+        best, best_d = None, float(self.MEASURE_SNAP_PX)
+        for i in range(len(drawn_pts)):
+            if scr[i, 2] <= 1e-6:
+                continue
+            d = math.hypot(scr[i, 0] - x, scr[i, 1] - y)
+            if d <= best_d:
+                best, best_d = i, d
+        if best is None:
+            return None
+        return (true_pts[best], drawn_pts[best])
 
     # ------------------------------------------------------------ camera ---
     def _fit_params(self):
@@ -223,6 +524,10 @@ class Bim3DViewer(ttk.Frame):
     def _on_press(self, e):
         self._cancel_cam_anim()
         self._moved = 0.0
+        if self._walk is not None:              # walk: drag turns, no pan
+            self._press = (e.x, e.y, self._walk["yaw"], self._walk["pitch"])
+            self._pan0 = None
+            return
         if e.state & 0x1:                       # shift+left -> pan
             self._pan0 = (e.x, e.y, np.asarray(self.cam.target, dtype=float))
             self._press = None
@@ -231,6 +536,16 @@ class Bim3DViewer(ttk.Frame):
             self._pan0 = None
 
     def _on_drag(self, e):
+        if self._walk is not None:
+            if self._press is None:
+                return
+            x0, y0, yaw0, pitch0 = self._press
+            self._moved = max(self._moved, abs(e.x - x0) + abs(e.y - y0))
+            self._walk["yaw"] = yaw0 + (e.x - x0) * 0.3
+            self._walk["pitch"] = max(-60.0, min(60.0,
+                                                 pitch0 + (e.y - y0) * 0.3))
+            self._walk_apply()
+            return
         if self._pan0 is not None:
             self._pan_to(e)
             return
@@ -244,12 +559,17 @@ class Bim3DViewer(ttk.Frame):
 
     def _on_release(self, e):
         if self._press is not None and self._moved < 3:
-            self._click(e.x, e.y)
+            if self.measuring:
+                self._measure_click(e.x, e.y)
+            elif self._walk is None:
+                self._click(e.x, e.y)
         self._press = None
         self._pan0 = None
         self._end_interaction()
 
     def _on_pan_start(self, e):
+        if self._walk is not None:
+            return
         self._cancel_cam_anim()
         self._pan0 = (e.x, e.y, np.asarray(self.cam.target, dtype=float))
 
@@ -273,6 +593,8 @@ class Bim3DViewer(ttk.Frame):
 
     def _zoom(self, factor, x, y):
         """dist *= factor, drifting the target toward the cursor point."""
+        if self._walk is not None:              # the walker's feet zoom
+            return
         self._cancel_cam_anim()
         cv = self.canvas
         w = max(cv.winfo_width(), 2)
@@ -362,7 +684,8 @@ class Bim3DViewer(ttk.Frame):
             w, h = 800, 600
         cv.delete("all")
         m = self.model
-        if m is None or (not m.segments and not m.planes):
+        if m is None or (not m.segments and not m.planes
+                         and not getattr(m, "faces", None)):
             self._draw_empty(w, h, c)
             return
         cam = self.cam
@@ -385,6 +708,29 @@ class Bim3DViewer(ttk.Frame):
         if self._lod < 0.999 and len(segs) > 60:
             step = max(1, round(1.0 / self._lod))
             segs = segs[::step]
+
+        # slope exaggeration: render-time z-delta scale about the model's
+        # z-midpoint, PIPE segments only (radius > 0).  The model is never
+        # mutated and the slice above culls on TRUE z — the slider is a
+        # pure display distortion.
+        exag = float(self.slope_var.get())
+        z_mid = (mnz + mxz) / 2.0
+        stretch = abs(exag - 1.0) > 1e-9
+
+        def draw_pt(pt, s):
+            if stretch and getattr(s, "radius", 0.0) > 0.0:
+                return bim.exaggerate_z(pt, z_mid, exag)
+            return pt
+
+        # shaded mode: pipe solids replace their centerlines
+        shaded = bool(self.shaded_var.get())
+        if shaded:
+            pipe_segs = [s for s in segs if getattr(s, "radius", 0.0) > 0.0]
+            line_segs = [s for s in segs
+                         if getattr(s, "radius", 0.0) <= 0.0]
+        else:
+            pipe_segs, line_segs = [], segs
+
         planes = m.planes
         vis_planes = [(j, pl) for j, pl in enumerate(planes)
                       if z_cut is None
@@ -394,7 +740,7 @@ class Bim3DViewer(ttk.Frame):
         # one projection call for every endpoint + plane corner + pin
         span = max(mxx - mnx, mxy - mny, mxz - mnz, 1.0)
         pin_h = span * 0.05
-        pts = [p for s in segs for p in (s.a, s.b)]
+        pts = [draw_pt(p, s) for s in line_segs for p in (s.a, s.b)]
         for _j, pl in vis_planes:
             pts.extend(pl.corners)
         for px, py, pz, _lbl, _col in pins:
@@ -402,8 +748,92 @@ class Bim3DViewer(ttk.Frame):
             pts.append((px, py, pz + pin_h))
         scr = bim.project_points(pts, cam, w, h)
 
+        # faces: model quads (walls) + pipe prisms; hidden_systems and the
+        # Horizon Slice cull them exactly like segments (centroid-z test —
+        # cheap approximation of clipping, matching the midpoint rule)
+        faces = []
+        if shaded:
+            for f in getattr(m, "faces", ()) or ():
+                if f.system in self.hidden_systems:
+                    continue
+                fz = sum(p[2] for p in f.pts) / len(f.pts)
+                if z_cut is not None and fz > z_cut:
+                    continue
+                faces.append((f, False))
+            for s in pipe_segs:
+                for f in bim.tube_faces(draw_pt(s.a, s), draw_pt(s.b, s),
+                                        s.radius, sides=8, color=s.color,
+                                        system=s.system):
+                    faces.append((f, True))
+        fscr = None
+        if faces:
+            fpts = [p for f, _pipe in faces for p in f.pts]
+            fscr = bim.project_points(fpts, cam, w, h)
+
+        # depth cueing: this frame's near/far span; skipped at quality "off"
+        d_near = d_far = None
+        if _fx_quality() != "off":
+            parts = [scr[:, 2]] if len(scr) else []
+            if fscr is not None and len(fscr):
+                parts.append(fscr[:, 2])
+            if parts:
+                alld = np.concatenate(parts)
+                alld = alld[alld > 1e-6]
+                if alld.size >= 2:
+                    lo, hi = float(alld.min()), float(alld.max())
+                    if hi - lo > 1e-6:
+                        d_near, d_far = lo, hi
+        bg = c["canvas_bg"]
+        fade_cache: dict = {}
+
+        def fade(color, depth):
+            """Far geometry dims toward the canvas bg (6 buckets, subtle)."""
+            if d_near is None:
+                return color
+            t = (depth - d_near) / (d_far - d_near)
+            b = int(max(0.0, min(1.0, t)) * 6 + 0.5)
+            if b <= 0:
+                return color
+            key = (color, b)
+            got = fade_cache.get(key)
+            if got is None:
+                got = fade_cache[key] = _mix(color, bg, 0.45 * b / 6.0)
+            return got
+
+        # shaded faces: painter's algorithm among themselves (far first,
+        # by face-centroid camera distance), drawn BENEATH the wireframe
+        if fscr is not None:
+            shade_cache: dict = {}
+            polys = []
+            idx = 0
+            for f, is_pipe in faces:
+                n = len(f.pts)
+                quad = fscr[idx: idx + n]
+                idx += n
+                if np.any(quad[:, 2] <= 1e-6):  # behind the camera -> cull
+                    continue
+                depth = float(quad[:, 2].mean())
+                p3 = np.asarray(f.pts, dtype=float)
+                nrm = np.cross(p3[1] - p3[0], p3[2] - p3[0])
+                ln = float(np.linalg.norm(nrm))
+                lam = abs(float(nrm @ _LIGHT)) / ln if ln > 1e-9 else 0.5
+                lamb = int(lam * 12 + 0.5)      # bucket: reuse mixed colors
+                skey = (f.color, lamb)
+                base = shade_cache.get(skey)
+                if base is None:
+                    base = shade_cache[skey] = _mix(
+                        f.color, bg, 0.12 + 0.5 * (1.0 - lamb / 12.0))
+                coords = [v for q in quad for v in (q[0], q[1])]
+                polys.append((depth, coords, fade(base, depth), is_pipe))
+            polys.sort(key=lambda it: -it[0])   # far first
+            for _d, coords, fill, is_pipe in polys:
+                cv.create_polygon(*coords, fill=fill, outline=fill,
+                                  width=1.0,
+                                  tags=(("face", "pipe3d") if is_pipe
+                                        else ("face",)))
+
         items = []                              # (depth, draw_fn) painter list
-        for i, s in enumerate(segs):
+        for i, s in enumerate(line_segs):
             a, b = scr[2 * i], scr[2 * i + 1]
             if a[2] <= 1e-6 or b[2] <= 1e-6:    # behind the camera -> cull
                 continue
@@ -411,9 +841,9 @@ class Bim3DViewer(ttk.Frame):
             prox = max(0.6, min(2.4, cam.dist / max(depth, 1e-6)))
             width = max(1.0, s.width * prox)
             items.append((depth, ("line", (a[0], a[1], b[0], b[1]),
-                                  s.color, width)))
+                                  fade(s.color, depth), width)))
         chips = []
-        base = 2 * len(segs)
+        base = 2 * len(line_segs)
         for k, (j, pl) in enumerate(vis_planes):
             quad = scr[base + 4 * k: base + 4 * k + 4]
             if np.any(quad[:, 2] <= 1e-6):
@@ -485,12 +915,65 @@ class Bim3DViewer(ttk.Frame):
                                       tags=("chip", f"sheet:{j}"))
             cv.tag_raise(tid, rid)
 
+        self._draw_measure(w, h, c)
+        if self._walk is not None:
+            self._draw_hud(h, c)
+
         # adapt detail from measured draw time (applies to the next frame)
         dt = time.perf_counter() - t0
         if dt > SLOW_FRAME:
             self._lod = max(MIN_LOD, self._lod * 0.6)
         elif dt < FAST_FRAME and self._lod < 1.0:
             self._lod = min(1.0, self._lod * 1.6)
+
+    def _draw_measure(self, w, h, c):
+        """Measure overlay: picked endpoints, dashed tape, feet-inches label
+        (true 3D distance + ΔZ, unaffected by slope exaggeration)."""
+        if not self._measure_pts:
+            return
+        cv = self.canvas
+        drawn = [dp for _tp, dp in self._measure_pts]
+        scr = bim.project_points(drawn, self.cam, w, h)
+        if np.any(scr[:, 2] <= 1e-6):
+            return
+        col = c["accent"]
+        for x, y, _d in scr:
+            cv.create_oval(x - 4, y - 4, x + 4, y + 4, outline=col,
+                           width=1.6, tags="measure")
+        if len(self._measure_pts) < 2:
+            return
+        (ax, ay, _), (bx, by, _) = scr
+        cv.create_line(ax, ay, bx, by, fill=col, width=1.6, dash=(6, 4),
+                       tags="measure")
+        from ..draft import fmt_ftin            # lazy: engine-side module
+        (a3, _), (b3, _) = self._measure_pts
+        d3 = math.dist(a3, b3)
+        dz = abs(b3[2] - a3[2])
+        tid = cv.create_text((ax + bx) / 2.0, (ay + by) / 2.0 - 12,
+                             text=f"{fmt_ftin(d3)}  ΔZ {fmt_ftin(dz)}",
+                             fill=col, font=(FAMILY, 9, "bold"),
+                             tags="measure")
+        x1, y1, x2, y2 = cv.bbox(tid)
+        rid = cv.create_rectangle(x1 - 4, y1 - 2, x2 + 4, y2 + 2,
+                                  fill=c["panel"], outline=col,
+                                  tags="measure")
+        cv.tag_raise(tid, rid)
+
+    def _draw_hud(self, h, c):
+        """Walk-mode "you are here" chip: position in feet + the exits."""
+        st = self._walk
+        from ..draft import fmt_ftin            # lazy: engine-side module
+        txt = (f"you are here   E {fmt_ftin(st['x'])}   "
+               f"N {fmt_ftin(st['y'])}   eye {fmt_ftin(st['z'])}"
+               "   ·   WASD/arrows walk · drag turn · Esc exit")
+        cv = self.canvas
+        tid = cv.create_text(14, h - 16, anchor="w", text=txt, fill=c["fg"],
+                             font=(FAMILY, 9, "bold"), tags="hud")
+        x1, y1, x2, y2 = cv.bbox(tid)
+        rid = cv.create_rectangle(x1 - 8, y1 - 4, x2 + 8, y2 + 4,
+                                  fill=c["panel"], outline=c["accent"],
+                                  tags="hud")
+        cv.tag_raise(tid, rid)
 
     def _draw_grid(self, w, h, c):
         """Fine ground grid under everything (not depth-sorted with model)."""

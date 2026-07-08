@@ -784,7 +784,10 @@ def to_bim(model, base_z: float = 0.0):
     sits flat at its invert, and a run with neither sits flat at
     ``base_z``.  Segments are colored by system with ``.system`` set to
     the system label, so the 3D legend toggles work; ``model.systems``
-    lists only the systems present."""
+    lists only the systems present.  Each segment carries ``radius`` =
+    dia_in / 24 (trade diameter in inches -> radius in feet) so the
+    viewer's shaded mode can extrude the run into a pipe solid — wireframe
+    consumers ignore it."""
     from .bim import Model, Segment
     m = Model()
     used: dict[str, tuple] = {}
@@ -807,11 +810,12 @@ def to_bim(model, base_z: float = 0.0):
             else:
                 zs.append(float(inv) - float(slope) * cum / 12.0)
             prev = p
-        width = max(1.0, float(e.props.get("dia_in", 4.0)) / 3.0)
+        dia = float(e.props.get("dia_in", 4.0))
+        width = max(1.0, dia / 3.0)
         for (p, zp), (q, zq) in zip(zip(e.pts, zs),
                                     zip(e.pts[1:], zs[1:])):
             m.segments.append(Segment((p[0], p[1], zp), (q[0], q[1], zq),
                                       color=color, width=width,
-                                      system=label))
+                                      system=label, radius=dia / 24.0))
     m.systems = [used[s] for s in SYSTEMS if s in used]
     return m

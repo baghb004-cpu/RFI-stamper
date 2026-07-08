@@ -170,7 +170,8 @@ def to_world(segs: list[Wall2D], base_page_xy, base_world,
 # --------------------------------------------------------------- extrusion --
 
 def build_model(world_segs, wall_height: float, floors: int = 1,
-                slab_gap: float = 0.8, color: str = _WALL_COLOR) -> bim.Model:
+                slab_gap: float = 0.8, color: str = _WALL_COLOR,
+                faces: bool = False) -> bim.Model:
     """Extrude world segments into a wireframe :class:`bim.Model`.
 
     Per floor i (z0 = i * (wall_height + slab_gap)): each wall gets a bottom
@@ -178,7 +179,12 @@ def build_model(world_segs, wall_height: float, floors: int = 1,
     per wall endpoint — endpoints within ~0.05 world units are merged (by
     grid quantization) so shared corners carry ONE column.  bim world axes
     are x east / y north / z up, so a world segment ((E, N), (E, N)) maps to
-    x = E, y = N."""
+    x = E, y = N.
+
+    ``faces=True`` additionally fills ``model.faces`` with one quad per wall
+    per floor (same z math) for the viewer's shaded mode.  The SEGMENTS are
+    byte-identical either way — the flag is purely additive, so every
+    wireframe count assertion holds."""
     wall_height = float(wall_height)
     if wall_height <= 0:
         raise ValueError(f"wall_height must be positive, got {wall_height}")
@@ -207,6 +213,9 @@ def build_model(world_segs, wall_height: float, floors: int = 1,
         for e, n in columns.values():
             model.segments.append(bim.Segment((e, n, z0), (e, n, z1),
                                               color, 1.0, "walls"))
+    if faces:
+        model.faces = bim.wall_faces(walls, wall_height, floors=floors,
+                                     slab_gap=slab_gap, color=color)
     model.systems = [("walls", color)]
     return model
 
@@ -215,7 +224,7 @@ def build_model(world_segs, wall_height: float, floors: int = 1,
 
 def model_from_plan(pdf_path: str, page_no: int = 1, job=None,
                     wall_height: float = 10.0, floors: int = 1,
-                    log=print) -> tuple:
+                    faces: bool = False, log=print) -> tuple:
     """Vector plan page -> (bim.Model, stats) in the Fieldstitch world frame.
 
     ``job`` is a :class:`fieldstitch.LayoutJob` carrying the calibration
@@ -228,7 +237,8 @@ def model_from_plan(pdf_path: str, page_no: int = 1, job=None,
     segs = extract_segments(pdf_path, page_no=page_no, log=log)
     world = to_world(segs, job.base_page_xy, job.base_world,
                      job.rotation_deg, job.cal.real_per_pt)
-    model = build_model(world, wall_height=wall_height, floors=floors)
+    model = build_model(world, wall_height=wall_height, floors=floors,
+                        faces=faces)
     stats = {"segments": len(segs), "walls": len(world),
              "height": float(wall_height), "floors": max(1, int(floors))}
     return model, stats
