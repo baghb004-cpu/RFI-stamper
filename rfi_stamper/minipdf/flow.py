@@ -363,6 +363,11 @@ class Table(Flowable):
             canvas.setLineWidth(width)
             c0, c1 = min(cols), max(cols)
             r0, r1 = min(rows), max(rows)
+            # clamp to real bounds: a line command whose range runs past the
+            # rows/cols that exist (e.g. GRID (0,1)-(-1,-1) on a header-only,
+            # empty-body table) must draw within the grid, never index past it.
+            c0, c1 = max(0, min(c0, self.ncols - 1)), max(0, min(c1, self.ncols - 1))
+            r0, r1 = max(0, min(r0, self.nrows - 1)), max(0, min(r1, self.nrows - 1))
             left, right = xl[c0], xl[c1 + 1]
             hi, lo = yt[r0], yt[r1 + 1]
             if name in ("GRID", "INNERGRID"):

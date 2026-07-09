@@ -269,6 +269,25 @@ def test_table_engine():
     doc.close()
     print(f"  table engine: {res['rows']} rows -> {res['pages']} pages, header repeats, footer, all rows present")
 
+    # an EMPTY table (header only, no body rows) must render, not crash — the
+    # GRID/BOX line commands span rows that don't exist (regression guard for a
+    # header-only daybook/log).
+    empty = os.path.join(tempfile.mkdtemp(prefix="minipdf_empty_"), "e.pdf")
+    prev = os.environ.get("PLOOM_PDF_ENGINE")
+    os.environ["PLOOM_PDF_ENGINE"] = "minipdf"
+    try:
+        er = transmittal.table_pdf(empty, ["A", "B", "C"], [], title="EMPTY",
+                                   log=lambda m: None)
+    finally:
+        if prev is None:
+            os.environ.pop("PLOOM_PDF_ENGINE", None)
+        else:
+            os.environ["PLOOM_PDF_ENGINE"] = prev
+    A(er["rows"] == 0 and er["pages"] >= 1, "header-only table renders (no crash)")
+    ed = fitz.open(empty)
+    A("EMPTY" in ed[0].get_text("text"), "empty table still shows its title + header")
+    ed.close()
+
 
 def test_fieldpro_engine():
     """fieldpro's landscape ledger + stake-package sheet render on minipdf.
