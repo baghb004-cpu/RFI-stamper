@@ -634,6 +634,49 @@ in **MINIPDF_PLAN.md** (8-agent pass, per-track dossiers as appendices).
 - 52 suites green (new: test_minipdf.py, test_minipdf_parity.py). NEXT (Track
   B): from-scratch ctypes drag-drop, retire tkinterdnd2.
 
+## Round 22 (SHIPPED, v4.9.0): from-scratch drag-and-drop — tkinterdnd2 RETIRED
+## == MINIPDF_PLAN Track B; the last third-party GUI extension is gone.
+
+- **gui/dnd.py rebuilt as a two-layer design.** A pure, platform-neutral
+  **Router** per toplevel: targets register via the UNCHANGED public surface
+  (`HAS_DND`, `DND_FILES`, `make_root`, `parse_drop_paths`,
+  `enable_drop(widget, cb, exts=, on_enter=, on_leave=)`); the backend feeds
+  window-level screen-coordinate events (enter/move/leave/drop) and the router
+  synthesizes per-target hover enter/leave as the cursor crosses widgets,
+  routes a drop to the smallest viewable registered widget containing the
+  point (toplevel registration = window-level hooks + fallback target), runs
+  the ext filter (dirs always pass), fires leave-hooks on every drop (OLE
+  sends Drop INSTEAD of a final DragLeave) and defers callbacks `after(20)`
+  past the OS drop handshake.
+- **gui/dnd_win32.py** — the native half, pure ctypes against ole32/shell32/
+  kernel32/user32: a full 7-slot OLE `IDropTarget` vtable (QI/AddRef/Release/
+  DragEnter/DragOver/DragLeave/Drop), CF_HDROP via IDataObject::GetData +
+  DragQueryFileW (wide), QueryGetData-driven DROPEFFECT_COPY/NONE cursor,
+  registration on the top-level frame HWND (OleInitialize on the Tk STA
+  thread; the OS walks up from the child under the cursor), every COM ref
+  PINNED for the window's lifetime, RevokeDragDrop on destroy, all Tk work
+  bounced out of the COM callbacks with `after`. HAS_NATIVE honest (the
+  HAS_SEND pattern): module imports everywhere, activates only on the
+  platform the exes ship for; elsewhere HAS_DND stays False and every target
+  advertises click-to-browse exactly as before.
+- **overlay.py** now uses the façade only (no raw tkdnd calls): the toplevel
+  registration IS the overlay hook; its full-window canvas is purely visual
+  because the router routes by registry+geometry, not stacking.
+- tkinterdnd2 OUT of requirements.txt; spec drops its collect_data_files +
+  hiddenimports and excludes it (with reportlab) from both exes. widgets.py
+  DropZone unchanged (the façade signature is identical).
+- Tests: `test_gui_construct.check_dnd` drives the seam with synthetic
+  backend events under xvfb — routing, hover synthesis, smallest-target win,
+  ext filter, root fallback, refused-empty-drop, brace-quoted path parsing,
+  dnd_win32 import + honest attach()→False off-Windows. (A real OS drag can't
+  be synthesized headlessly — the research was explicit — so the OLE half
+  needs the usual real-Windows smoke alongside Squawk/Holler's mic smoke:
+  drag files from a file manager onto the exe's window, watch the overlay +
+  DropZone hover + routed drop.)
+- 52 suites green twice; scrub clean. **MINIPDF_PLAN Tracks A+B COMPLETE:
+  Planloom's runtime is now pymupdf + pypdf + numpy + stdlib — every engine
+  the app ships (OCR, PDF writer, drag-drop, voice, KB) is its own.**
+
 **Deferred follow-up (tracked): decimal-sheet dot-misread.** The v4.7.1
 noise-robust glyph-height fix now KEEPS a degraded decimal sheet's dot (e.g.
 E-1.10) instead of dropping it; when it misreads as a non-confusable letter

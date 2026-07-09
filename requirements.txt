@@ -1,12 +1,14 @@
 pymupdf>=1.24
 pypdf>=4.0
 numpy>=1.24
-tkinterdnd2>=0.4
 # PDF *generation* (stamp overlays, plates, tables, forms, reports) is
 # Planloom's own built-in engine (minipdf): pure Python + stdlib, no
 # third-party PDF-writer package. reportlab was retired (MINIPDF_PLAN.md);
 # dev boxes may `pip install reportlab` to run the optional parity-oracle
 # tests, which skip cleanly when it is absent.
+# Drag-and-drop is Planloom's own built-in backend too (a ctypes OLE drop
+# target on the platform the exes ship for; click-to-browse everywhere) —
+# tkinterdnd2 was retired with it. Nothing to add here.
 # OCR ("Make searchable" button + the `ocr` command) is Planloom's own
 # built-in engine (the Tracer): pure numpy + PyMuPDF, no external binary and no
 # extra package to install. Nothing to add here.

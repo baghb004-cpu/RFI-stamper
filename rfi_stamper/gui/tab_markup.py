@@ -837,6 +837,13 @@ class MarkupTab(ttk.Frame):
                 cx1, cy1 = self.viewer.page_to_canvas(x1 + 3, y1 + 3)
                 cv.create_rectangle(cx0, cy0, cx1, cy1, dash=(3, 3),
                                     outline="#3b82f6", width=1.4, tags="selbox")
+        if self._pts:
+            # a render wipes the canvas (delete("all")); an in-progress
+            # polyline/polygon preview must survive it — e.g. the debounced
+            # fit-width render ~50 ms after open, or any zoom/resize mid-draw
+            # (page changes clear _pts via cancel_tool first, so this never
+            # leaks a preview across pages).
+            self._draw_poly_preview()
 
     def _draw(self, cv, m):
         s = self.viewer.scale

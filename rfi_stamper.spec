@@ -4,26 +4,20 @@
 #   planloom-cli     console tool for scripting / batch use
 # Build on the target OS (run build_windows.bat on Windows to get .exe files).
 
-from PyInstaller.utils.hooks import collect_data_files
-
-try:
-    tkdnd_datas = collect_data_files("tkinterdnd2")
-except Exception:               # tkinterdnd2 not installed: DnD degrades to Browse
-    tkdnd_datas = []
-
 # the Tracer's trained OCR model rides along so the built-in OCR works with
 # no retraining (and no external engine) in the frozen build
 _tracer_model = [("rfi_stamper/tracer/model.npz", "rfi_stamper/tracer")]
 
+# Drag-and-drop is Planloom's own ctypes OLE backend (gui/dnd_win32.py) and PDF
+# generation is the built-in minipdf engine — the retired tkinterdnd2 and
+# reportlab must never ride into the exe even if a dev box has them installed.
+_excludes = ["reportlab", "tkinterdnd2"]
+
 a_gui = Analysis(
     ["launch_gui.py"],
     pathex=["."],
-    datas=tkdnd_datas + [("assets/planloom.png", "assets")] + _tracer_model,
-    hiddenimports=["tkinterdnd2"],   # optional drag-and-drop; warning-only if absent
-    # PDF generation is the built-in minipdf engine; reportlab is retired and
-    # must never ride into the exe even if a dev box has it installed (its only
-    # remaining role is the optional test-time parity oracle).
-    excludes=["reportlab"],
+    datas=[("assets/planloom.png", "assets")] + _tracer_model,
+    excludes=_excludes,
     noarchive=False,
 )
 pyz_gui = PYZ(a_gui.pure)
@@ -42,9 +36,8 @@ exe_gui = EXE(
 a_cli = Analysis(
     ["launch_cli.py"],
     pathex=["."],
-    datas=tkdnd_datas + _tracer_model,
-    hiddenimports=["tkinterdnd2"],
-    excludes=["reportlab"],          # retired; built-in minipdf generates PDFs
+    datas=_tracer_model,
+    excludes=_excludes,              # retired libs; built-ins replace both
     noarchive=False,
 )
 pyz_cli = PYZ(a_cli.pure)

@@ -23,14 +23,13 @@ class DropOverlay:
         self.canvas = None
         if not dnd.HAS_DND:
             return
-        try:
-            root.drop_target_register(dnd.DND_FILES)
-            root.dnd_bind("<<DropEnter>>", self._show)
-            root.dnd_bind("<<DropLeave>>", self._hide)
-            # a drop on the bare root (outside any child target) still routes
-            root.dnd_bind("<<Drop>>", self._drop)
-        except Exception:   # noqa: BLE001 -- overlay is sugar, never fatal
-            pass
+        # Register on the toplevel itself: the router treats that as the
+        # window-level enter/leave hook (show/hide the overlay) AND the
+        # fallback target for a drop that lands outside any child target.
+        # The router hides the overlay on every drop (leave fires first) and
+        # defers the callback past the OS drop handshake.
+        dnd.enable_drop(root, self._paths, on_enter=self._show,
+                        on_leave=self._hide)
 
     # ------------------------------------------------------------------ #
     def _show(self, _e=None):
@@ -40,12 +39,9 @@ class DropOverlay:
         cv = tk.Canvas(self.root, highlightthickness=0, bg=c["bg"])
         cv.place(x=0, y=0, relwidth=1.0, relheight=1.0)
         self.canvas = cv
-        try:
-            cv.drop_target_register(dnd.DND_FILES)
-            cv.dnd_bind("<<Drop>>", self._drop)
-            cv.dnd_bind("<<DropLeave>>", self._hide)
-        except Exception:   # noqa: BLE001
-            pass
+        # The canvas is purely visual: the router routes by registry+geometry,
+        # not by what is stacked on top, so child targets keep working and a
+        # drop anywhere else falls back to this overlay's root registration.
         self.root.after(10, self._draw)
 
     def _draw(self):
@@ -76,10 +72,7 @@ class DropOverlay:
             self.canvas.destroy()
             self.canvas = None
 
-    def _drop(self, event):
-        paths = dnd.parse_drop_paths(self.root, event.data)
-        self._hide()
+    def _paths(self, paths):
+        # already deferred + hidden by the router; just route to the tab
         if paths:
-            # let tkdnd finish its drop protocol before mutating widgets
-            self.root.after(20, lambda: self.on_paths(paths))
-        return "copy"
+            self.on_paths(paths)

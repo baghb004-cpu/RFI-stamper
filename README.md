@@ -308,7 +308,9 @@ fix broken files, compress, flatten, rasterize, upscale, linearize,
 de-JavaScript) with a damage-proof verify step · built-in offline OCR (the
 Tracer — Planloom's own from-scratch engine, no external binary) · built-in
 PDF **generation** too (every stamp, plate, table, form and report is written
-by Planloom's own from-scratch engine — no third-party PDF-writer library) ·
+by Planloom's own from-scratch engine — no third-party PDF-writer library;
+drag-and-drop is Planloom's own native drop target too, and every drop zone
+also works by click-to-browse) ·
 **auto-hyperlinking** — every sheet reference in a set becomes a native
 clickable jump that works in any viewer, plus a bookmark index per sheet ·
 revision compare with FFT auto-align · calibrated measurements with per-sheet

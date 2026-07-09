@@ -155,7 +155,10 @@ run; the `*_report.txt` must end in PASS).
                               idle-when-done scheduler, quality tiers),
                               theme (color-theory palettes + SECTIONS hues),
                               crud (schema-driven module panels), bim3d
-                              (canvas 3D viewer), dnd, widgets, palette,
+                              (canvas 3D viewer), dnd (from-scratch drop
+                              router; tkinterdnd2 retired at v4.9.0) +
+                              dnd_win32 (ctypes OLE IDropTarget backend,
+                              HAS_NATIVE honest off-Windows), widgets, palette,
                               overlay, viewer, prefs (~/.planloom), oldhand
                               (the Old Hand: global Heartwood Q&A drawer,
                               Ctrl+/ from any section), squawk_deck (Squawk
@@ -294,6 +297,16 @@ were proven on real export files. GUI constructs under xvfb.
   held equal to the historical reportlab metrics to ~1e-13 by
   `tests/test_minipdf.py`'s oracle-parity test (kerning OFF). Changing width
   tables re-clips every header and moves every box — don't.
+- Drag-drop (gui/dnd.py) routes by REGISTRY + GEOMETRY, not widget stacking:
+  the smallest viewable registered widget containing the drop point wins, the
+  toplevel's own registration is the overlay's window-level enter/leave hook +
+  fallback target, and every drop fires the leave hooks first (OLE sends Drop
+  INSTEAD of a final DragLeave — the overlay must still hide). Callbacks are
+  deferred `after(20)` past the OS drop handshake. In dnd_win32, every COM
+  callback/vtable/object ref is PINNED in _KEEPALIVE for the window's lifetime
+  — a garbage-collected WINFUNCTYPE callback is a use-after-free hard crash,
+  invisible until a real drag on a real desktop. Never synthesize a real OS
+  drag in tests; feed the Router directly (test_gui_construct.check_dnd).
 
 ## Summaries
 

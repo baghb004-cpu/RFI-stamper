@@ -42,7 +42,7 @@ class Tooltip:
 
 class DropZone(ttk.Frame):
     """Dashed 'drop files here' target.  Click anywhere on it to browse instead;
-    drag-drop lights up when tkinterdnd2 is present."""
+    drag-drop lights up where the native backend is live (dnd.HAS_DND)."""
 
     def __init__(self, parent, theme, text: str, on_paths, exts=None,
                  browse=None, height=64, big=False):

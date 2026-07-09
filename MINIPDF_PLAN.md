@@ -1,6 +1,7 @@
 # MINIPDF_PLAN.md — retiring reportlab (from-scratch PDF writer) and tkinterdnd2 (native drag-drop)
 
-**Status:** IN PROGRESS. Research complete; **Track A / P1 + P2 shipped.**
+**Status:** COMPLETE — Track A (reportlab retired, v4.8.0) and Track B (tkinterdnd2 retired,
+v4.9.0) both shipped. Phase history:
 - **P1 foundation** — `rfi_stamper/minipdf/` (WinAnsi `encoding`, reportlab-exact `metrics`,
   `content`-stream builder, `document` serializer) emits a valid, deterministic, `qpdf --check`-clean
   PDF; `string_width` matches the reportlab oracle to machine epsilon (`tests/test_minipdf.py`).
@@ -39,7 +40,16 @@
 **Track A COMPLETE (v4.8.0): Planloom generates every PDF with its own engine.** reportlab remains
 only an optional dev-box install for the parity-oracle tests (which skip cleanly without it).
 
-**Remaining: Track B** — the from-scratch ctypes drag-drop (retire tkinterdnd2).
+**Track B COMPLETE (v4.9.0): tkinterdnd2 RETIRED.** `gui/dnd.py` is a pure per-toplevel drop
+**Router** (unchanged public surface; per-target hover synthesis, smallest-viewable-target routing,
+ext filtering, toplevel fallback = the overlay hook, leave-on-drop, `after(20)` deferral) fed by
+`gui/dnd_win32.py` — a from-scratch ctypes OLE `IDropTarget` (7-slot vtable, CF_HDROP +
+`DragQueryFileW`, `QueryGetData` drop-effect, top-level-frame HWND registration, pinned COM refs,
+revoke-on-destroy, honest `HAS_NATIVE`). `overlay.py` uses the façade only; requirements/spec carry
+neither retired library; the seam is tested with synthetic backend events under xvfb (a real OS drag
+cannot be synthesized headlessly — the OLE half gets the real-Windows smoke listed in HANDOFF).
+
+**Both tracks of this plan are done.** The dossiers below remain as the build's reference record.
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on

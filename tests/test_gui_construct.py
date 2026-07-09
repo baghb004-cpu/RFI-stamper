@@ -31,6 +31,85 @@ def make_pdf(path, pages=2):
     doc.close()
 
 
+def check_dnd(root):
+    """The from-scratch drag-drop seam: router registration, hover synthesis,
+    smallest-target routing, ext filtering, root fallback, deferred delivery —
+    fed with synthetic backend events (a real OS drag cannot be synthesized
+    under xvfb; the OS half is the ctypes OLE backend, Windows-smoke-tested)."""
+    import time
+    import tkinter as tk
+
+    from rfi_stamper.gui import dnd
+
+    def pump(w, ms=50):
+        w.update()
+        time.sleep(ms / 1000.0)
+        w.update()
+
+    win = tk.Toplevel(root)
+    win.geometry("420x300+60+60")
+    a = tk.Frame(win, width=120, height=60)
+    a.place(x=10, y=10)
+    b = tk.Frame(win, width=120, height=60)
+    b.place(x=220, y=10)
+    win.update_idletasks()
+
+    got = {"a": None, "b": None, "root": None,
+           "a_hover": 0, "a_leave": 0, "win_enter": 0, "win_leave": 0}
+    ra = dnd.enable_drop(a, lambda p: got.__setitem__("a", p), exts=(".pdf",),
+                         on_enter=lambda: got.__setitem__("a_hover", got["a_hover"] + 1),
+                         on_leave=lambda: got.__setitem__("a_leave", got["a_leave"] + 1))
+    dnd.enable_drop(b, lambda p: got.__setitem__("b", p))
+    dnd.enable_drop(win, lambda p: got.__setitem__("root", p),
+                    on_enter=lambda: got.__setitem__("win_enter", got["win_enter"] + 1),
+                    on_leave=lambda: got.__setitem__("win_leave", got["win_leave"] + 1))
+    # no OS backend under xvfb: registration works, activation is honestly off
+    assert ra is dnd.HAS_DND and dnd.HAS_DND is False
+
+    router = dnd._router_for(win)
+    ax = a.winfo_rootx() + 30
+    ay = a.winfo_rooty() + 20
+    bx = b.winfo_rootx() + 30
+    by = b.winfo_rooty() + 20
+
+    router.drag_enter()
+    assert got["win_enter"] == 1, "window-level enter (the overlay hook) fired"
+    router.drag_move(ax, ay)
+    assert got["a_hover"] == 1, "hover enter synthesized for the target"
+    router.drag_move(bx, by)
+    assert got["a_leave"] == 1, "hover leave synthesized when the cursor moves on"
+    assert router.drop(ax, ay, ["x.pdf", "y.txt", "z.PDF"]) is True
+    pump(win)
+    assert got["a"] == ["x.pdf", "z.PDF"], f"ext-filtered, case-blind: {got['a']}"
+    assert got["b"] is None, "the other target got nothing"
+    assert got["win_leave"] >= 1, "drop hides the overlay (leave fires first)"
+
+    # a drop outside every child target falls back to the toplevel handler
+    router.drag_enter()
+    assert router.drop(win.winfo_rootx() + 300, win.winfo_rooty() + 250,
+                       ["q.pdf"]) is True
+    pump(win)
+    assert got["root"] == ["q.pdf"], f"root fallback routed: {got['root']}"
+
+    # a drop with nothing passing the filter is honestly refused
+    router.drag_enter()
+    assert router.drop(ax, ay, ["nope.txt"]) is False
+
+    # brace-quoted Tcl lists (paths with spaces) survive parsing
+    parsed = dnd.parse_drop_paths(win, "{C:/a b/c.pdf} /tmp/d.pdf {e f.txt}",
+                                  exts=(".pdf",))
+    assert parsed == ["C:/a b/c.pdf", "/tmp/d.pdf"], parsed
+
+    # the native backend module imports everywhere and is honest off-Windows
+    from rfi_stamper.gui import dnd_win32
+    assert dnd_win32.HAS_NATIVE == (sys.platform == "win32")
+    if sys.platform != "win32":
+        assert dnd_win32.attach(win, router) is False
+
+    win.destroy()
+    print("  dnd: router routing/hover/filter/fallback + honest no-backend, ok")
+
+
 def main():
     from rfi_stamper.gui import dnd, fx
     from rfi_stamper.gui.app import SECTION_ORDER, App
@@ -1228,6 +1307,9 @@ def main():
     from rfi_stamper import offline_guard
     assert offline_guard.is_active()
     assert mk_tab.UNDO_LIMIT >= 500
+
+    # the from-scratch drag-drop layer (tkinterdnd2 retired)
+    check_dnd(root)
 
     app.on_close()
     print("GUI CONSTRUCT TEST PASSED")
