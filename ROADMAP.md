@@ -275,8 +275,15 @@ synthetic training data from Hershey/base-14 fonts + Kanungo/Baird degradation,
 two-lane human-gated self-learning (per-firm font profiles). Drop-in for
 `ocr.py` via a new `ocr/` package. Staged P1→P4, Tesseract removed only in P4
 after an eval harness proves parity. Honest SKIPs: text fused with linework,
-sub-legible scans, hand fonts. NOT YET BUILT — awaiting the go-ahead to start
-P1.
+sub-legible scans, hand fonts.
+
+**Status: COMPLETE (v4.4.0 → v4.7.0).** Built as the `rfi_stamper/tracer/`
+package (P1 scaffold+NCC v4.4.0, P2 gradient-MLP/kNN ensemble + synthetic
+training v4.5.0, P3 lexicon/grammar/number-lock + sheet-index self-supervision
+v4.6.0, P4 eval harness + Tesseract retired v4.7.0). Measured clean CER 0.00%,
+sheet-number field accuracy 100%. ocr.py is now a thin facade over the Tracer;
+NO external OCR binary anywhere — Planloom has zero external binaries. Full
+plan + numbers in OCR_PLAN.md.
 
 ## Phase H — Holler: hands-free voice control for ANY app (owner brief,
 ## added after Phase G)

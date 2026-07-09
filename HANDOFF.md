@@ -512,6 +512,35 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   green (new: test_tracer_p3.py, 85 checks). NEXT: P4 — wire the CER/WER eval
   harness into run_all, prove parity, REMOVE Tesseract.
 
+## Round 20 (SHIPPED, v4.7.0): the Tracer P4 — Tesseract RETIRED (OCR_PLAN P4)
+## == the from-scratch OCR goal, COMPLETE. Planloom now has ZERO external
+## binaries.
+
+- **tests/test_tracer_eval.py** (wired into run_all): CER/WER/field-accuracy
+  harness proving the Tracer's bar — clean auto-labeled real set **CER 0.00%**
+  (n=237, assert ≤2%), sheet-number field accuracy **100%** raw-90%→corrected
+  via index cross-check (assert ≥99%), degraded photocopy tier CER 11.39%
+  reported (loose ≤15% ceiling — honest residual, segmentation-dominated per
+  OCR_PLAN §8). Added eval.align_pairs (Levenshtein backtrace) for the
+  confusion/domain sub-metric.
+- **ocr.py is now a thin FACADE over the Tracer** (279→104 lines):
+  needs_ocr/ocr_pdf(P3 context on by default)/ocr_page_text delegate;
+  tesseract_available()→True, tesseract_info()→builtin, OcrUnavailable kept as
+  never-raised shims for import compat. Tesseract internals DELETED
+  (_discover_tessdata/_SMOKE_CACHE/_require_tessdata/_KNOWN_TESSDATA/
+  _fitz_can_ocr/pdfocr_tobytes/TESSDATA_PREFIX/shutil.which). test_ocr.py
+  rewritten to the behavioral contract (proves the from-scratch engine).
+- **GUI**: PDF Tools collapsed to one "🔍 Make searchable (OCR)" button (built
+  in, no install messaging); tracer_ocr kept as an alias. __main__ ocr command
+  de-gated. requirements.txt/README cleaned (no external OCR binary).
+- Verified independently: 50 suites green, construct green, model.npz still
+  bundled in the spec, ocr.ocr_pdf reads a scanned S-101 via the set's own
+  index end to end. NO external OCR binary in any live code/dep/build.
+- **OCR_PLAN P1→P4 COMPLETE (v4.4.0→v4.7.0). ROADMAP Phase I DONE.** Honest
+  residual for the record: degraded-photocopy CER ~11% (word-segmentation
+  bleed), real-word/real-number errors the index/grammar can't catch (by
+  design — number-lock refuses to guess).
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
