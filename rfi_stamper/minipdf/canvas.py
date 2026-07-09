@@ -84,6 +84,12 @@ class _Path:
 def _as_rgb(color):
     if isinstance(color, Color):
         return color.rgb()
+    # duck-type reportlab.lib.colors.Color (red/green/blue) so a module's
+    # existing reportlab color constants also drive the from-scratch canvas.
+    if hasattr(color, "red") and hasattr(color, "green") and hasattr(color, "blue"):
+        return (color.red, color.green, color.blue)
+    if hasattr(color, "rgb") and callable(color.rgb):
+        return tuple(color.rgb())[:3]
     if isinstance(color, (tuple, list)) and len(color) >= 3:
         return tuple(color[:3])
     raise TypeError(f"expected a Color or (r,g,b), got {color!r}")
@@ -257,6 +263,12 @@ class Canvas:
         self._font = None
         self._fontsize = None
         self._fontstack.clear()
+
+    def drawImage(self, *args, **kwargs):
+        # Raster image XObjects are intentionally unsupported (MINIPDF_PLAN §6):
+        # the only caller (fieldpro's plan thumbnail) wraps this in try/except
+        # and degrades to a "no thumbnail" placeholder.
+        raise NotImplementedError("minipdf does not embed raster images")
 
     def getpdfdata(self) -> bytes:
         return self._doc.to_bytes()

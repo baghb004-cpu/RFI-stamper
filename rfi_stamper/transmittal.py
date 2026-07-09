@@ -124,7 +124,7 @@ def _atomic_write_bytes(data: bytes, out_path: str) -> None:
 
 # ---------------------------------------------------------- numbered canvas ---
 
-class _NumberedCanvas(_canvas.Canvas):
+class _RLNumberedCanvas(_canvas.Canvas):
     """Canvas that defers the footer until ``save`` so it can print the total
     page count as "Page X of Y", and draws a thin red baseline rule."""
 
@@ -161,6 +161,74 @@ class _NumberedCanvas(_canvas.Canvas):
         self.drawRightString(w - _MARGIN, _FOOTER_Y - 12,
                              f"Page {page_no} of {total}")
         self.restoreState()
+
+
+class _MiniNumberedCanvas:
+    """The from-scratch equivalent of :class:`_RLNumberedCanvas`.
+
+    Wraps a ``minipdf.Canvas`` and delegates every drawing call to it; on
+    ``save`` it draws the same deferred "Page X of Y" footer (red baseline +
+    optional note) onto every accumulated page, then serializes.  The page count
+    is simply ``len(doc.pages)`` — no reportlab-internal snapshotting.
+    """
+
+    def __init__(self, buf, pagesize=None, footer_note="",
+                 count_holder=None, **_kw):
+        from .minipdf.canvas import Canvas
+        self.__dict__["_canvas"] = Canvas(buf, pagesize=pagesize or letter)
+        self._footer_note = footer_note
+        self._count_holder = count_holder if count_holder is not None else {}
+
+    def __getattr__(self, name):
+        canvas = self.__dict__.get("_canvas")
+        if canvas is None:
+            raise AttributeError(name)
+        return getattr(canvas, name)     # delegate setFont/drawString/rect/…
+
+    def showPage(self):
+        self._canvas.showPage()
+
+    def save(self):
+        from .minipdf import colors as C
+        c = self._canvas
+        doc = c._doc
+        total = len(doc.pages)
+        self._count_holder["pages"] = total
+        accent = C.Color(0.84, 0.06, 0.06)
+        subtle = C.Color(0.34, 0.34, 0.34)
+        for i, page in enumerate(doc.pages, 1):
+            c._c = page.content          # re-target this page's content stream
+            w = page.width
+            c.saveState()
+            c.setStrokeColor(accent)
+            c.setLineWidth(0.75)
+            c.line(_MARGIN, _FOOTER_Y, w - _MARGIN, _FOOTER_Y)
+            c.setFont("Helvetica", 8)
+            c.setFillColor(subtle)
+            if self._footer_note:
+                c.drawString(_MARGIN, _FOOTER_Y - 12, self._footer_note)
+            c.drawRightString(w - _MARGIN, _FOOTER_Y - 12, f"Page {i} of {total}")
+            c.restoreState()
+        data = doc.to_bytes()
+        out = c._out
+        if hasattr(out, "write"):
+            out.write(data)
+        else:
+            with open(out, "wb") as f:
+                f.write(data)
+
+
+def _NumberedCanvas(buf, pagesize=None, footer_note="", count_holder=None, **kw):
+    """Engine-selectable numbered canvas (reportlab default, minipdf when set).
+
+    A factory (not a class) so both this module and ``reports.py`` get the right
+    implementation by constructing it the same way.
+    """
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        return _MiniNumberedCanvas(buf, pagesize=pagesize, footer_note=footer_note,
+                                   count_holder=count_holder, **kw)
+    return _RLNumberedCanvas(buf, pagesize=pagesize or letter,
+                             footer_note=footer_note, count_holder=count_holder, **kw)
 
 
 # ------------------------------------------------------------ paragraph mold ---

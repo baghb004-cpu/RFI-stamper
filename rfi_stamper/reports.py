@@ -50,6 +50,19 @@ from .transmittal import (
     table_pdf,
 )
 
+
+def _new_canvas(buf, pagesize):
+    """A plain page canvas, selectable via PLOOM_PDF_ENGINE (default reportlab).
+
+    The reportlab colour constants above are duck-typed by the from-scratch
+    canvas, and stringWidth/simpleSplit are metric-identical, so the drawing
+    code is unchanged across engines.
+    """
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        from .minipdf.canvas import Canvas
+        return Canvas(buf, pagesize=pagesize)
+    return _canvas.Canvas(buf, pagesize=pagesize)
+
 # ---------------------------------------------------------------- geometry ---
 
 _PAGE_W, _PAGE_H = letter
@@ -572,7 +585,7 @@ def _snapshot_page1(project, title: str) -> bytes:
 
     today = _dt.date.today().isoformat()
     buf = io.BytesIO()
-    c = _canvas.Canvas(buf, pagesize=letter)
+    c = _new_canvas(buf, letter)
     c.setTitle(title)
 
     # -- title bar ----------------------------------------------------------
