@@ -1,6 +1,12 @@
 # MINIPDF_PLAN.md — retiring reportlab (from-scratch PDF writer) and tkinterdnd2 (native drag-drop)
 
-**Status:** RESEARCH COMPLETE — not yet started. This is a plan, not an implementation.
+**Status:** IN PROGRESS. Research complete; **Track A / P1 foundation shipped** — the
+`rfi_stamper/minipdf/` package (WinAnsi `encoding`, reportlab-exact `metrics`, `content`-stream
+builder, `document` serializer) emits a valid, deterministic, `qpdf --check`-clean PDF, and
+`string_width` matches the reportlab oracle to machine epsilon (`tests/test_minipdf.py`, 52 checks).
+Owner decision locked: **everything from scratch** (full platypus-equivalent table engine; native
+ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: the reportlab-`canvas`
+façade, then P2 (stamp/plate paths behind a flag + pixel-diff parity).
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on
