@@ -139,6 +139,47 @@ def score_page(gray, truth_words, dpi: int = 300, spaced: bool = False):
 #  Confusion matrix + domain sub-metric                                        #
 # --------------------------------------------------------------------------- #
 
+def align_pairs(ref: str, hyp: str):
+    """Levenshtein backtrace → aligned ``[(ref_char, hyp_char), ...]`` pairs.
+
+    A match or substitution yields a ``(r, h)`` pair; an insertion or deletion
+    pairs the present character with ``""`` (a gap).  Because both :func:`confusion`
+    and :func:`domain_error` ignore characters outside the modeled CHARSET, the
+    gap sentinel is skipped automatically — so a raw ``ref``/``hyp`` string can be
+    turned into ``(true, pred)`` pairs for the confusion matrix and the domain
+    sub-metric without any hand labeling.
+    """
+    la, lb = len(ref), len(hyp)
+    dp = [[0] * (lb + 1) for _ in range(la + 1)]
+    for i in range(1, la + 1):
+        dp[i][0] = i
+    for j in range(1, lb + 1):
+        dp[0][j] = j
+    for i in range(1, la + 1):
+        ri = ref[i - 1]
+        for j in range(1, lb + 1):
+            cost = 0 if ri == hyp[j - 1] else 1
+            dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1,
+                           dp[i - 1][j - 1] + cost)
+    pairs = []
+    i, j = la, lb
+    while i > 0 or j > 0:
+        sub = (dp[i - 1][j - 1] + (0 if ref[i - 1] == hyp[j - 1] else 1)
+               if i > 0 and j > 0 else None)
+        if sub is not None and dp[i][j] == sub:
+            pairs.append((ref[i - 1], hyp[j - 1]))
+            i -= 1
+            j -= 1
+        elif i > 0 and dp[i][j] == dp[i - 1][j] + 1:
+            pairs.append((ref[i - 1], ""))
+            i -= 1
+        else:
+            pairs.append(("", hyp[j - 1]))
+            j -= 1
+    pairs.reverse()
+    return pairs
+
+
 def confusion(pairs) -> np.ndarray:
     """43×43 ``(true, pred)`` count matrix over ``[(true_char, pred_char)]``."""
     idx = {c: i for i, c in enumerate(CHARSET)}

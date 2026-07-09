@@ -305,7 +305,8 @@ deepest checks of all.
 
 Combine/split/rotate PDFs with bookmarks · one-touch PDF repair (unlock,
 fix broken files, compress, flatten, rasterize, upscale, linearize,
-de-JavaScript) with a damage-proof verify step · offline OCR (Tesseract) ·
+de-JavaScript) with a damage-proof verify step · built-in offline OCR (the
+Tracer — Planloom's own from-scratch engine, no external binary) ·
 **auto-hyperlinking** — every sheet reference in a set becomes a native
 clickable jump that works in any viewer, plus a bookmark index per sheet ·
 revision compare with FFT auto-align · calibrated measurements with per-sheet
@@ -338,8 +339,10 @@ CLI (also answers to the legacy flag style):
 ## Honest limits
 
 Sheet detection needs text near the title block (scanned sets: run OCR
-first). OCR requires the free Tesseract engine installed locally — everything
-else works without it. The BIM viewer is a wireframe walkthrough with sheet
+first). OCR is Planloom's own built-in engine (the Tracer) — no install, no
+external binary; it reads title-block and large lettering well, with
+small/degraded/linework-fused text an honest work-in-progress routed to
+review. The BIM viewer is a wireframe walkthrough with sheet
 placement, not an IFC authoring tool. Offline summaries are serviceable cliff
 notes, not judgment calls. The verification pass is the backstop: if it says
 FAIL, don't issue the sheet. Cloud collaboration and mobile apps are out of

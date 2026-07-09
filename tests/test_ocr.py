@@ -1,8 +1,11 @@
-"""Self-contained test for the offline OCR text-layer module.
+"""Self-contained test for the offline OCR text-layer module (``rfi_stamper.ocr``).
 
-Builds a synthetic two-page PDF: page 1 is a real text page, page 2 is the same
-words rasterized to an image with NO text layer (a stand-in for a scanned
-sheet).  Exercises the whole public API against the local Tesseract engine.
+``ocr.py`` is now a thin facade over the Tracer — Planloom's OWN from-scratch OCR
+engine (pure numpy + PyMuPDF, no external binary, no network).  This test proves
+the FROM-SCRATCH engine through that facade's public API: it builds a synthetic
+two-page PDF (page 1 real text, page 2 the same words rasterized to an image with
+NO text layer, a stand-in for a scanned sheet) and exercises the behavioral
+contract callers depend on.
 
 No project data or network needed.  Run:  python3.12 tests/test_ocr.py
 """
@@ -21,6 +24,12 @@ from rfi_stamper import ocr                             # noqa: E402
 # Distinctive tokens we expect to survive the OCR round-trip.
 SCAN_TEXT = "PLUMBING RISER DIAGRAM SHEET P-101"
 TEXT_PAGE = "GENERAL NOTES AND LEGEND DRAWING G-001"
+# The text page also carries the set's sheet index (G-001 AND the scanned
+# P-101) on its own line: the facade's ocr_pdf runs the Tracer's P3
+# self-supervision, so the scanned title-block number is CROSS-CHECKED against
+# the document's own declared index (kept short so it fits — insert_text never
+# wraps, and text past the page edge is silently dropped).
+INDEX_LINE = "SHEET INDEX G-001 P-101"
 PAGE_W, PAGE_H = 612.0, 792.0        # US Letter, portrait
 
 
@@ -28,9 +37,10 @@ def _build_mixed_pdf(path: str) -> None:
     """Write a 2-page PDF: page 1 real text, page 2 image-only (scanned)."""
     doc = fitz.open()
 
-    # Page 1: genuine, extractable text.
+    # Page 1: genuine, extractable text + the sheet index.
     p1 = doc.new_page(width=PAGE_W, height=PAGE_H)
     p1.insert_text((72, 120), TEXT_PAGE, fontsize=20)
+    p1.insert_text((72, 160), INDEX_LINE, fontsize=16)
 
     # Page 2: render the words to a pixmap in a scratch page, then place that
     # pixmap as an image on a fresh page so no text layer remains.
@@ -68,12 +78,13 @@ def main() -> int:
             f"scanned page should start empty, got {scanned_text!r}")
         assert _contains(d[0].get_text("text"), "G-001"), "page 1 must have text"
 
-    # --- engine availability -------------------------------------------------
-    assert ocr.tesseract_available() is True, "Tesseract must be usable in this env"
+    # --- engine availability (built-in Tracer — always usable) --------------
+    assert ocr.tesseract_available() is True, "the built-in engine is always usable"
     info = ocr.tesseract_info()
     assert info["available"] is True
-    assert "eng" in info["langs"], f"eng data expected, got {info['langs']}"
-    assert os.path.isdir(info["tessdata"]), "tessdata dir must exist"
+    assert info["path"] == "builtin", f"engine is built-in, got {info['path']!r}"
+    assert info["tessdata"] == "builtin", f"no external data, got {info['tessdata']!r}"
+    assert "eng" in info["langs"], f"eng expected, got {info['langs']}"
 
     # --- needs_ocr -----------------------------------------------------------
     assert ocr.needs_ocr(src, page_no=2) is True, "scanned page needs OCR"
@@ -102,7 +113,7 @@ def main() -> int:
 
     with fitz.open(out) as d:
         assert d.page_count == 2, "page count must be preserved"
-        # Point-size preserved on both pages.
+        # Point-size preserved on both pages (within 1 pt).
         for i in range(2):
             r = d[i].rect
             assert abs(r.width - PAGE_W) < 1.0 and abs(r.height - PAGE_H) < 1.0, \
@@ -119,33 +130,11 @@ def main() -> int:
     r2 = ocr.ocr_pdf(src, out2, dpi=200, skip_text_pages=False, log=lambda *_: None)
     assert r2["pages_ocred"] == 2, f"both pages should be OCR'd, got {r2}"
 
-    # --- OcrUnavailable when Tesseract data cannot be used -------------------
-    orig = ocr._discover_tessdata
-    ocr._SMOKE_CACHE.clear()
-    try:
-        ocr._discover_tessdata = lambda: None
-        raised = False
-        try:
-            ocr.ocr_pdf(src, os.path.join(tmp, "never.pdf"), log=lambda *_: None)
-        except ocr.OcrUnavailable:
-            raised = True
-        assert raised, "ocr_pdf must raise OcrUnavailable with no tessdata"
-
-        raised = False
-        try:
-            ocr.ocr_page_text(src, 2)
-        except ocr.OcrUnavailable:
-            raised = True
-        assert raised, "ocr_page_text must raise OcrUnavailable with no tessdata"
-
-        # A bogus (present but unusable) folder must also fail cleanly.
-        ocr._discover_tessdata = lambda: os.path.join(tmp, "not-tessdata")
-        ocr._SMOKE_CACHE.clear()
-        assert ocr.tesseract_available() is False, \
-            "unusable tessdata -> not available"
-    finally:
-        ocr._discover_tessdata = orig
-        ocr._SMOKE_CACHE.clear()
+    # --- OcrUnavailable is import-compatible and never raised ----------------
+    # The historical exception survives as a never-firing shim so callers that
+    # still catch it keep importing; the built-in engine simply never raises it.
+    assert issubclass(ocr.OcrUnavailable, RuntimeError), \
+        "OcrUnavailable stays a RuntimeError subclass for import compatibility"
 
     print("OCR TESTS PASSED")
     return 0

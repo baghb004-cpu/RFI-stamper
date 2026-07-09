@@ -86,11 +86,13 @@ def build_doctor(sub):
 
 
 def build_ocr(sub):
-    ap = sub.add_parser("ocr", help="add a searchable text layer (offline Tesseract)")
+    ap = sub.add_parser("ocr", help="add a searchable text layer (built-in "
+                                    "offline OCR — the Tracer)")
     ap.add_argument("file", help="input PDF")
     ap.add_argument("-o", "--out", help="output PDF (default: <file>_searchable.pdf)")
     ap.add_argument("--dpi", type=int, default=300, help="render DPI (default 300)")
-    ap.add_argument("--lang", default="eng", help="Tesseract language (default eng)")
+    ap.add_argument("--lang", default="eng",
+                    help="language hint (accepted for compatibility; default eng)")
     ap.add_argument("--all-pages", action="store_true",
                     help="OCR every page, even ones that already have text")
 
@@ -246,10 +248,8 @@ def cmd_doctor(args) -> int:
 
 def cmd_ocr(args) -> int:
     from . import ocr
-    if not ocr.tesseract_available():
-        print("!! Tesseract OCR not found — install it to use this command "
-              "(the app stays fully offline).")
-        return 2
+    # OCR is Planloom's built-in engine (the Tracer) — always available, no
+    # external binary, fully offline.
     out = args.out or os.path.splitext(args.file)[0] + "_searchable.pdf"
     r = ocr.ocr_pdf(args.file, out, dpi=args.dpi, language=args.lang,
                     skip_text_pages=not args.all_pages)

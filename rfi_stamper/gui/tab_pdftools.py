@@ -73,11 +73,9 @@ class PdfToolsTab(ttk.Frame):
             ("🔧 Repair", "Rebuild a broken/corrupt PDF structure.", self.repair, False),
             ("🗜 Compress", "Downsample images and deflate to shrink the file.",
              self.compress, False),
-            ("🔍 Make searchable (OCR)", "Add a real text layer to scanned pages.",
-             self.ocr, False),
-            ("🔎 Make searchable (built-in)", "The Tracer — Planloom's own "
-             "from-scratch OCR (no install). Reads title-block and large "
-             "lettering today; sharper every release.", self.tracer_ocr,
+            ("🔍 Make searchable (OCR)", "Planloom's own OCR — reads scanned "
+             "title-block and large lettering, cross-checked against the set's "
+             "sheet index. Built in, no install, fully offline.", self.ocr,
              False),
             ("🔗 Auto-Hyperlink", "Link every sheet reference to its page; "
              "works in any viewer.", self.autolink, False),
@@ -114,8 +112,7 @@ class PdfToolsTab(ttk.Frame):
             ("Unlock PDF", "PDF Tools", self.unlock),
             ("Repair PDF", "PDF Tools", self.repair),
             ("Compress PDF", "PDF Tools", self.compress),
-            ("OCR PDF (make searchable)", "PDF Tools", self.ocr),
-            ("OCR PDF built-in (the Tracer)", "PDF Tools", self.tracer_ocr),
+            ("OCR PDF (make searchable — the Tracer)", "PDF Tools", self.ocr),
             ("Auto-Hyperlink sheet references", "PDF Tools", self.autolink),
             ("Flatten annotations", "PDF Tools", self.flatten),
             ("Flatten PDF to image", "PDF Tools", self.rasterize),
@@ -267,36 +264,25 @@ class PdfToolsTab(ttk.Frame):
                             f"{r['after']//1024} KB ({(1-r['ratio'])*100:.0f}% smaller)")
 
     def ocr(self):
-        if not ocr.tesseract_available():
-            messagebox.showinfo(
-                "OCR", "Tesseract OCR is not installed on this machine.\n\n"
-                "Install it (e.g. the Tesseract-OCR package) and the OCR button "
-                "will start working — the app stays fully offline.")
-            return
+        """Make a scanned PDF searchable with Planloom's built-in OCR (the
+        Tracer) — always available, no external engine, fully offline.
+
+        ``ocr.ocr_pdf`` runs the Tracer with P3 post-correction ON: a default
+        trade lexicon + the document's own sheet index (auto-harvested inside
+        ocr_pdf) cross-check every read, so a smudged S-1O1 snaps to the real
+        S-101 in the set, number-locked."""
         self._run("OCR",
                   lambda p, o: ocr.ocr_pdf(p, o, log=self.log.say),
                   "searchable",
                   lambda r: f"OCR complete — {r['pages_ocred']}/{r['pages_total']} "
-                            "page(s) made searchable")
+                            "page(s) made searchable (cross-checked against the "
+                            "set's own sheet index)")
 
+    # Back-compat alias: the palette command and older callers still reach the
+    # single built-in OCR action through ``tracer_ocr``.
     def tracer_ocr(self):
-        """The Tracer: Planloom's from-scratch OCR — always available, no
-        external engine.  P1 reads title-block and large lettering; the hard
-        cases (small/degraded/linework-fused text) are honest work-in-
-        progress that improves each release."""
-        from .. import tracer
-        from ..tracer import lexicon as _lex
-        # P3 context: a default trade lexicon + the document's own sheet
-        # index (auto-harvested inside ocr_pdf) cross-check every read —
-        # a smudged S-1O1 snaps to the real S-101 in the set, number-locked
-        self._run("Built-in OCR",
-                  lambda p, o: tracer.ocr_pdf(
-                      p, o, lexicon=_lex.Lexicon.default(), log=self.log.say),
-                  "searchable",
-                  lambda r: f"Built-in OCR — {r['pages_ocred']}/"
-                            f"{r['pages_total']} page(s) made searchable "
-                            "(cross-checked against the set's own sheet "
-                            "index; sharper each release)")
+        """Alias for :meth:`ocr` — the one built-in OCR action (the Tracer)."""
+        self.ocr()
 
     def autolink(self):
         self._run("Auto-Hyperlink",
