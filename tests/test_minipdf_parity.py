@@ -70,6 +70,11 @@ def _render(data, dpi):
     return a
 
 
+def _render_file(path, dpi):
+    with open(path, "rb") as f:
+        return _render(f.read(), dpi)
+
+
 _ENTRIES = [
     ("014", "RFI 014 — DUCT CONFLICT",
      "Reroute duct below joist; coordinate with structural before rough-in."),
@@ -169,11 +174,58 @@ def test_pipeline_minipdf_verifies():
     print("  pipeline verify_ok + metadata-clean delivery (rot-0 + /Rotate 90)")
 
 
+def test_plate_parity():
+    """draft.py Loft plates (curves + clip + dash) match reportlab visually.
+
+    Plates are not verify.py-gated, so the bar is the same 25-gray-level
+    threshold the verifier uses: NO pixel may differ by more than that (curve
+    anti-aliasing may nudge a handful of sub-threshold edge pixels).
+    """
+    if not _have_reportlab():
+        return
+    import numpy as np
+    from rfi_stamper.draft import DraftModel, plate_pdf
+
+    def build():
+        m = DraftModel()
+        m.add("wall", [(0, 0), (20, 0)], wtype="stud4")
+        m.add("wall", [(20, 0), (20, 12)], wtype="cmu8")
+        m.add("fixture", [(5, 5)], stencil="wc", rot=0.0, flip=False)
+        m.add("grid", [(2, -2), (2, 14)], label="1", bubble="both")   # bubble circles
+        m.add("grid", [(-2, 6), (22, 6)], label="A", bubble="both")
+        m.add("dim", [(0, 0), (20, 0), (10, -3)])
+        m.add("room", [(10, 6)], name="LOBBY", number="101")
+        return m
+
+    def plate(engine):
+        prev = os.environ.get("PLOOM_PDF_ENGINE")
+        os.environ["PLOOM_PDF_ENGINE"] = engine
+        try:
+            p = os.path.join(tempfile.mkdtemp(prefix="plate_"), f"{engine}.pdf")
+            return p, plate_pdf(build(), p, sheet="ARCH D")
+        finally:
+            if prev is None:
+                os.environ.pop("PLOOM_PDF_ENGINE", None)
+            else:
+                os.environ["PLOOM_PDF_ENGINE"] = prev
+
+    prl, rrl = plate("reportlab")
+    pmp, rmp = plate("minipdf")
+    A(rrl == rmp, f"same plate result (scale/fit/ops): {rrl} vs {rmp}")
+    a = _render_file(prl, 110)
+    b = _render_file(pmp, 110)
+    A(a.shape == b.shape, f"same raster size: {a.shape} vs {b.shape}")
+    over = int((np.abs(a.astype(int) - b.astype(int)) > 25).sum())
+    A(over == 0, f"no plate pixel differs beyond the 25-gray verify threshold ({over})")
+    print(f"  plate parity: 0 px over threshold (curves/clip/dash), result {rmp}")
+
+
 def main():
     for fn, label in [
         (test_overlay_pixel_identity, "overlay pixel-identity vs reportlab (90+300 dpi)"),
         (test_appendix_text_identity, "appendix header pixel-identity"),
         (test_pipeline_minipdf_verifies, "full stamp+verify pipeline on the minipdf engine"),
+        (test_plate_parity, "draft.py Loft plate parity (curves + clip + dash)"),
     ]:
         fn()
         print(f"PASS {label}")

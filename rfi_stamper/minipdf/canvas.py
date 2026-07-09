@@ -19,7 +19,74 @@ from __future__ import annotations
 import math
 
 from . import metrics
+from .colors import Color
 from .document import Document
+
+_KAPPA = 0.5522847498307936          # 4-cubic-Bézier circle constant
+
+
+def _ellipse_curves(cx, cy, rx, ry):
+    """Four cubic-Bézier segments approximating a full ellipse.
+
+    Returns ``(start_point, [(c1, c2, end), ...])`` in absolute coordinates.
+    """
+    kx, ky = rx * _KAPPA, ry * _KAPPA
+    start = (cx + rx, cy)
+    segs = [
+        ((cx + rx, cy + ky), (cx + kx, cy + ry), (cx, cy + ry)),
+        ((cx - kx, cy + ry), (cx - rx, cy + ky), (cx - rx, cy)),
+        ((cx - rx, cy - ky), (cx - kx, cy - ry), (cx, cy - ry)),
+        ((cx + kx, cy - ry), (cx + rx, cy - ky), (cx + rx, cy)),
+    ]
+    return start, segs
+
+
+def _arc_curves(cx, cy, rx, ry, start_deg, extent_deg):
+    """Cubic-Bézier segments for an elliptical arc (≤90° per segment)."""
+    start = math.radians(start_deg)
+    total = math.radians(extent_deg)
+    n = max(1, int(math.ceil(abs(extent_deg) / 90.0)))
+    step = total / n
+    p0 = (cx + rx * math.cos(start), cy + ry * math.sin(start))
+    segs = []
+    a = start
+    for _ in range(n):
+        b = a + step
+        alpha = math.sin(b - a) * (math.sqrt(4 + 3 * math.tan((b - a) / 2) ** 2) - 1) / 3
+        ca, sa, cb, sb = math.cos(a), math.sin(a), math.cos(b), math.sin(b)
+        c1 = (cx + rx * (ca - alpha * sa), cy + ry * (sa + alpha * ca))
+        c2 = (cx + rx * (cb + alpha * sb), cy + ry * (sb - alpha * cb))
+        end = (cx + rx * cb, cy + ry * sb)
+        segs.append((c1, c2, end))
+        a = b
+    return p0, segs
+
+
+class _Path:
+    """A reportlab-``beginPath``-style path recorder (used for clipping)."""
+
+    def __init__(self):
+        self.ops = []            # list of ("m"/"l"/"c"/"re"/"h", *coords)
+
+    def moveTo(self, x, y):
+        self.ops.append(("m", x, y))
+
+    def lineTo(self, x, y):
+        self.ops.append(("l", x, y))
+
+    def rect(self, x, y, w, h):
+        self.ops.append(("re", x, y, w, h))
+
+    def close(self):
+        self.ops.append(("h",))
+
+
+def _as_rgb(color):
+    if isinstance(color, Color):
+        return color.rgb()
+    if isinstance(color, (tuple, list)) and len(color) >= 3:
+        return tuple(color[:3])
+    raise TypeError(f"expected a Color or (r,g,b), got {color!r}")
 
 
 class Canvas:
@@ -46,6 +113,12 @@ class Canvas:
 
     def setStrokeGray(self, gray):
         self._c.stroke_gray(gray)
+
+    def setFillColor(self, color):
+        self._c.fill_rgb(*_as_rgb(color))
+
+    def setStrokeColor(self, color):
+        self._c.stroke_rgb(*_as_rgb(color))
 
     def setLineWidth(self, w):
         self._c.line_width(w)
@@ -93,6 +166,54 @@ class Canvas:
 
     def line(self, x0, y0, x1, y1):
         self._c.move_to(x0, y0).line_to(x1, y1).stroke()
+
+    def _emit_curves(self, p0, segs, stroke, fill, close=True):
+        self._c.move_to(*p0)
+        for c1, c2, end in segs:
+            self._c.curve_to(c1[0], c1[1], c2[0], c2[1], end[0], end[1])
+        if close:
+            self._c.close()
+        if stroke and fill:
+            self._c.fill_stroke()
+        elif fill:
+            self._c.fill()
+        elif stroke:
+            self._c.stroke()
+        else:
+            self._c.end_path()
+
+    def circle(self, x, y, r, stroke=1, fill=0):
+        p0, segs = _ellipse_curves(x, y, r, r)
+        self._emit_curves(p0, segs, stroke, fill)
+
+    def ellipse(self, x1, y1, x2, y2, stroke=1, fill=0):
+        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        p0, segs = _ellipse_curves(cx, cy, abs(x2 - x1) / 2.0, abs(y2 - y1) / 2.0)
+        self._emit_curves(p0, segs, stroke, fill)
+
+    def arc(self, x1, y1, x2, y2, startAng=0, extent=90, stroke=1, fill=0):
+        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        p0, segs = _arc_curves(cx, cy, abs(x2 - x1) / 2.0, abs(y2 - y1) / 2.0,
+                               startAng, extent)
+        self._emit_curves(p0, segs, stroke, fill, close=False)
+
+    def beginPath(self):
+        return _Path()
+
+    def clipPath(self, path, stroke=0, fill=0):
+        for op in path.ops:
+            k = op[0]
+            if k == "m":
+                self._c.move_to(op[1], op[2])
+            elif k == "l":
+                self._c.line_to(op[1], op[2])
+            elif k == "re":
+                self._c.rect(op[1], op[2], op[3], op[4])
+            elif k == "c":
+                self._c.curve_to(*op[1:])
+            elif k == "h":
+                self._c.close()
+        self._c.clip()          # W n — intersect the clip region, paint nothing
 
     # -- text --------------------------------------------------------------- #
     def _need_font(self):

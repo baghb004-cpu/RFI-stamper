@@ -10,9 +10,15 @@
   90; the delivered file is now metadata-clean (`stamp.py` drops pypdf's `/Info`)
   (`tests/test_minipdf_parity.py`).
 
+- **P2b Loft plates** — the façade gained `Color`/`HexColor`, `setFillColor`/`setStrokeColor`,
+  `beginPath`/`clipPath`, and Bézier `circle`/`arc`/`ellipse`; `draft.py`'s `plate_pdf` is
+  engine-selectable. Plates render within the 25-gray verify threshold of reportlab everywhere
+  (0 px over threshold; only sub-threshold curve AA differs). **Direct-canvas tier complete.**
+
 Owner decision locked: **everything from scratch** (full platypus-equivalent table engine; native
-ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: extend the façade to
-`draft.py` Loft plates (clip/curve/dash), then P3 — the flow/table engine for transmittal/reports.
+ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: **P3 — the flow/table
+engine** (`Paragraph`/`Table`/`SimpleDocTemplate`/`_NumberedCanvas`) for transmittal/reports/ledger/
+pickup, the last and largest reportlab surface.
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on
