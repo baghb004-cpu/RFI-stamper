@@ -171,9 +171,17 @@ def label(ink: np.ndarray):
 
 
 def _median_glyph_h(boxes) -> float:
-    """Median height of the CAP-band boxes; robust seed for the size gates."""
+    """Median height of the CAP-band boxes; robust seed for the size gates.
+
+    When the CAP band captures only a small minority of the boxes — the
+    signature of very large isolated lettering, where every letter exceeds the
+    band ceiling and just a mark (a hyphen) falls inside — the median would
+    track that mark and shrink ``glyph_h`` to the mark's own height, which then
+    makes the mark itself look like an oversized solid block and drops it.  Fall
+    back to the full height distribution in that case so the size gates stay
+    glyph-scaled and thin marks survive (a P2 marks-reading fix)."""
     hs = [b.h for b in boxes if CAP_LO <= b.h <= 3 * CAP_HI]
-    if not hs:
+    if len(hs) < max(2, len(boxes) // 2):
         hs = [b.h for b in boxes]
     return float(np.median(hs)) if hs else 0.0
 

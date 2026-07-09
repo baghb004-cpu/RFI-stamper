@@ -11,9 +11,12 @@ Reading order is rebuilt bottom-up from the filtered component boxes
   which scales with the lettering instead of a fixed pixel count.
 * P1 treats one component as one character.  ``merge_broken`` rejoins a glyph
   that a faint scan split into pieces (small horizontal union that also overlaps
-  vertically — e.g. a dotted stem).  ``split_touching`` is the honest P2 stub:
-  a run-of-glyphs wider than 1.3× the median is cut into equal pitch slices;
-  the drop-fall valley split is deferred to P2 (OCR_PLAN §5 touching-CC).
+  vertically — e.g. a dotted stem).  ``split_touching`` (the P1 equal-pitch
+  stub) is kept; **P2 adds real touching-glyph handling** (OCR_PLAN §5/§7):
+  ``split_glyph_boxes`` cuts a wide box that does not read as one glyph at
+  vertical-projection valleys refined by a **drop-fall** {down, down-left,
+  down-right} water path, over-segments, then keeps the **DP recombination**
+  that maximizes total classifier confidence.
 
 All functions take/return the ``Box`` records from ``components`` and never
 mutate their inputs.
@@ -25,6 +28,8 @@ import numpy as np
 LINE_BAND_FACTOR = 0.6   # new line when y-center gap > this × median height
 WORD_GAP_FACTOR = 0.42   # new word when gap > this × median glyph *height*
 TOUCH_WIDE_FACTOR = 1.3  # split trigger: box wider than this × median width
+SPLIT_WHOLE_CONF = 0.82  # a wide box reading this well as one glyph is not split
+SEG_W_LO, SEG_W_HI = 0.34, 1.78   # a DP segment's width, in median widths
 
 
 def _median(vals):
@@ -108,6 +113,152 @@ def split_touching(line):
         else:
             out.append((b, b.x0, b.x1))
     return out
+
+
+def _col_profile(crop: np.ndarray) -> np.ndarray:
+    """Vertical ink projection (ink pixels per column), lightly smoothed."""
+    p = crop.astype(np.float64).sum(axis=0)
+    if p.size >= 3:
+        p = np.convolve(p, np.array([0.25, 0.5, 0.25]), mode="same")
+    return p
+
+
+def _dropfall_cut(crop: np.ndarray, seed_col: int) -> int:
+    """Refine a cut near ``seed_col`` with a drop-fall water path.
+
+    Starting at the seeded column the path descends row by row choosing the
+    least-ink move of {down, down-left, down-right}, so the cut skirts strokes
+    rather than slicing through them.  Returns the column that the path crosses
+    the least ink at (a single representative cut column for a rectangular
+    split).  Pure numpy/stdlib, deterministic.
+    """
+    H, W = crop.shape
+    ink = crop.astype(bool)
+    col = int(np.clip(seed_col, 1, W - 2))
+    crossed = 0
+    cols = []
+    for r in range(H):
+        cols.append(col)
+        if ink[r, col]:
+            crossed += 1
+        best = col
+        best_ink = ink[min(r + 1, H - 1), col]
+        for dc in (-1, 1):
+            c2 = col + dc
+            if 1 <= c2 <= W - 2:
+                v = ink[min(r + 1, H - 1), c2]
+                if int(v) < int(best_ink):
+                    best_ink, best = v, c2
+        col = best
+    return int(np.median(cols)) if cols else seed_col
+
+
+def candidate_cuts(crop: np.ndarray, med_w: float) -> list:
+    """Over-segmentation cut columns: pitch guesses snapped to valleys.
+
+    ``n = round(width/pitch)`` ideal boundaries, each searched within ±0.3×
+    median width for the lowest projection column and refined by drop-fall; the
+    strongest interior valleys are added so DP has room to recombine.
+    """
+    W = crop.shape[1]
+    prof = _col_profile(crop)
+    n = max(2, int(round(W / max(1.0, med_w))))
+    win = max(2, int(round(0.3 * med_w)))
+    cuts = set()
+    for i in range(1, n):
+        ideal = int(round(W * i / n))
+        lo, hi = max(1, ideal - win), min(W - 1, ideal + win)
+        local = lo + int(np.argmin(prof[lo:hi])) if hi > lo else ideal
+        cuts.add(int(np.clip(_dropfall_cut(crop, local), 1, W - 1)))
+    # add strong interior valleys (local minima below the mean profile)
+    for c in range(2, W - 2):
+        if prof[c] <= prof[c - 1] and prof[c] < prof[c + 1] \
+                and prof[c] < 0.6 * prof.mean():
+            cuts.add(c)
+    return sorted(cuts)
+
+
+def _score_segment(crop, x0, x1, med_w, clf, band_rel=0.5):
+    """Classifier confidence of the sub-crop ``crop[:, x0:x1]`` (or −inf)."""
+    from .normalize import norm_glyph
+    w = x1 - x0
+    if w < SEG_W_LO * med_w or w > SEG_W_HI * med_w:
+        return -1e9, None
+    sub = crop[:, x0:x1]
+    if not sub.any():
+        return -1e9, None
+    ng = norm_glyph(sub)
+    ranked = clf.classify(ng.cell, ng.aspect, band_rel)
+    return float(ranked[0][1]), ranked[0][0]
+
+
+def dp_recombine(crop, cuts, med_w, clf):
+    """Choose the cut subset maximizing total confidence (DP over boundaries).
+
+    ``best[j]`` = best total score to cover columns ``[0, B[j])``; a segment
+    ``[B[i], B[j])`` contributes its classifier confidence when its width is
+    glyph-plausible.  Returns the list of ``(x0, x1)`` column spans of the
+    winning partition (⩾ 1 span).
+    """
+    W = crop.shape[1]
+    B = [0] + [c for c in cuts if 0 < c < W] + [W]
+    B = sorted(set(B))
+    m = len(B)
+    NEG = -1e18
+    best = [NEG] * m
+    prev = [-1] * m
+    best[0] = 0.0
+    for j in range(1, m):
+        for i in range(j):
+            sc, _ch = _score_segment(crop, B[i], B[j], med_w, clf)
+            if best[i] + sc > best[j]:
+                best[j] = best[i] + sc
+                prev[j] = i
+    # reconstruct
+    spans = []
+    j = m - 1
+    if best[j] <= NEG / 2:      # nothing plausible: fall back to whole box
+        return [(0, W)]
+    while j > 0 and prev[j] >= 0:
+        i = prev[j]
+        spans.append((B[i], B[j]))
+        j = i
+    spans.reverse()
+    return spans or [(0, W)]
+
+
+def split_glyph_boxes(ink, box, med_w: float, clf):
+    """Absolute ``(y0,x0,y1,x1)`` sub-boxes for one component box.
+
+    A box no wider than ``TOUCH_WIDE_FACTOR`` × median, or one that already
+    reads as a single glyph with confidence ≥ ``SPLIT_WHOLE_CONF`` (so wide
+    single glyphs M, W, 0 are never sliced), is returned whole.  Otherwise it is
+    over-segmented (drop-fall valleys) and the DP-recombined partition is
+    returned — each span mapped back to absolute image coordinates and cropped
+    to its own ink rows.
+    """
+    y0, x0, y1, x1 = box.y0, box.x0, box.y1, box.x1
+    whole = [(y0, x0, y1, x1)]
+    if box.w <= TOUCH_WIDE_FACTOR * med_w or med_w <= 0:
+        return whole
+    crop = ink[y0:y1 + 1, x0:x1 + 1]
+    from .normalize import norm_glyph
+    ng = norm_glyph(crop)
+    if clf.classify(ng.cell, ng.aspect, 0.5)[0][1] >= SPLIT_WHOLE_CONF:
+        return whole
+    cuts = candidate_cuts(crop, med_w)
+    spans = dp_recombine(crop, cuts, med_w, clf)
+    if len(spans) <= 1:
+        return whole
+    out = []
+    for (a, b) in spans:
+        sub = crop[:, a:b]
+        rows = np.where(sub.any(axis=1))[0]
+        if rows.size == 0:
+            continue
+        out.append((y0 + int(rows.min()), x0 + a,
+                    y0 + int(rows.max()), x0 + b - 1))
+    return out or whole
 
 
 def group_words(line):

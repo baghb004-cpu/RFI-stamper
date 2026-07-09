@@ -138,27 +138,37 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP):
     if not kept:
         return []
 
-    clf = classify.default_classifier()
+    clf = classify.default_ensemble()
     results = []
     for line in segment.group_lines(kept):
         line = segment.merge_broken(line)
+        # 2-line cap/baseline band for the whole line: the vertical position of
+        # each glyph inside it feeds the marks disambiguator (a mid-height
+        # hyphen vs. a low period vs. a high apostrophe) — OCR_PLAN §4/§9.
+        band_top = min(b.y0 for b in line)
+        band_bot = max(b.y1 for b in line)
+        band_span = max(1.0, float(band_bot - band_top))
+        med_w = segment._median([b.w for b in line]) or 1.0
         for word in segment.group_words(line):
-            # P1 convention: one component = one character (CC=glyph).  The
-            # touching-glyph split is a P2 stub (segment.split_touching) — on a
-            # proportional font it would slice wide-but-single glyphs (M, W, 0)
-            # at the wrong place, so the clean-read path does not invoke it.
-            cells, aspects, spans = [], [], []
+            # P2: split a run of touching glyphs (drop-fall cuts + DP
+            # recombination) when a box is wide AND doesn't read as one glyph;
+            # normal-width glyphs (M, W, 0) never trigger it.
+            cells, aspects, rel_ys, spans = [], [], [], []
             for b in word:
-                crop = ink2[b.y0:b.y1 + 1, b.x0:b.x1 + 1]
-                if not crop.any():
-                    continue
-                ng = normalize.norm_glyph(crop)
-                cells.append(ng.cell)
-                aspects.append(ng.aspect)
-                spans.append((b.y0, b.x0, b.y1, b.x1))
+                for (yy0, xx0, yy1, xx1) in segment.split_glyph_boxes(
+                        ink2, b, med_w, clf):
+                    crop = ink2[yy0:yy1 + 1, xx0:xx1 + 1]
+                    if not crop.any():
+                        continue
+                    ng = normalize.norm_glyph(crop)
+                    cells.append(ng.cell)
+                    aspects.append(ng.aspect)
+                    cy = (yy0 + yy1) / 2.0
+                    rel_ys.append((cy - band_top) / band_span)
+                    spans.append((yy0, xx0, yy1, xx1))
             if not cells:
                 continue
-            ranked = clf.classify_batch(np.stack(cells), aspects)
+            ranked = clf.classify_batch(np.stack(cells), aspects, rel_ys)
             chars = [r[0][0] for r in ranked]
             cos = [r[0][1] for r in ranked]
             text = "".join(chars)
