@@ -283,7 +283,7 @@ the title strip).
    *(Recommend: yes — protects the pixel baseline and NDA posture.)*
 6. **Pixel tolerance:** strict `changed==0` at 90 dpi **vs** a bounded AA delta strictly inside box
    footprints? *(Recommend: strict — achievable with non-embedded base-14 + deterministic fitz.)*
-7. **`drawImage` (fieldpro plan thumbnail):** implement a real image XObject **vs** always take the
+7. **`drawImage` — RESOLVED at v4.10.0 (BUILDOUT Phase A): implemented as the two-path minimal slice (JPEG passthrough + Flate pixmaps), thumbnail restored.** Original question: implement a real image XObject **vs** always take the
    existing "no thumbnail" fallback and drop image support? *(Recommend: drop it — it already has a
    fallback.)*
 8. **Version scheme:** DnD removal as a patch (v4.7.x), mini-pdf default-flip as a minor (v4.8.0)?

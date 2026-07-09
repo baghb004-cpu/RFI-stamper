@@ -6,7 +6,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.9.2, offline construction workspace; Python package
+- Product: **Planloom** v4.10.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
@@ -751,6 +751,38 @@ case-insensitive scrub confirms zero occurrences of the old name in the
 tree. NOTE: the old name does persist in pre-rename git HISTORY (commits/
 diffs); rewriting pushed history is destructive and was deliberately not
 done — say the word if you want a history rewrite instead.
+
+## Round 25 (SHIPPED, v4.10.0): BUILDOUT Phase A — raster images in minipdf
+
+First phase of BUILDOUT_PLAN.md (the ten-phase from-scratch campaign; research
+dossiers ride as its appendices). The writer gained the minimal ISO 32000
+image slice — no codec was written:
+
+- **minipdf/images.py**: `jpeg_info` reads width/height/components straight
+  from the SOF frame header (SOF0/1/2; FF-fill + RSTn/TEM handled; CMYK,
+  12-bit and non-JPEG refused loudly); `make_image` classifies JPEG
+  bytes/path -> /DCTDecode PASSTHROUGH (file bytes ARE the stream) vs a
+  fitz-pixmap duck-type (alpha==0, n in (1,3), stride repack guard) ->
+  /FlateDecode of the raw samples (fixed zlib level; fitz and PDF image
+  space are both top-row-first so samples go in UNTOUCHED).
+- **document.py**: `_use_image` registry keyed by content sha256 (the same
+  pixels never embed twice, across pages), image objects numbered after
+  fonts, shared resources dict gains /XObject.
+- **content.draw_image**: `q  w 0 0 h x y cm  /ImN Do  Q` — unit-square
+  image space, balanced q..Q so the matrix never leaks.
+- **canvas.drawImage** replaces the NotImplementedError guard (default size =
+  intrinsic pixels as points; routed through the lazy `_c` page property).
+- **fieldpro stake sheet**: the plan-thumbnail band is BACK — fitz renders
+  the busiest page at 0.75x, the pixmap embeds directly (no PNG detour),
+  layer-colored point pins draw on top; absent/raster plans keep the honest
+  "(no plan thumbnail…)" fallback.
+- Tests (test_minipdf.test_images + parity update): SOF units incl.
+  refusals, Flate quadrant round-trip with the top-left-red ROW-ORDER guard,
+  DCT byte-identity passthrough, dedup (three draws -> ONE /Subtype /Image),
+  double-build byte determinism, alpha/PNG/zero-size refusals, live
+  thumbnail + honest fallback both asserted end to end.
+- SKIP list held (no PNG parser, no CMYK/alpha/EXIF/inline images). 52
+  suites green twice. NEXT: Phase B — the BIM z-buffer rasterizer.
 
 ## Roadmap (still open)
 

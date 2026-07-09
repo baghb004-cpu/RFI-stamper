@@ -132,5 +132,16 @@ class Content:
         self.raw(b"ET")
         return self
 
+    def draw_image(self, img, x, y, w, h) -> "Content":
+        """Paint an :class:`images.Image` into the w×h rect at (x, y).
+
+        The Do operator maps the image into the 1×1 unit square; all sizing
+        and placement is the CTM — and the q..Q pair is mandatory or the
+        matrix leaks into everything drawn after it.
+        """
+        key = self._doc._use_image(img)
+        return (self.save().concat(w, 0, 0, h, x, y)
+                    .raw(encoding.pdf_name(key) + b" Do").restore())
+
     def __bytes__(self) -> bytes:
         return bytes(self._buf)

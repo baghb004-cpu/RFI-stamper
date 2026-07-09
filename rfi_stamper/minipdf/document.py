@@ -41,6 +41,7 @@ class Document:
     def __init__(self):
         self.pages: list[Page] = []
         self._fonts: dict[str, str] = {}   # base font name -> resource key Fn
+        self._images: dict = {}            # content hash -> (key "ImN", Image)
 
     def add_page(self, width: float, height: float) -> Page:
         pg = Page(self, width, height)
@@ -56,12 +57,21 @@ class Document:
             self._fonts[canon] = key
         return key
 
+    def _use_image(self, img) -> str:
+        """Register an image (dedup by content hash) and return its /ImN key."""
+        entry = self._images.get(img.key)
+        if entry is None:
+            entry = (f"Im{len(self._images) + 1}", img)
+            self._images[img.key] = entry
+        return entry[0]
+
     def to_bytes(self) -> bytes:
         fonts = list(self._fonts.items())          # (base_name, key) insertion order
+        images = list(self._images.values())       # (key "ImN", Image) insertion order
         n_pages = len(self.pages)
 
         # deterministic object numbering: catalog, pages, then page+content
-        # pairs, then one object per font.
+        # pairs, then one object per font, then one per image.
         catalog_no, pages_no = 1, 2
         num = 3
         page_nos, content_nos = [], []
@@ -71,6 +81,9 @@ class Document:
         font_nos = {}
         for _name, key in fonts:
             font_nos[key] = num; num += 1
+        image_nos = {}
+        for key, _img in images:
+            image_nos[key] = num; num += 1
         total = num - 1
 
         objs: dict[int, bytes] = {}
@@ -79,12 +92,16 @@ class Document:
         objs[pages_no] = (b"<< /Type /Pages /Kids [%s] /Count %d >>"
                           % (kids, n_pages))
 
+        res_parts = []
         if fonts:
             font_res = b" ".join(b"%s %d 0 R" % (pdf_name(key), font_nos[key])
                                  for _n, key in fonts)
-            resources = b"<< /Font << %s >> >>" % font_res
-        else:
-            resources = b"<< >>"
+            res_parts.append(b"/Font << %s >>" % font_res)
+        if images:
+            img_res = b" ".join(b"%s %d 0 R" % (pdf_name(key), image_nos[key])
+                                for key, _img in images)
+            res_parts.append(b"/XObject << %s >>" % img_res)
+        resources = b"<< %s >>" % b" ".join(res_parts) if res_parts else b"<< >>"
 
         for i, page in enumerate(self.pages):
             mbox = b"[0 0 %s %s]" % (fmt_num(page.width).encode("ascii"),
@@ -101,6 +118,14 @@ class Document:
             objs[font_nos[key]] = (
                 b"<< /Type /Font /Subtype /Type1 /BaseFont %s "
                 b"/Encoding /WinAnsiEncoding >>" % pdf_name(name))
+
+        for key, img in images:
+            objs[image_nos[key]] = (
+                b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
+                b"/ColorSpace /%s /BitsPerComponent 8 /Filter /%s "
+                b"/Length %d >>\nstream\n%s\nendstream"
+                % (img.width, img.height, img.colorspace.encode("ascii"),
+                   img.filter.encode("ascii"), len(img.data), img.data))
 
         # --- serialize body, recording each object's byte offset ------------ #
         out = bytearray(_HEADER)

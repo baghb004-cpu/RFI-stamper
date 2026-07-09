@@ -264,10 +264,20 @@ class Canvas:
         self._font = "Helvetica"             # per-page state reset, like reportlab
         self._fontsize = 12
 
-    def drawImage(self, *args, **kwargs):
-        # Raster image XObjects are intentionally unsupported (MINIPDF_PLAN §6);
-        # no shipped code path draws images — this guard catches future misuse.
-        raise NotImplementedError("minipdf does not embed raster images")
+    def drawImage(self, image, x, y, width=None, height=None, **_kw):
+        """Draw a JPEG (bytes/path) or an alpha-free gray/RGB pixmap.
+
+        Default size is the intrinsic pixel size in points (the retired
+        writer's semantics).  Routed through the lazy ``_c`` property so an
+        image drawn right after ``showPage()`` lands on the NEW page.
+        """
+        from . import images
+        img = images.make_image(image)
+        w = img.width if width is None else width
+        h = img.height if height is None else height
+        if w <= 0 or h <= 0:
+            raise ValueError("drawImage size must be positive")
+        self._c.draw_image(img, x, y, w, h)
 
     def save(self):
         data = self._doc.to_bytes()

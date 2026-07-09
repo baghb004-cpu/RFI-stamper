@@ -1758,18 +1758,57 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
     c.line(m, y, W - m, y)
     y -= 10
 
-    # ---- plan-thumbnail band -----------------------------------------------
+    # ---- plan thumbnail (fitz render, minipdf image XObject) + pins --------
+    thumb_h = 170.0
     thumb_w = W - 2 * m
-    # The from-scratch writer embeds no raster images (a deliberate scope
-    # cut, MINIPDF_PLAN §6), so the sheet always says so honestly — the pin
-    # coordinates live in the DXF tier either way.
-    c.setStrokeColorRGB(0.6, 0.6, 0.62)
-    c.setLineWidth(0.6)
-    c.rect(m, y - 60, thumb_w, 60)
-    c.setFont("Helvetica-Oblique", 8)
-    c.drawString(m + 8, y - 34, "(no plan thumbnail — raster/absent "
-                                "plan; pins live in the DXF)")
-    y -= 72
+    page_no = 1
+    if pts:
+        counts: dict[int, int] = {}
+        for p_ in pts:
+            counts[p_.page] = counts.get(p_.page, 0) + 1
+        page_no = max(counts, key=counts.get)
+    drew = False
+    if job.pdf_path and os.path.exists(job.pdf_path):
+        try:
+            import fitz
+            doc = fitz.open(job.pdf_path)
+            try:
+                page = doc[page_no - 1]
+                pix = page.get_pixmap(matrix=fitz.Matrix(0.75, 0.75),
+                                      alpha=False)
+                pw, ph = page.rect.width, page.rect.height
+                sc = min(thumb_w / pw, thumb_h / ph)
+                iw, ih = pw * sc, ph * sc
+                ix, iy = m, y - ih
+                c.drawImage(pix, ix, iy, width=iw, height=ih)
+                c.setStrokeColorRGB(0.6, 0.6, 0.62)
+                c.setLineWidth(0.6)
+                c.rect(ix, iy, iw, ih)
+                for p_ in pts:
+                    if p_.page != page_no:
+                        continue
+                    px_, py_ = ix + p_.x * sc, iy + ih - p_.y * sc
+                    ly = job.layer(p_.layer)
+                    try:
+                        c.setFillColor(colors.HexColor(
+                            ly.color if ly else "#d84c3f"))
+                    except ValueError:
+                        c.setFillColorRGB(0.85, 0.3, 0.25)
+                    c.circle(px_, py_, 1.6, stroke=0, fill=1)
+                y = iy - 12
+                drew = True
+            finally:
+                doc.close()
+        except Exception:                    # raster/odd plan: honest fallback
+            drew = False
+    if not drew:
+        c.setStrokeColorRGB(0.6, 0.6, 0.62)
+        c.setLineWidth(0.6)
+        c.rect(m, y - 60, thumb_w, 60)
+        c.setFont("Helvetica-Oblique", 8)
+        c.drawString(m + 8, y - 34, "(no plan thumbnail — raster/absent "
+                                    "plan; pins live in the DXF)")
+        y -= 72
     c.setFillColorRGB(0.24, 0.24, 0.24)
 
     # ---- control table ----------------------------------------------------

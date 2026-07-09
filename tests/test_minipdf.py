@@ -324,6 +324,106 @@ def test_canvas_guards():
         pass
 
 
+# --------------------------------------------------------------------------- #
+#  7. raster image XObjects (BUILDOUT Phase A)                                 #
+# --------------------------------------------------------------------------- #
+
+def test_images():
+    import io
+    import struct
+    import fitz
+    from rfi_stamper.minipdf import Canvas, images
+
+    # --- SOF parser units (hand-built frames + refusals) -------------------- #
+    def sof(marker, precision=8, h=7, w=9, ncomp=3):
+        seg = struct.pack(">BHHB", precision, h, w, ncomp) + b"\x00" * (3 * ncomp)
+        return (b"\xff\xd8"                       # SOI
+                + b"\xff\xe0" + struct.pack(">H", 4) + b"JF"   # APP0 stub
+                + bytes([0xFF, marker]) + struct.pack(">H", 2 + len(seg)) + seg
+                + b"\xff\xd9")
+    A(images.jpeg_info(sof(0xC0)) == (9, 7, 3), "SOF0 parses w/h/ncomp")
+    A(images.jpeg_info(sof(0xC2, h=30, w=40, ncomp=1)) == (40, 30, 1),
+      "SOF2 (progressive) accepted, gray")
+    A(images.jpeg_info(b"\xff\xd8\xff\xff" + sof(0xC1)[2:]) == (9, 7, 3),
+      "FF fill bytes before a marker are skipped")
+    for bad, why in [(sof(0xC0, ncomp=4), "CMYK refused"),
+                     (sof(0xC0, precision=12), "12-bit refused"),
+                     (b"\x89PNG\r\n", "non-JPEG refused")]:
+        try:
+            images.jpeg_info(bad)
+            A(False, why)
+        except ValueError:
+            pass
+
+    # --- Flate path: quadrant colors + row order (top-left red) ------------- #
+    doc = fitz.open()
+    src = doc.new_page(width=100, height=100)
+    src.draw_rect(fitz.Rect(0, 0, 50, 50), color=None, fill=(1, 0, 0))     # TL red
+    src.draw_rect(fitz.Rect(50, 0, 100, 50), color=None, fill=(0, 0.8, 0))
+    src.draw_rect(fitz.Rect(0, 50, 50, 100), color=None, fill=(0, 0, 1))
+    src.draw_rect(fitz.Rect(50, 50, 100, 100), color=None, fill=(0, 0, 0))
+    pix = src.get_pixmap(alpha=False)
+
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(200, 200))
+    c.drawImage(pix, 50, 50, width=100, height=100)
+    c.save()
+    out = fitz.open(stream=buf.getvalue(), filetype="pdf")
+    ren = out[0].get_pixmap(dpi=72, alpha=False)
+    # PDF y-up: the drawn rect spans page y 50..150 -> raster rows 50..150.
+    # source TOP-left (red) must render at the TOP of the placed rect.
+    A(ren.pixel(75, 75)[0] > 200 and ren.pixel(75, 75)[2] < 60,
+      f"top-left quadrant is red (row order), got {ren.pixel(75, 75)}")
+    A(ren.pixel(125, 125)[0] < 60 and ren.pixel(125, 125)[1] < 60,
+      "bottom-right quadrant is black")
+    A(ren.pixel(25, 25) == (255, 255, 255), "outside the rect stays white")
+    out.close()
+
+    # --- DCT passthrough: bytes are embedded verbatim ----------------------- #
+    jpg = pix.tobytes("jpg")
+    buf2 = io.BytesIO()
+    c2 = Canvas(buf2, pagesize=(200, 200))
+    c2.drawImage(jpg, 10, 10, width=100, height=100)
+    c2.save()
+    data2 = buf2.getvalue()
+    A(jpg in data2, "JPEG bytes pass through untranscoded")
+    A(b"/DCTDecode" in data2 and b"/DeviceRGB" in data2, "DCT dict fields")
+
+    # --- dedup: three draws, one image object -------------------------------#
+    buf3 = io.BytesIO()
+    c3 = Canvas(buf3, pagesize=(200, 200))
+    c3.drawImage(pix, 0, 0, width=50, height=50)
+    c3.drawImage(pix, 60, 0, width=50, height=50)
+    c3.showPage()
+    c3.drawImage(pix, 0, 0, width=80, height=80)
+    c3.save()
+    A(buf3.getvalue().count(b"/Subtype /Image") == 1,
+      "same pixels dedup to ONE image object across pages")
+
+    # --- determinism + refusals -------------------------------------------- #
+    def build():
+        b = io.BytesIO()
+        cc = Canvas(b, pagesize=(200, 200))
+        cc.drawImage(pix, 5, 5, width=60, height=60)
+        cc.save()
+        return b.getvalue()
+    A(build() == build(), "image-bearing output is byte-identical across builds")
+
+    apix = src.get_pixmap(alpha=True)
+    for bad_call, why in [
+        (lambda: images.make_image(apix), "alpha pixmap refused"),
+        (lambda: images.make_image(b"\x89PNG\r\n\x1a\n"), "PNG bytes refused"),
+        (lambda: c3.drawImage(pix, 0, 0, width=0, height=10), "zero size refused"),
+    ]:
+        try:
+            bad_call()
+            A(False, why)
+        except (TypeError, ValueError):
+            pass
+    doc.close()
+    print("  images: SOF units, Flate quadrants/row-order, DCT passthrough, dedup, determinism, refusals")
+
+
 def main():
     for fn, label in [
         (test_metric_parity, "text-metric parity with the reportlab oracle"),
@@ -336,6 +436,7 @@ def main():
         (test_external_conformance, "qpdf --check conformance (advisory)"),
         (test_flow_pagination, "flow pagination: table defer + paragraph split"),
         (test_canvas_guards, "canvas state guards + bool numeric coercion"),
+        (test_images, "raster image XObjects (DCT passthrough + Flate pixmaps)"),
     ]:
         fn()
         print(f"PASS {label}")

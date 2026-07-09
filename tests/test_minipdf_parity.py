@@ -321,14 +321,33 @@ def test_fieldpro_engine():
         A(ld[0].rect.width > ld[0].rect.height, "ledger is landscape")
         ld.close()
 
+        # Phase A: with a real vector plan attached, the sheet embeds a live
+        # plan-thumbnail image (the honest fallback text must be GONE).
+        plan = os.path.join(d, "plan.pdf")
+        pdoc = fitz.open()
+        pg = pdoc.new_page(width=612, height=792)
+        pg.draw_rect(fitz.Rect(40, 40, 572, 752))
+        pg.insert_text((60, 70), "STAKE PLAN", fontsize=18)
+        pdoc.save(plan)
+        pdoc.close()
+        job.pdf_path = plan
         export_package(job, qa, d, "DAY1", list(job.points), log=lambda m: None)
         sheet = glob.glob(os.path.join(d, "DAY1_sheet.pdf"))
         A(len(sheet) == 1, "stake-package sheet written")
         sd = fitz.open(sheet[0])
         txt = sd[0].get_text("text")
         A("STAKE PACKAGE" in txt, "stake sheet header present")
-        A("no plan thumbnail" in txt, "raster thumbnail degraded to the fallback")
+        A("no plan thumbnail" not in txt, "thumbnail rendered, fallback absent")
+        A(len(sd[0].get_images()) == 1, "exactly one embedded plan thumbnail")
         sd.close()
+
+        # and WITHOUT a plan the fallback band stays honest
+        job2 = TF._pairing_job()
+        export_package(job2, qa, d, "DAY2", list(job2.points), log=lambda m: None)
+        sd2 = fitz.open(os.path.join(d, "DAY2_sheet.pdf"))
+        A("no plan thumbnail" in sd2[0].get_text("text"),
+          "absent plan degrades to the honest fallback")
+        sd2.close()
     finally:
         if prev is None:
             os.environ.pop("PLOOM_PDF_ENGINE", None)
