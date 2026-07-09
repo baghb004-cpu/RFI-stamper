@@ -11,10 +11,14 @@ try:
 except Exception:               # tkinterdnd2 not installed: DnD degrades to Browse
     tkdnd_datas = []
 
+# the Tracer's trained OCR model rides along so the built-in OCR works with
+# no retraining (and no external engine) in the frozen build
+_tracer_model = [("rfi_stamper/tracer/model.npz", "rfi_stamper/tracer")]
+
 a_gui = Analysis(
     ["launch_gui.py"],
     pathex=["."],
-    datas=tkdnd_datas + [("assets/planloom.png", "assets")],
+    datas=tkdnd_datas + [("assets/planloom.png", "assets")] + _tracer_model,
     hiddenimports=["tkinterdnd2"],   # optional drag-and-drop; warning-only if absent
     noarchive=False,
 )
@@ -34,7 +38,7 @@ exe_gui = EXE(
 a_cli = Analysis(
     ["launch_cli.py"],
     pathex=["."],
-    datas=tkdnd_datas,
+    datas=tkdnd_datas + _tracer_model,
     hiddenimports=["tkinterdnd2"],
     noarchive=False,
 )

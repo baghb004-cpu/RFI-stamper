@@ -457,6 +457,32 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   marks (hyphen/period vs apostrophe), lowercase/hand fonts — the P2
   gradient-MLP+kNN ensemble and P3 lexicon/grammar/number-lock. NEXT: P2.
 
+## Round 18 (SHIPPED, v4.5.0): the Tracer P2 — MLP/kNN ensemble + training
+## (OCR_PLAN P2)
+
+- **tracer/ upgraded**: features.py (8-dir gradient NCFE 512-D → PCA 142-D
+  + 2 structural = 144-D), synth.py (Kanungo/Baird corpus: Helvetica +
+  Courier + Hershey Type A/B × 0°/15°, 240/class ≈ 10.3k exemplars, 3
+  severity tiers, seeded), fonts.py (public-domain Hershey single-stroke),
+  classify.py (from-scratch numpy MLP 144→256→43, ~48k params, ~11 s
+  train, **99.5% held-out**; kNN store; NCC bank; ensemble
+  0.55·MLP+0.30·NCC+0.15·kNN + topology gate + temperature/reliability-bin
+  calibrated confidence), segment.py (drop-fall touching-split + DP
+  recombination), eval.py (CER/WER + auto-labeled real set via
+  get_text("words")).
+- **model.npz** (636 KB) trained once + committed; loaded lazily (runtime
+  never retrains). Added to **rfi_stamper.spec** datas (both exes) so the
+  frozen Windows build ships the trained model.
+- Measured: **auto-labeled real-set CER 0.00%** on a 237-char clean
+  300-dpi Helvetica uppercase paragraph (P2 green bar ≤2%); ensemble beats
+  NCC-alone on a degraded set (0.91 vs 0.55); "P-101" now reads WITH the
+  hyphen mark.
+- ocr.py / test_ocr.py / GUI untouched; Tesseract path green. 48 suites
+  green (new: test_tracer_p2.py, 130 checks). HONEST remaining: P3
+  (lexicon/grammar/number-lock + sheet-index/dimension cross-checks for
+  real-word errors like 0/O, S-101 vs S-107; degraded-photocopy CER
+  ~6–9%); P4 (wire eval into run_all, remove Tesseract after parity). NEXT: P3.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
