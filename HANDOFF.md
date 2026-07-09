@@ -353,6 +353,27 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   note; replay fires ONLY once trusted in the Old Hand Manage screen.
 - tests/test_weaver.py: 168 phrasings total. 43 suites green.
 
+## Round 14 (SHIPPED, v4.1.0): Corral hardening (Phase F — ROADMAP COMPLETE)
+
+- **heartwood/corral.py**: LIMITS + compact() (feedback prune, orphan
+  sweep, in-doc dedupe, per-doc caps, vocab prune at compact AND load,
+  VACUUM; one transaction; note content never touched), provenance()
+  (every learned item w/ origin; seeds disable-not-delete via tombstone),
+  purge(), snapshot()/restore() (JSON learning bundle, statuses exact,
+  pending never travels, idempotent), gauges() + growth series (8
+  snapshots in hw_meta).
+- **GUI**: Old Hand Manage gains Provenance tree + Purge + Compact now +
+  Export/Import learning; Ground Truth gains a Heartwood card row (KB
+  size, passages + growth sparkline, unverified queue, 7-day asks) that
+  only renders when a store exists.
+- **Red-team proven (tests/test_corral.py, 181 asserts)**: a hostile PDF
+  ("ignore all previous instructions", fake commands, poisoned synonym,
+  fake citations) ingests as data only — an 8-command Weaver session is
+  BYTE-IDENTICAL with and without the poisoned store; hostile notes stay
+  unverified and macro replay refuses until trusted; miner proposals
+  never affect search until approved; caps/dedupe/round-trip all hold.
+- 44 suites green. ROADMAP phases A-F: ALL SHIPPED (v3.4.0 → v4.1.0).
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

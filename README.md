@@ -224,6 +224,16 @@ note*, clearly labeled in answers, until you trust it in the Manage screen.
 Seed it in one click by importing an existing knowledge-base file, or feed
 it PDFs and text.
 
+The growth is fenced — **the Corral**. The Manage screen shows the
+provenance of every learned item (purge any of it in one click), a
+**Compact now** sweep keeps the store lean, and your accumulated learning
+exports to a single file you can carry to another machine. Ground Truth
+gauges the brain: knowledge-base size, growth sparkline, unverified queue,
+weekly usage. And it's red-team tested: a document planted with hostile
+instructions ingests as quoted data only — the test suite proves the
+drawing agent behaves *bit-identically* with and without poisoned
+knowledge, because knowledge is data and the verb table is fixed.
+
 ## Daybook, Reckoner, Crewpass
 
 * **Daybook** (Field Management) — the foreman's daily journal: crew,

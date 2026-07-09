@@ -212,5 +212,8 @@ D (3D uplift) → E (Weaver v2) → F (Corral hardening). B before C because
 the Weaver needs hands before a voice; D after C so the first wow is
 functional, not cosmetic. Each phase is independently shippable.
 
-**Status: GREENLIT by the owner (roll in order), Phase A research fleet
-running.**
+**Status: COMPLETE. All six phases shipped in order — A1 v3.4.0, A2
+v3.5.0, B v3.6.0, C1 v3.7.0, C2 v3.8.0, D v3.9.0, E v4.0.0, F v4.1.0 —
+each green across the full suite, scrubbed, and pushed to main. Deferred
+polish items live in HANDOFF.md round notes (A-polish list, Weaver zoom
+refinements, real-Windows mic smoke, threshold field-tuning).**
