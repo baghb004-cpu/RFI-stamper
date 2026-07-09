@@ -198,6 +198,11 @@ class Table(Flowable):
         self.width = 0.0
         self.height = 0.0
 
+    def setStyle(self, style):
+        """Merge additional style commands (reportlab.Table.setStyle-compatible)."""
+        cmds = style.getCommands() if isinstance(style, TableStyle) else list(style)
+        self.style = TableStyle(self.style.getCommands() + cmds)
+
     # -- per-cell style resolution ----------------------------------------- #
     def _cell_pad(self, r, c):
         pad = dict(_DEFAULT_PAD)

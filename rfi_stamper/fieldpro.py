@@ -980,7 +980,35 @@ _LEDGER_WEIGHTS = [5.2, 8.0, 6.0, 8.4, 8.4, 4.6, 4.6, 4.6, 4.6, 4.4, 5.0,
 _MARGIN = 40.0
 
 
-def _ledger_styles():
+def _pdf_engine():
+    """The platypus-shaped classes for the selected engine (PLOOM_PDF_ENGINE).
+
+    reportlab by default; the from-scratch ``minipdf`` when set.  reportlab
+    colour constants are duck-typed by minipdf's canvas, so the shared
+    ``transmittal.ACCENT`` etc. work under either.
+    """
+    from types import SimpleNamespace
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        from .minipdf import colors as _colors
+        from .minipdf.pagesizes import letter as _letter, landscape as _landscape
+        from .minipdf.flow import (ParagraphStyle, Paragraph, HRFlowable, Spacer,
+                                   Table, TableStyle, SimpleDocTemplate)
+    else:
+        from reportlab.lib import colors as _colors
+        from reportlab.lib.pagesizes import letter as _letter, landscape as _landscape
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import (Paragraph, HRFlowable, Spacer, Table,
+                                        TableStyle, SimpleDocTemplate)
+    return SimpleNamespace(
+        colors=_colors, letter=_letter, landscape=_landscape,
+        ParagraphStyle=ParagraphStyle, Paragraph=Paragraph, HRFlowable=HRFlowable,
+        Spacer=Spacer, Table=Table, TableStyle=TableStyle,
+        SimpleDocTemplate=SimpleDocTemplate)
+
+
+def _ledger_styles(E):
+    ParagraphStyle = E.ParagraphStyle
+    colors = E.colors
     title = ParagraphStyle(
         "LedgerTitle", fontName="Helvetica-Bold", fontSize=20, leading=23,
         textColor=transmittal.ACCENT, spaceAfter=2)
@@ -1002,7 +1030,9 @@ def _ledger_styles():
     return title, meta, session, header, body, foot
 
 
-def _ledger_table(rows, header_style, body_style, usable):
+def _ledger_table(rows, header_style, body_style, usable, E):
+    Paragraph, Table, TableStyle, colors = (E.Paragraph, E.Table, E.TableStyle,
+                                            E.colors)
     total_w = sum(_LEDGER_WEIGHTS)
     widths = [usable * w / total_w for w in _LEDGER_WEIGHTS]
     data = [[Paragraph(transmittal._cell_text(h), header_style)
@@ -1043,8 +1073,13 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
     dated signature blocks and the compare-then-round footnote.
 
     Returns ``{"out_path", "rows", "pages", "summary"}``."""
+    E = _pdf_engine()
+    Paragraph, HRFlowable, Spacer = E.Paragraph, E.HRFlowable, E.Spacer
+    Table, TableStyle = E.Table, E.TableStyle
+    SimpleDocTemplate = E.SimpleDocTemplate
+    landscape, letter = E.landscape, E.letter
     (title_style, meta_style, session_style, header_style, body_style,
-     foot_style) = _ledger_styles()
+     foot_style) = _ledger_styles(E)
     usable = landscape(letter)[0] - 2 * _MARGIN
 
     all_recs = qa.all_records()
@@ -1099,7 +1134,7 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
                 r.measured_at[:4], r.ts,
             ])
         total_rows += len(rows)
-        story.append(_ledger_table(rows, header_style, body_style, usable))
+        story.append(_ledger_table(rows, header_style, body_style, usable, E))
 
     # ---- check-shot / bracket ledger ------------------------------------
     brs = brackets(qa.checks, qa.governing())
@@ -1738,9 +1773,14 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
                        name: str, pts, route_labels, pkg: dict) -> None:
     """The one-page paper manifest — a first-class deliverable for the
     clipboard-and-tape crew, doubling as the morning briefing."""
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfgen import canvas as rl_canvas
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        from .minipdf.pagesizes import letter
+        from .minipdf import canvas as rl_canvas
+        ImageReader = None          # no raster embedding -> "no thumbnail" fallback
+    else:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as rl_canvas
 
     W, H = letter
     m = 40.0

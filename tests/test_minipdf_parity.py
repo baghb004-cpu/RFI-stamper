@@ -270,6 +270,53 @@ def test_table_engine():
     print(f"  table engine: {res['rows']} rows -> {res['pages']} pages, header repeats, footer, all rows present")
 
 
+def test_fieldpro_engine():
+    """fieldpro's landscape ledger + stake-package sheet render on minipdf.
+
+    The ledger is a landscape platypus report through the from-scratch flow
+    engine; the stake sheet is direct-canvas with the raster plan thumbnail
+    intentionally degraded to its "no thumbnail" fallback (minipdf embeds no
+    images).  Structural bar (reports aren't verify.py-gated).
+    """
+    if not _have_reportlab():
+        return
+    import glob
+    import fitz
+    import test_fieldstitch_pro as TF
+    from rfi_stamper.fieldpro import QAStore, export_package, ledger_pdf
+
+    prev = os.environ.get("PLOOM_PDF_ENGINE")
+    os.environ["PLOOM_PDF_ENGINE"] = "minipdf"
+    try:
+        job = TF._pairing_job()
+        qa = QAStore()
+        d = tempfile.mkdtemp(prefix="minipdf_field_")
+        lout = os.path.join(d, "ledger.pdf")
+        res = ledger_pdf(job, qa, lout, project="JOB-7", area="L2",
+                         log=lambda m: None)
+        A(os.path.isfile(lout) and res["pages"] >= 1, "landscape ledger written")
+        ld = fitz.open(lout)
+        A(ld[0].get_text("text").strip() != "", "ledger page 1 has text")
+        # landscape: wider than tall
+        A(ld[0].rect.width > ld[0].rect.height, "ledger is landscape")
+        ld.close()
+
+        export_package(job, qa, d, "DAY1", list(job.points), log=lambda m: None)
+        sheet = glob.glob(os.path.join(d, "DAY1_sheet.pdf"))
+        A(len(sheet) == 1, "stake-package sheet written")
+        sd = fitz.open(sheet[0])
+        txt = sd[0].get_text("text")
+        A("STAKE PACKAGE" in txt, "stake sheet header present")
+        A("no plan thumbnail" in txt, "raster thumbnail degraded to the fallback")
+        sd.close()
+    finally:
+        if prev is None:
+            os.environ.pop("PLOOM_PDF_ENGINE", None)
+        else:
+            os.environ["PLOOM_PDF_ENGINE"] = prev
+    print("  fieldpro: landscape ledger + stake sheet render on minipdf (image fallback)")
+
+
 def main():
     for fn, label in [
         (test_overlay_pixel_identity, "overlay pixel-identity vs reportlab (90+300 dpi)"),
@@ -277,6 +324,7 @@ def main():
         (test_pipeline_minipdf_verifies, "full stamp+verify pipeline on the minipdf engine"),
         (test_plate_parity, "draft.py Loft plate parity (curves + clip + dash)"),
         (test_table_engine, "from-scratch flow/table engine (transmittal)"),
+        (test_fieldpro_engine, "fieldpro ledger + stake package on minipdf"),
     ]:
         fn()
         print(f"PASS {label}")
