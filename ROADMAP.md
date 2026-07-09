@@ -261,6 +261,23 @@ D (3D uplift) → E (Weaver v2) → F (Corral hardening). B before C because
 the Weaver needs hands before a voice; D after C so the first wow is
 functional, not cosmetic. Each phase is independently shippable.
 
+## Phase I — the Tracer: from-scratch OCR (retire the Tesseract dependency)
+
+Researched (8-agent pass) and PLANNED — full plan in **OCR_PLAN.md**. Replace
+the optional Tesseract OCR path with a pure Python + numpy + fitz engine for
+scanned/raster plan pages (vector pages keep their perfect existing text
+path). Verdict: feasible for this narrow domain (near-fixed technical fonts,
+uppercase, ~40–60 char classes, structured fields) — clean-scan CER ≤ 1–2%,
+within a small delta of Tesseract, and BEATS it on structured tokens via the
+app's own sheet-index + dimension grammar + trade lexicon. Ensemble classifier
+(NCC template + kNN memory + numpy MLP over 8-direction gradient features),
+synthetic training data from Hershey/base-14 fonts + Kanungo/Baird degradation,
+two-lane human-gated self-learning (per-firm font profiles). Drop-in for
+`ocr.py` via a new `ocr/` package. Staged P1→P4, Tesseract removed only in P4
+after an eval harness proves parity. Honest SKIPs: text fused with linework,
+sub-legible scans, hand fonts. NOT YET BUILT — awaiting the go-ahead to start
+P1.
+
 ## Phase H — Holler: hands-free voice control for ANY app (owner brief,
 ## added after Phase G)
 
