@@ -483,6 +483,35 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   real-word errors like 0/O, S-101 vs S-107; degraded-photocopy CER
   ~6–9%); P4 (wire eval into run_all, remove Tesseract after parity). NEXT: P3.
 
+## Round 19 (SHIPPED, v4.6.0): the Tracer P3 — lexicon/grammar/number-lock
+## (OCR_PLAN P3)
+
+- **tracer/lexicon.py** (new post-correction stage, gated behind optional
+  kwargs so P2 behavior is byte-identical when no context): field routing
+  (sheet/dim/word/num/mark), sheet-number cross-check against the document's
+  OWN index (harvest_sheet_hints via core.SHEET_TOKEN — free
+  self-supervision; a smudged S-1O1 snaps to the real S-101), dimension
+  grammar validate/repair via holler.parse_dimension/format_ftin,
+  confusion-weighted SymSpell word-snap to a trade lexicon (+ optional
+  Heartwood terms) with char-3-gram back-off, garbage rejection (τ_lo/τ_hi).
+- **NUMBER-LOCK** reuses heartwood.restate.number_multiset: digit strings
+  never dictionary-corrupted, corrections never change the numeric multiset
+  (a scanned 8' can never become 6'); the ONE sanctioned exception is a
+  sheet-index snap to a token genuinely in the set. Proven in tests.
+- **tracer/profile.py**: two-lane self-learning (auto-lane verified tokens →
+  kNN store, capped/provenance-tagged; human-gated Corrections.promote) +
+  per-firm FontProfile save/load (kNN sidecar keyed by producer).
+- Measured: sheet-number field accuracy raw 95.0% → **corrected 100.0%** on
+  a 100-sample degraded set w/ index cross-check (≥99% bar cleared).
+  model.npz reused unchanged (confusion field already present; 3-grams built
+  at runtime).
+- **GUI**: PDF Tools "built-in OCR" now passes lexicon.Lexicon.default(), so
+  ocr_pdf auto-harvests the set's sheet index and cross-checks every read
+  (verified end-to-end: scanned S-101 corrected via the doc's own index).
+- ocr.py/test_ocr.py/searchable writer untouched; Tesseract green. 49 suites
+  green (new: test_tracer_p3.py, 85 checks). NEXT: P4 — wire the CER/WER eval
+  harness into run_all, prove parity, REMOVE Tesseract.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

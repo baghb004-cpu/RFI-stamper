@@ -285,12 +285,18 @@ class PdfToolsTab(ttk.Frame):
         cases (small/degraded/linework-fused text) are honest work-in-
         progress that improves each release."""
         from .. import tracer
+        from ..tracer import lexicon as _lex
+        # P3 context: a default trade lexicon + the document's own sheet
+        # index (auto-harvested inside ocr_pdf) cross-check every read —
+        # a smudged S-1O1 snaps to the real S-101 in the set, number-locked
         self._run("Built-in OCR",
-                  lambda p, o: tracer.ocr_pdf(p, o, log=self.log.say),
+                  lambda p, o: tracer.ocr_pdf(
+                      p, o, lexicon=_lex.Lexicon.default(), log=self.log.say),
                   "searchable",
                   lambda r: f"Built-in OCR — {r['pages_ocred']}/"
                             f"{r['pages_total']} page(s) made searchable "
-                            "(title-block & large text; more each release)")
+                            "(cross-checked against the set's own sheet "
+                            "index; sharper each release)")
 
     def autolink(self):
         self._run("Auto-Hyperlink",

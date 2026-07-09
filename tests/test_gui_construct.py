@@ -1179,10 +1179,34 @@ def main():
     doc2.save(sp)
     doc2.close()
     txt = tracer_mod.ocr_page_text(sp, 1)
-    # P1 reads the alphanumerics reliably; the thin hyphen mark is a
-    # documented P2/P3 improvement, so assert the letter + digits, not the mark
+    # P2 ensemble reads the alphanumerics reliably (marks improved too)
     flat = "".join(txt.split()).upper()
     assert "101" in flat and "P" in flat, repr(txt)
+    # P3: the set's own sheet index cross-checks a scanned title-block read,
+    # the same context the PDF Tools built-in-OCR button now passes
+    from rfi_stamper.tracer import lexicon as _tlex
+    idxpdf = os.path.join(sdir, "set.pdf")
+    idxout = os.path.join(sdir, "set_ocr.pdf")
+    dd = fitz.open()
+    ip1 = dd.new_page(width=612, height=792)
+    ip1.insert_text((72, 120), "INDEX S-100 S-101 S-102", fontsize=20)
+    _s = fitz.open()
+    _sp = _s.new_page(width=612, height=792)
+    _sp.insert_text((470, 720), "S-101", fontsize=30)
+    _px = _sp.get_pixmap(dpi=200)
+    _s.close()
+    ip2 = dd.new_page(width=612, height=792)
+    ip2.insert_image(ip2.rect, pixmap=_px)
+    dd.save(idxpdf)
+    dd.close()
+    with fitz.open(idxpdf) as _hd:
+        assert "S-101" in tracer_mod.harvest_sheet_hints(_hd)
+    rr = tracer_mod.ocr_pdf(idxpdf, idxout,
+                            lexicon=_tlex.Lexicon.default(),
+                            log=lambda *a: None)
+    assert rr["pages_ocred"] == 1
+    with fitz.open(idxout) as _o:
+        assert "S-101" in _o[1].get_text("text").upper()
     assert any("Tracer" in c[0] or "built-in" in c[0].lower()
                for c in pt.commands()), "Tracer palette command missing"
 
