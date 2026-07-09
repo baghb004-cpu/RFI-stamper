@@ -139,6 +139,10 @@ class App:
         ttk.Button(self.status, text="⚘ Old Hand", style="Tool.TButton",
                    command=lambda: self.oldhand.toggle()).pack(
             side="right", padx=4)
+        # Holler: the hands-free voice companion (floating, always-on-top)
+        self.holler = None
+        ttk.Button(self.status, text="⟟ Holler", style="Tool.TButton",
+                   command=self.open_holler).pack(side="right", padx=4)
 
         # recents + toasts riding on the embedded tools
         self.plans.markup.on_opened = lambda p: self.add_recent(p, "markup")
@@ -466,6 +470,8 @@ class App:
                            command=self.palette.open)
         toolsm.add_command(label="Crewpass seat ledger…",
                            command=self.crewpass_dialog)
+        toolsm.add_command(label="Holler — hands-free voice control…",
+                           command=self.open_holler)
         toolsm.add_command(label="The Old Hand — ask the trades\tCtrl+/",
                            command=lambda: self.oldhand.toggle(True))
         toolsm.add_command(label="Manage the Heartwood…",
@@ -493,6 +499,8 @@ class App:
                    self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
         p.register("Crewpass seat ledger", "Tools", self.crewpass_dialog)
+        p.register("Holler — hands-free voice control", "Tools",
+                   self.open_holler)
         p.register_many(self.oldhand.commands())
         for q in ("auto", "full", "reduced", "off"):
             p.register(f"Animation quality: {q}", "Preferences",
@@ -539,6 +547,14 @@ class App:
             offline_guard.install()
             self.prefs["offline_guard"] = True
         self.status.set_offline(offline_guard.is_active())
+
+    def open_holler(self):
+        """Open (or resurface) the single Holler voice companion."""
+        from .holler_deck import HollerDeck
+        if self.holler is not None and self.holler.win.winfo_exists():
+            self.holler.show()
+            return
+        self.holler = HollerDeck(self.root, self.theme, self.status)
 
     def crewpass_dialog(self):
         """Offline seat ledger: who runs Planloom on which device.  A local

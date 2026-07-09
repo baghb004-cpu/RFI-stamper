@@ -121,6 +121,12 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
+    rfi_stamper/holler.py     Holler: hands-free voice control for ANY app —
+                              the Caller (spoken-measure/shape -> text grammar
+                              w/ format profiles), the Songbook (Trips/Placards/
+                              Fetches/Runs + JSON/CSV), the Sender (user32
+                              SendInput ctypes, HAS_SEND honest dry-run intents),
+                              the Router (Songbook-then-grammar), the Ticker
     rfi_stamper/heartwood/    the knowledge core ("the bible"): SQLite KB,
                               from-scratch meaning search (random-indexing
                               vectors trained on the KB + trade thesaurus),
@@ -138,7 +144,9 @@ run; the `*_report.txt` must end in PASS).
                               (canvas 3D viewer), dnd, widgets, palette,
                               overlay, viewer, prefs (~/.planloom), oldhand
                               (the Old Hand: global Heartwood Q&A drawer,
-                              Ctrl+/ from any section), tab_draft
+                              Ctrl+/ from any section), squawk_deck (Squawk
+                              Box voice deck), holler_deck (Holler floating
+                              voice companion), tab_draft
                               (The Loft drafting board), tab_home,
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,

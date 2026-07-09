@@ -193,6 +193,29 @@ uncertain shows "did you mean…" and never auto-fires a drawing command.
 It's a trained phrase deck, not open dictation — the honest trade for
 running 100% offline with nothing embedded.
 
+## Holler — hands-free control for any CAD
+
+The **⟟ Holler** button opens a floating companion that types into
+*whatever window has focus* — so you can drive your other CAD tools by
+voice too. Say a measurement and **the Caller** types it formatted —
+"one hundred five feet six and seven eighths" becomes `105'-6 7/8"`, and
+"L two and one half by two and one half by one quarter" becomes
+`L2 1/2x2 1/2x1/4` — with format profiles to match any program's expected
+input. Say a tool word and a **Trip** fires its shortcut; say a phrase and
+a **Placard** stamps the exact boilerplate; say a folder name and a
+**Fetch** opens it; say a macro name and a **Run** plays the keystroke
+sequence with real waits. The **Songbook** is your command dictionary —
+edit it right in a spreadsheet — and the **Ticker** tapes what it heard,
+what it did, and every keystroke it saved you. It complements your mouse
+and keyboard; it never replaces them.
+
+Honest boundaries, as always: the keystroke sender is a Windows OS call, so
+on other platforms it runs in preview mode showing the exact keystrokes it
+*would* send; recognition is speaker-trained (any language you record, no
+speech-pack dependency); and Planloom's own process still opens zero
+network sockets — opening a target is a local OS hand-off, with browser/URL
+targets opt-in and clearly labeled.
+
 A draft saves as one `.loft.json` file, and leaves the Loft three ways:
 
 * **Plate PDF** — a titled, bordered sheet (title block, north arrow,

@@ -404,6 +404,32 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   containers are closed — export to PDF/DXF; structured Loft/pipe drafts
   give the strongest checks.
 
+## Round 16 (SHIPPED, v4.3.0): Holler — hands-free voice control (Phase H)
+
+- **holler.py**: a system-wide voice→keystroke layer for ANY app. **The
+  Caller** — spoken-measurement/shape grammar → formatted text (owner
+  examples verbatim: "one hundred five feet six and seven eighths" →
+  105'-6 7/8"; "L two and one half by two and one half by one quarter" →
+  L2 1/2x2 1/2x1/4), 7 format PROFILES. **Songbook** — Trips/Placards/
+  Fetches/Runs, JSON + CSV round-trip (open in a spreadsheet). **Sender**
+  — user32 SendInput via ctypes (HAS_SEND honest; DRY intent-recording on
+  non-Windows; intent tuples ("char",..)/("key",..)/("down/up",mod)/
+  ("wait",s)). **Router** Holler.dispatch (Songbook-then-Caller
+  precedence). **Ticker** — history + command/keystrokes-saved counters.
+  tests/test_holler.py: 227 headless checks.
+- **GUI gui/holler_deck.py**: a floating always-on-top companion (global —
+  status-bar ⟟ Holler button + palette + Tools menu): dimension-format
+  picker, a type/say box (works with or without a mic), the Ticker tape +
+  counters, the Songbook table editor (add/edit/delete, import CSV, open as
+  spreadsheet), and 🎙 Voice… which opens the Squawk Box recognizer trained
+  on the Holler deck. Reuses the Squawk Box as the ear; on non-Windows
+  every keystroke is a labeled [preview].
+- 46 suites green. HONEST: the winmm-sibling user32 SendInput path is
+  Windows-only and UNTESTED on the build box (dry intent lists are the
+  contract) — smoke real keystrokes on Windows before relying on it;
+  opener defaults to dry off-Windows; URL Fetch targets opt-in + flagged.
+- ROADMAP phases A-H ALL SHIPPED (v3.4.0 → v4.3.0).
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

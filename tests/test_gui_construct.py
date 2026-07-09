@@ -1132,6 +1132,33 @@ def main():
     assert not bv3.measuring
     bv3.shaded_var.set(False)
 
+    # ---- Holler: the hands-free voice companion (dispatch, Ticker, Songbook)
+    app.open_holler()
+    root.update()
+    hd = app.holler
+    assert hd is not None and hd.win.winfo_exists()
+    hd.dispatch("two feet seven and seven eighths")   # the Caller grammar
+    root.update()
+    hd.dispatch("line")                                # a seed Trip
+    root.update()
+    hd.dispatch("issued for construction")             # a seed Placard
+    root.update()
+    hd.dispatch("nonsense zzz")                         # a miss
+    root.update()
+    tape = hd.tape.get("1.0", "end")
+    assert "2'-7 7/8\"" in tape, tape
+    assert "l+Enter" in tape and "ISSUED FOR CONSTRUCTION" in tape
+    assert "not in the Songbook" in tape
+    s = hd.ticker.summary()
+    assert s["commands"] == 3 and s["keystrokes_saved"] > 20, s
+    assert len(hd.tree.get_children()) == len(hd.songbook.entries) >= 7
+    # re-opening resurfaces the single instance, never a second window
+    app.open_holler()
+    root.update()
+    assert app.holler is hd
+    hd.close()
+    root.update()
+
     # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
     from rfi_stamper.gui.app import resource_path
     icon_png = resource_path(os.path.join("assets", "planloom.png"))
