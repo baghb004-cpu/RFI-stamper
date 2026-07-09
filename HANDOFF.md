@@ -430,6 +430,33 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   opener defaults to dry off-Windows; URL Fetch targets opt-in + flagged.
 - ROADMAP phases A-H ALL SHIPPED (v3.4.0 → v4.3.0).
 
+## Round 17 (SHIPPED, v4.4.0): the Tracer P1 — from-scratch OCR scaffold
+## (ROADMAP Phase I / OCR_PLAN P1)
+
+- **rfi_stamper/tracer/** (new package, pure numpy + fitz, offline, no new
+  deps): render (gray + polarity + cap-height upscale + too_small flag),
+  binarize (Otsu + integral-image Sauvola + flatness router), deskew
+  (quadrant + fine), linework (vectorized long-run strip), components
+  (run-based vectorized 8-conn union-find CC — 24 MP in 0.38 s + §5
+  geometric glyph gates), segment (lines/words/broken-merge; touching-split
+  is a P2 stub), normalize (area-average → CoM 28×28), fonts (fitz base-14
+  Helvetica+Courier synthetic prototypes, cached), classify (NCC cosine +
+  margin + aspect tie-break; 43/43 self-classify), searchable (rebuild as
+  /Rotate 0, invisible render_mode=3 runs, atomic, pixel-diff verified).
+  Drop-in-compatible public API (available/info/needs_ocr/read_words/
+  read_image/ocr_page_text/ocr_pdf + compat aliases). CHARSET = A-Z 0-9
+  - . " ' / # & (43 classes). tests/test_tracer.py: 188 checks.
+- **ocr.py and test_ocr.py UNTOUCHED** — the Tesseract path stays green;
+  the Tracer runs beside it (P4 swaps ocr.py to a facade + removes
+  Tesseract, only after the eval harness proves parity).
+- **GUI**: PDF Tools gains "🔎 Make searchable (built-in)" → tracer.ocr_pdf
+  (always available, no install) + a palette command; the existing
+  Tesseract button is unchanged.
+- 47 suites green. HONEST P1 limits (deferred, documented in OCR_PLAN §8):
+  touching/broken glyphs, linework-fused text, sub-legible scans, thin
+  marks (hyphen/period vs apostrophe), lowercase/hand fonts — the P2
+  gradient-MLP+kNN ensemble and P3 lexicon/grammar/number-lock. NEXT: P2.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

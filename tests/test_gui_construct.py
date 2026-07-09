@@ -1159,6 +1159,33 @@ def main():
     hd.close()
     root.update()
 
+    # ---- the Tracer: built-in OCR is wired into PDF Tools + palette
+    pt = app.projsec.pdftools
+    assert hasattr(pt, "tracer_ocr"), "built-in OCR button missing"
+    import rfi_stamper.tracer as tracer_mod
+    assert tracer_mod.available() is True
+    assert tracer_mod.info()["path"] == "builtin"
+    # the engine reads a rasterized scan end to end (no external OCR engine)
+    sdir = tempfile.mkdtemp(prefix="tracer_")
+    sp = os.path.join(sdir, "scan.pdf")
+    scr = fitz.open()
+    _pg = scr.new_page(width=612, height=792)
+    _pg.insert_text((72, 220), "P-101", fontsize=64)
+    _pix = _pg.get_pixmap(dpi=200)
+    scr.close()
+    doc2 = fitz.open()
+    ip = doc2.new_page(width=612, height=792)
+    ip.insert_image(ip.rect, pixmap=_pix)
+    doc2.save(sp)
+    doc2.close()
+    txt = tracer_mod.ocr_page_text(sp, 1)
+    # P1 reads the alphanumerics reliably; the thin hyphen mark is a
+    # documented P2/P3 improvement, so assert the letter + digits, not the mark
+    flat = "".join(txt.split()).upper()
+    assert "101" in flat and "P" in flat, repr(txt)
+    assert any("Tracer" in c[0] or "built-in" in c[0].lower()
+               for c in pt.commands()), "Tracer palette command missing"
+
     # ---- round 4: icon asset loads, hero spin guarded, stamp-slam no-ops
     from rfi_stamper.gui.app import resource_path
     icon_png = resource_path(os.path.join("assets", "planloom.png"))

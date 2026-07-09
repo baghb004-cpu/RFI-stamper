@@ -66,6 +66,12 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/pdfdoctor.py  diagnose + repair/unlock/compress/rasterize/upscale/
                               linearize/strip-metadata/normalize-rotation, verify_safe
     rfi_stamper/ocr.py        offline Tesseract searchable-layer OCR (optional binary)
+    rfi_stamper/tracer/       the Tracer: from-scratch OCR (pure numpy + fitz, no
+                              external engine) — render/binarize/deskew/linework/
+                              components/segment/normalize/fonts/classify(NCC)/
+                              searchable; drop-in-compatible with ocr.py; P1
+                              reads title-block/large lettering (OCR_PLAN.md
+                              staged P1-P4; Tesseract removed only at P4)
     rfi_stamper/hyperlink.py  auto sheet cross-linking (native GoTo links) + outline
     rfi_stamper/transmittal.py  RFI-log / generic table PDF (reportlab)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile

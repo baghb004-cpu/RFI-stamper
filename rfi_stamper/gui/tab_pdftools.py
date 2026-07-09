@@ -75,6 +75,10 @@ class PdfToolsTab(ttk.Frame):
              self.compress, False),
             ("🔍 Make searchable (OCR)", "Add a real text layer to scanned pages.",
              self.ocr, False),
+            ("🔎 Make searchable (built-in)", "The Tracer — Planloom's own "
+             "from-scratch OCR (no install). Reads title-block and large "
+             "lettering today; sharper every release.", self.tracer_ocr,
+             False),
             ("🔗 Auto-Hyperlink", "Link every sheet reference to its page; "
              "works in any viewer.", self.autolink, False),
             ("▦ Flatten annotations", "Bake markups/forms into the page.",
@@ -111,6 +115,7 @@ class PdfToolsTab(ttk.Frame):
             ("Repair PDF", "PDF Tools", self.repair),
             ("Compress PDF", "PDF Tools", self.compress),
             ("OCR PDF (make searchable)", "PDF Tools", self.ocr),
+            ("OCR PDF built-in (the Tracer)", "PDF Tools", self.tracer_ocr),
             ("Auto-Hyperlink sheet references", "PDF Tools", self.autolink),
             ("Flatten annotations", "PDF Tools", self.flatten),
             ("Flatten PDF to image", "PDF Tools", self.rasterize),
@@ -273,6 +278,19 @@ class PdfToolsTab(ttk.Frame):
                   "searchable",
                   lambda r: f"OCR complete — {r['pages_ocred']}/{r['pages_total']} "
                             "page(s) made searchable")
+
+    def tracer_ocr(self):
+        """The Tracer: Planloom's from-scratch OCR — always available, no
+        external engine.  P1 reads title-block and large lettering; the hard
+        cases (small/degraded/linework-fused text) are honest work-in-
+        progress that improves each release."""
+        from .. import tracer
+        self._run("Built-in OCR",
+                  lambda p, o: tracer.ocr_pdf(p, o, log=self.log.say),
+                  "searchable",
+                  lambda r: f"Built-in OCR — {r['pages_ocred']}/"
+                            f"{r['pages_total']} page(s) made searchable "
+                            "(title-block & large text; more each release)")
 
     def autolink(self):
         self._run("Auto-Hyperlink",
