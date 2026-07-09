@@ -12,9 +12,14 @@ sub-metric) and asserts, in one place:
   **CER ≤ 2 %** (the P2 bar, re-asserted here as the parity artifact).
 * **sheet-number field accuracy** with the set's own index cross-check:
   **≥ 99 %** (the P3 bar) — and the cross-check demonstrably LIFTS raw accuracy.
-* **a documented degraded tier** — a blurred + noised photocopy of the same page
-  is scored and its CER asserted under a LOOSE ceiling (≤ 15 %), so the honest
-  degraded number is tracked in the suite, never a hard fail.  WER is reported.
+* **two documented degraded tiers** — (a) a *speckled* photocopy (blur + noise +
+  salt-pepper) is asserted to read within the clean bar (≤ 2 %): the noise-robust
+  glyph-height scale (``components._median_glyph_h``) means a scan's speckle can
+  never again collapse the size gates and delete thin glyphs (``I - .``) — the
+  regression guard for an 11 % residual that was ENTIRELY dropped thin marks; and
+  (b) a *touching-glyph* photocopy (heavy toner spread welds neighbors) scored
+  under a LOOSE ceiling (≤ 15 %) — the honest touching/broken-glyph residual of
+  OCR_PLAN §8, tracked in the suite and never a hard fail.  WER is reported.
 * the **confusion sub-metric** is computed over the aligned (true, pred) pairs.
 
 There is intentionally NO Tesseract comparison: the shipped build carries no
@@ -92,6 +97,19 @@ def _degrade(g, blur_sigma, noise_sigma, seed):
     return np.clip(synth.add_noise(x, noise_sigma, 0.002, rng), 0, 255).astype(np.uint8)
 
 
+def _degrade_touching(g, seed):
+    """A deterministic heavy-toner photocopy: grayscale dilation welds neighbors.
+
+    One 3×3 toner-gain pass fuses adjacent glyphs into single connected blobs
+    before blur + noise — the genuine touching/broken-glyph regime of OCR_PLAN §8
+    (where classification, not the size gate, is the residual).
+    """
+    rng = np.random.default_rng(seed)
+    x = synth._morph(g.astype(float), dilate_ink=True)
+    x = synth.blur(x, 0.8)
+    return np.clip(synth.add_noise(x, 8, 0.004, rng), 0, 255).astype(np.uint8)
+
+
 # --------------------------------------------------------------------------- #
 #  1. clean auto-labeled real set — CER ≤ 2 % (the parity artifact)           #
 # --------------------------------------------------------------------------- #
@@ -136,15 +154,18 @@ def test_sheet_field_accuracy():
     ctx = Context.build(sheet_hints=_SHEETS)
     conds = [(0, 0), (1, 1), (2, 2)]                  # 10 × 3 = 30 samples
     tot = ok = raw_ok = 0
-    for s in _SHEETS:
+    for si, s in enumerate(_SHEETS):
         truth = canon(*SHEET_TOKEN.search(s).groups())
         for sev, sd in conds:
             if sev == 0:
                 g = _render_token(s)
             else:
+                # a DETERMINISTIC per-sample seed (not hash(), whose per-process
+                # randomization made a ≥99% assertion flaky — the degradation set
+                # must be identical every run)
                 g = _degrade(_render_token(s),
                              0.6 if sev == 1 else 0.9, 6 if sev == 1 else 12,
-                             hash((s, sd)) % 99999)
+                             (si * 131 + sd * 17 + 1) % 99999)
             reads = tracer.read_image(g, dpi=300)      # ROI OCR (no hints)
             joined = "".join(w[4] for w in sorted(reads, key=lambda w: w[0]))
             got = correct(Tok(joined, (9, 9, 9, 9), 0.9), None, ctx)["text"]
@@ -167,34 +188,48 @@ def test_sheet_field_accuracy():
 
 
 # --------------------------------------------------------------------------- #
-#  3. documented degraded tier — CER under a LOOSE ceiling (tracked, not hard) #
+#  3. two documented degraded tiers — speckle guard + touching-glyph residual  #
 # --------------------------------------------------------------------------- #
 
 def test_degraded_tier():
     doc, pg = _paragraph_page()
     gray, truth = tracer_eval.auto_label_set([pg], dpi=300)[0]
-    # a light-photocopy degradation of the very same page (small 13-pt text)
+
+    # (a) SPECKLED LIGHT PHOTOCOPY — the thin-glyph robustness guard.
+    # Blur + Gaussian noise + salt-pepper.  Before the noise-robust glyph-height
+    # scale (components._median_glyph_h), the speckle flooded the box set with
+    # 1–2 px components, collapsed the median glyph height to ~1 px, and the
+    # elongation size gate then deleted every thin glyph (I - .) as "linework":
+    # an 11 % CER that was ENTIRELY dropped thin marks (0 substitutions).  With
+    # the fix this reads within the clean bar, so we assert it tightly — a scan's
+    # speckle must never again silently swallow thin marks.
     dg = _degrade(gray, blur_sigma=0.7, noise_sigma=8, seed=2)
     res = tracer_eval.score_page(dg, truth, dpi=300)
+    A(res["cer"] <= 0.02,
+      f"speckled-photocopy CER within the clean bar (thin-glyph robustness), "
+      f"got {res['cer']:.4f}")
 
-    # LOOSE ceiling: the honest degraded number is tracked in the suite, never a
-    # hard fail — degraded-photocopy CER is the real risk per OCR_PLAN §8.
-    A(res["cer"] <= 0.15,
-      f"degraded-photocopy CER under the loose ceiling, got {res['cer']:.4f}")
-
-    A(res["cer"] > 0.0,
-      "the degraded tier genuinely degrades (has errors to track)")
-    apairs = tracer_eval.align_pairs(res["ref"], res["hyp"])
+    # (b) TOUCHING-GLYPH PHOTOCOPY — the honest residual OCR_PLAN §8 names.
+    # Heavy toner spread welds neighboring glyphs into one blob; this is the
+    # genuine touching/broken-glyph limit, tracked under a LOOSE ceiling and
+    # never a hard fail (here the residual is real substitutions, not the
+    # spurious deletions the size-gate bug used to manufacture).
+    tg = _degrade_touching(gray, seed=2)
+    rest = tracer_eval.score_page(tg, truth, dpi=300)
+    A(rest["cer"] <= 0.15,
+      f"touching-glyph CER under the loose ceiling, got {rest['cer']:.4f}")
+    A(rest["cer"] > 0.0,
+      "the touching-glyph tier genuinely degrades (has errors to track)")
+    apairs = tracer_eval.align_pairs(rest["ref"], rest["hyp"])
     M = tracer_eval.confusion(apairs)
-    A(M.shape == (len(CHARSET), len(CHARSET)), "degraded confusion matrix 43×43")
-    # off-diagonal substitutions may be 0: degraded errors are segmentation-
-    # dominated (insertions/deletions), OCR_PLAN §8's "segmentation is where
-    # accuracy bleeds" — the domain metric still charges every mismatch.
+    A(M.shape == (len(CHARSET), len(CHARSET)), "touching confusion matrix 43×43")
     dom = tracer_eval.domain_error(apairs)
-    A(dom > 0.0, "the degraded tier's domain error is non-zero")
+    A(dom > 0.0, "the touching-glyph tier's domain error is non-zero")
 
     _REPORT["degraded_cer"] = res["cer"]
     _REPORT["degraded_wer"] = res["wer"]
+    _REPORT["touching_cer"] = rest["cer"]
+    _REPORT["touching_wer"] = rest["wer"]
     _REPORT["degraded_domain_err"] = dom
     _REPORT["degraded_confusion_offdiag"] = int(M.sum() - np.trace(M))
     doc.close()
@@ -233,7 +268,7 @@ def main():
     tests = [
         (test_clean_cer_bar, "clean auto-labeled real set CER ≤ 2% (parity)"),
         (test_sheet_field_accuracy, "sheet-number field accuracy ≥ 99% (index)"),
-        (test_degraded_tier, "documented degraded tier CER ≤ 15% (tracked)"),
+        (test_degraded_tier, "degraded tiers: speckle ≤ 2% guard + touching ≤ 15%"),
         (test_metric_tools, "CER/WER/align/confusion/domain tools correct"),
     ]
     for fn, label in tests:
@@ -249,11 +284,14 @@ def main():
     print(f"  sheets:   field acc {_REPORT['sheet_field_acc']*100:6.2f}%   "
           f"(raw {_REPORT['sheet_raw_acc']*100:.2f}% → index cross-check)  "
           f"n={_REPORT['sheet_n']}")
-    print(f"  degraded: CER {_REPORT['degraded_cer']*100:5.2f}%   "
+    print(f"  speckle:  CER {_REPORT['degraded_cer']*100:5.2f}%   "
           f"WER {_REPORT['degraded_wer']*100:5.2f}%   "
+          f"(thin-glyph robustness guard — was 11.39% before the glyph-height fix)")
+    print(f"  touching: CER {_REPORT['touching_cer']*100:5.2f}%   "
+          f"WER {_REPORT['touching_wer']*100:5.2f}%   "
           f"domain {_REPORT['degraded_domain_err']*100:.2f}%  "
           f"confusion off-diag={_REPORT['degraded_confusion_offdiag']}  "
-          f"(honest photocopy residual)")
+          f"(honest touching-glyph residual, OCR_PLAN §8)")
     print(f"TRACER P4 EVAL TEST PASSED  ({_N[0]} checks)  — the Tracer, Phase P4")
 
 

@@ -260,6 +260,18 @@ were proven on real export files. GUI constructs under xvfb.
   hosted doors/windows (remove() returns the full count). Paper-relative
   sizes (text, bubbles, dash patterns) convert via
   `model_ft = paper_in * scale_ratio / 12`.
+- The Tracer's glyph-height scale (`tracer.components._median_glyph_h`) MUST
+  exclude sub-despeckle speckle before taking the median. A speckled scan
+  floods the box set with thousands of 1–2 px salt-and-pepper components; a raw
+  median collapses `glyph_h` toward the noise height (~1 px), and the
+  size-gate scaling (esp. the elongation gate `long_side > 4·glyph_h AND
+  aspect > 8`, the one meant to PROTECT `I 1 l - . ' "`) then deletes every
+  thin glyph as "linework". This masqueraded as an ~11% "segmentation" residual
+  on degraded photocopies — it was 100% dropped thin glyphs (0 substitutions).
+  Fixed in v4.7.1; `filter_glyphs`/`read_image` pass `dpi` through so the floor
+  scales. The eval's speckle tier (`test_tracer_eval.py`, ≤2%) is the guard —
+  keep it. Genuine degraded residual is now touching/broken glyphs + sub-legible
+  text (OCR_PLAN §8), not thin-glyph loss.
 
 ## Summaries
 

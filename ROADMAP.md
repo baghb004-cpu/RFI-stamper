@@ -283,7 +283,11 @@ training v4.5.0, P3 lexicon/grammar/number-lock + sheet-index self-supervision
 v4.6.0, P4 eval harness + Tesseract retired v4.7.0). Measured clean CER 0.00%,
 sheet-number field accuracy 100%. ocr.py is now a thin facade over the Tracer;
 NO external OCR binary anywhere — Planloom has zero external binaries. Full
-plan + numbers in OCR_PLAN.md.
+plan + numbers in OCR_PLAN.md. **v4.7.1 hardening:** the documented ~11%
+degraded-photocopy residual turned out to be a bug — speckle collapsed the
+glyph-height scale and the size gates deleted thin glyphs (`I - .`); a
+noise-robust median took the speckled-scan CER to ~0, leaving only the genuine
+touching/broken-glyph + sub-legible residual.
 
 ## Phase H — Holler: hands-free voice control for ANY app (owner brief,
 ## added after Phase G)

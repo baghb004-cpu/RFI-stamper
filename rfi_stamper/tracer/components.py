@@ -170,7 +170,7 @@ def label(ink: np.ndarray):
     return labels, boxes
 
 
-def _median_glyph_h(boxes) -> float:
+def _median_glyph_h(boxes, dpi: int = 300) -> float:
     """Median height of the CAP-band boxes; robust seed for the size gates.
 
     When the CAP band captures only a small minority of the boxes — the
@@ -179,10 +179,28 @@ def _median_glyph_h(boxes) -> float:
     track that mark and shrink ``glyph_h`` to the mark's own height, which then
     makes the mark itself look like an oversized solid block and drops it.  Fall
     back to the full height distribution in that case so the size gates stay
-    glyph-scaled and thin marks survive (a P2 marks-reading fix)."""
-    hs = [b.h for b in boxes if CAP_LO <= b.h <= 3 * CAP_HI]
-    if len(hs) < max(2, len(boxes) // 2):
-        hs = [b.h for b in boxes]
+    glyph-scaled and thin marks survive (a P2 marks-reading fix).
+
+    Sub-despeckle speckle is excluded FIRST.  A noisy scan floods the box set
+    with thousands of 1–2 px salt-and-pepper components; a raw median over them
+    collapses ``glyph_h`` toward the noise height, and the minority test then
+    misfires (the real glyphs look like a minority against the speckle), which
+    mis-scales every size gate — the elongation gate would then reject a real
+    ``I`` as elongated linework and every thin glyph (``I 1 l - . ' "``) would
+    vanish (measured: an 11% CER on a speckled photocopy was ENTIRELY these
+    dropped thin glyphs).  The speckle excluded here is exactly what
+    :func:`filter_glyphs` despeckles by area/side, so on a clean render (no
+    sub-floor box) this is byte-identical and the glyph-height scale is measured
+    only over glyph-sized ink."""
+    scale2 = (dpi / 300.0) ** 2
+    min_area = MIN_AREA_300 * scale2
+    real = [b for b in boxes
+            if b.area >= min_area and min(b.w, b.h) >= MIN_SIDE]
+    if not real:                     # nothing above the floor: keep the old view
+        real = list(boxes)
+    hs = [b.h for b in real if CAP_LO <= b.h <= 3 * CAP_HI]
+    if len(hs) < max(2, len(real) // 2):
+        hs = [b.h for b in real]
     return float(np.median(hs)) if hs else 0.0
 
 
@@ -200,7 +218,7 @@ def filter_glyphs(boxes, glyph_h: float | None = None, dpi: int = 300):
     scale2 = (dpi / 300.0) ** 2
     min_area = MIN_AREA_300 * scale2
     if glyph_h is None:
-        glyph_h = _median_glyph_h(boxes)
+        glyph_h = _median_glyph_h(boxes, dpi=dpi)
     if glyph_h <= 0:
         glyph_h = CAP_LO
     # sheet extent from the bounding envelope of all ink

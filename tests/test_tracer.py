@@ -280,6 +280,25 @@ def test_components():
     A(4 not in labs, "long horizontal rule dropped")
     A(5 not in labs, "sheet-spanning frame dropped")
 
+    # NOISE-ROBUST glyph height: heavy salt-pepper floods the box set with 1–2 px
+    # specks.  A raw median would collapse glyph_h toward the noise height (~1 px),
+    # and the elongation gate — long_side > 4×glyph_h AND aspect > 8 — would then
+    # delete a real tall-thin I as "linework".  _median_glyph_h must ignore the
+    # sub-despeckle specks so the height scale tracks real glyphs (the fix that
+    # took a speckled-photocopy CER from 11% of dropped thin marks to ~0%).
+    reals = [Box(i, 20 * i, 100, 20 * i + 5, 140, area=180)
+             for i in range(1, 8)]                          # 7 cap-height glyphs h=41
+    specks = [Box(100 + i, 3 * i, 3 * i, 3 * i + 1, 3 * i + 1, area=2)
+              for i in range(400)]                          # 400 sub-despeckle specks
+    gh = components._median_glyph_h(specks + reals)
+    A(38 <= gh <= 45, f"glyph height tracks real glyphs, not speckle, got {gh}")
+    thin_i = Box(9, 500, 100, 503, 140, area=120)           # h=41 w=4 → aspect ~10
+    survive = {b.label for b in components.filter_glyphs(specks + [thin_i], gh, dpi=300)}
+    A(9 in survive, "a tall thin I survives once glyph_h is noise-robust")
+    # and the bug reproduces: with the collapsed height the same I is destroyed
+    A(9 not in {b.label for b in components.filter_glyphs([thin_i], 1.0, dpi=300)},
+      "guard: at the collapsed glyph_h the elongation gate WOULD delete the I")
+
 
 # --------------------------------------------------------------------------- #
 #  7. glyph normalization (area-average protocol)                             #

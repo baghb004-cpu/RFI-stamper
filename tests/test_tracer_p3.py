@@ -170,6 +170,11 @@ def test_sheet_correct_direct():
     # a dropped dash still snaps
     A(correct(Tok("S1OO", (9, 9, 9, 9), 0.8), None, ctx)["text"] == "S-100",
       "S1OO (dropped dash + O→0) snaps to S-100")
+    # a non-confusable stray letter in the body (A-4X8) must NOT be force-routed
+    # to the sheet path and mis-snapped to a wrong sheet — that would change the
+    # digit multiset {4,8}→{4,0,1} and break number-lock; it stays a word
+    A(correct(Tok("A-4X8", (9, 9, 9, 9), 0.8), None, ctx)["text"] == "A-4X8",
+      "a stray-letter numeric body is not mis-snapped to a sheet (number-lock)")
     # an exact read is recognised (matched, not snapped)
     r3 = correct(Tok("P-201", (9, 9, 9, 9), 0.8), None, ctx)
     A(r3["text"] == "P-201" and r3["why"] == "sheet:index_match", r3["why"])

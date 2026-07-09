@@ -541,6 +541,57 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   bleed), real-word/real-number errors the index/grammar can't catch (by
   design — number-lock refuses to guess).
 
+## Round 21 (SHIPPED, v4.7.1): the Tracer — the "11% degraded residual" was a
+## BUG, not a limit; speckled scans now read clean
+
+- **Root cause found.** The documented ~11% degraded-photocopy CER was NOT
+  segmentation bleed "by design" — it was a latent bug. A speckled/noisy scan
+  floods the connected-component set with thousands of 1–2 px salt-and-pepper
+  blobs; `tracer.components._median_glyph_h` took a raw median over ALL boxes,
+  which collapsed `glyph_h` toward the noise height (~1 px). The size gates
+  scale by `glyph_h`, so the elongation gate — the one whose comment says it
+  "protects I 1 l - ' " /" — then deleted every thin glyph as elongated
+  linework. Measured: the 11.39% eval residual was **27 deletions, 0
+  substitutions, 0 insertions** — 18 `I`, 5 `-` (sheet-number separators!), 4
+  `.` — the classifier was never wrong; the glyphs never reached it.
+- **The fix — ONE source change (verified).** `_median_glyph_h(boxes, dpi=300)`
+  now excludes sub-despeckle boxes (the same area/side floor `filter_glyphs`
+  already despeckles) BEFORE the median, so speckle can't vote on the
+  glyph-height scale; byte-identical on a clean render (no sub-floor box).
+  `filter_glyphs`/`read_image` thread `dpi` through so the floor scales.
+  **Degraded prose CER 11.39% → 0.00%** across the whole blur×noise×salt sweep;
+  the thin glyphs (incl. every hyphen/period) come back. Clean CER stays 0.00%,
+  sheet-number field accuracy stays 100%.
+- **Test made deterministic.** `test_tracer_eval.py`'s sheet-accuracy tier
+  seeded its degradations with `hash()` (per-process randomized) — a flaky ≥99%
+  assertion that could pass or fail run-to-run; now a deterministic per-sample
+  seed. (This flakiness, not the glyph fix, was what first read 96.7%.)
+- **A tempting second change was REJECTED by adversarial review.** The glyph fix
+  recovers a decimal sheet's dot, which can then misread (`E-1.10` → `E-1P10`);
+  a loosened `_sheet_shaped` would route that to the index snap and recover it.
+  But a skeptic probe proved the loosening also drags non-sheet tokens (`A-4X8`,
+  `A-40X`, `D-101A`) into the number-lock-EXEMPT sheet-snap path, letting the
+  index rewrite their digits (`A-4X8` → `A-401`, {4,8}→{4,0,1}) — a NUMBER-LOCK
+  violation (OCR_PLAN §4 / CLAUDE.md: "a scanned 8' can never become 6'"). Since
+  the deterministic sheet accuracy is already 100% WITHOUT it, and production
+  already promotes a bottom-right `E-1P10` to sheet via the region prior, the
+  loosening bought nothing and broke an invariant — so it was dropped.
+  `_sheet_shaped` is unchanged; a new P3 guard asserts `A-4X8` stays verbatim.
+- **Eval redesigned to stay honest.** `test_tracer_eval.py`'s single degraded
+  tier split into two: a **speckle-robustness guard** (blur+noise+salt asserted
+  ≤ 2% — the regression guard against the glyph-height collapse ever returning)
+  and an **honest touching-glyph tier** (heavy toner spread welds neighbors,
+  CER 3.38%, real substitutions — the genuine OCR_PLAN §8 residual, loose ≤ 15%
+  ceiling). New unit guards: `test_tracer.py` proves `_median_glyph_h` ignores
+  speckle and that the collapsed height WOULD delete an `I` (P1 188→191);
+  `test_tracer_p3.py` proves a stray-letter numeric body (`A-4X8`) is not
+  mis-snapped to a sheet — number-lock stays fail-closed (85→86).
+- 50 suites green (python3.12). Source touched: `tracer/components.py` +
+  `tracer/__init__.py` only (`tracer/lexicon.py` reverted to unchanged).
+  Supersedes Round 20's "honest residual ~11%" note: the remaining degraded
+  residual is touching/broken glyphs + sub-legible small text, not thin-glyph
+  loss.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

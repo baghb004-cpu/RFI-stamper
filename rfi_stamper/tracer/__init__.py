@@ -157,7 +157,7 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
     strip_h = max(heights)                       # generous: never eat a glyph
     ink2 = linework.strip_lines(ink, strip_h)
     _, boxes = components.label(ink2)
-    glyph_h = components._median_glyph_h(boxes)
+    glyph_h = components._median_glyph_h(boxes, dpi=dpi)
     kept = components.filter_glyphs(boxes, glyph_h, dpi=dpi)
     if not kept:
         return []
