@@ -1,4 +1,4 @@
-"""Fieldwire: the wire formats — LandXML CgPoints, GSI-8/16 fieldbook,
+"""The Selvage: the wire formats — LandXML CgPoints, GSI-8/16 fieldbook,
 SP-record fieldbook, and the DXF attribute-block tier.
 
 Everything a crew's tablet or an office suite ingests beyond the PNEZD CSV

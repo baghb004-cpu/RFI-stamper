@@ -108,7 +108,9 @@ run; the `*_report.txt` must end in PASS).
                               walking-route sort; two-feet/CSF/Helmert-fit
                               coordinate math, error-budget preflight,
                               station log, stake packages (day bundles)
-    rfi_stamper/fieldwire.py  the wire formats: LandXML 1.2 CgPoints,
+    rfi_stamper/selvage.py    the Selvage — the wire formats (the loom's
+                              self-finished edge, where the weave meets the
+                              field instruments): LandXML 1.2 CgPoints,
                               GSI-8/16 fieldbook, SP-record fieldbook (.rw5),
                               DXF attribute-block tier + CAD layer-name
                               rules; ONE shared coordinate-order writer table
@@ -264,8 +266,8 @@ were proven on real export files. GUI constructs under xvfb.
 - Wire-format coordinate order differs per dialect (PNEZD/LandXML are
   N-first, the GSI fieldbook is E-first — WI 81 = Easting, DXF group 10 =
   X = Easting) and a swapped N/E imports without any error, mirrored about
-  the N=E diagonal.  The order lives ONLY in `fieldwire.WRITER_ORDER`;
-  every exporter calls `fieldwire.ordered()` — never inline it.
+  the N=E diagonal.  The order lives ONLY in `selvage.WRITER_ORDER`;
+  every exporter calls `selvage.ordered()` — never inline it.
 - `fieldpro.point_sigma`'s 1.5 mm target-centering default is SPECIFIED at
   a <= 1.5 m rod (adjusted 8' vial); the pole term charges only the tilt
   lever ABOVE that reference — that is what makes the brief's worked

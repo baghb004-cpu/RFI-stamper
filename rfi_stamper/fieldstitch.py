@@ -1499,7 +1499,7 @@ def apply_import_rows(job: LayoutJob, rows, log=print, *,
                       on_collision: str = "quarantine",
                       zero_elev_is_null: bool = False) -> int:
     """Apply already-parsed point rows to a job — the shared back half of
-    every importer (:func:`import_csv` and the :mod:`rfi_stamper.fieldwire`
+    every importer (:func:`import_csv` and the :mod:`rfi_stamper.selvage`
     wire-format readers all land here, so collision policy, quarantine and
     CONTROL protection behave identically on every dialect).
 
@@ -1666,7 +1666,7 @@ def validate_import_csv(job: LayoutJob, path: str,
 #: Export bundles matched to what a crew's tablet ingests, keyed by rigging
 #: knot (no vendor names): a simple CSV+DXF rig, an XLSX+DXF rig, the
 #: everything bundle, and the two wire-format rigs from
-#: :mod:`rfi_stamper.fieldwire` — ``sheetbend`` (the knot that joins two
+#: :mod:`rfi_stamper.selvage` — ``sheetbend`` (the knot that joins two
 #: different ropes: LandXML + CSV for office suites and modern controllers)
 #: and ``marlinspike`` (the rigger's fieldbook spike: GSI + SP-record
 #: fieldbook for the classic fixed-width/record collectors).
@@ -1701,13 +1701,13 @@ def export_kit(job: LayoutJob, out_dir: str, kit: str,
         elif fmt == "dxf":
             export_dxf(job, out, points=pts)
         elif fmt in ("landxml", "gsi", "sp"):
-            from . import fieldwire          # local import: no cycle at load
+            from . import selvage            # local import: no cycle at load
             if fmt == "landxml":
-                fieldwire.export_landxml(job, out, points=pts)
+                selvage.export_landxml(job, out, points=pts)
             elif fmt == "gsi":
-                fieldwire.export_gsi(job, out, points=pts)
+                selvage.export_gsi(job, out, points=pts)
             else:
-                fieldwire.export_sp(job, out, points=pts,
+                selvage.export_sp(job, out, points=pts,
                                     log=lambda m: None)
         else:
             export_job_json(job, out)

@@ -1877,7 +1877,7 @@ def export_package(job: LayoutJob, qa: QAStore, out_dir: str, name: str,
     :func:`walk_route`); default keeps the given order.  Everything stays
     open-format — office/field round-trip never needs licensed software.
     Returns ``{"files": [...], "points": n, "name": name}``."""
-    from . import fieldwire
+    from . import selvage
     pts = list(points)
     if not pts:
         raise ValueError("a stake package needs at least one point")
@@ -1905,7 +1905,7 @@ def export_package(job: LayoutJob, qa: QAStore, out_dir: str, name: str,
     files.append(json_path)
 
     dxf_path = base + ".dxf"
-    fieldwire.export_dxf_blocks(job, dxf_path, points=pts)
+    selvage.export_dxf_blocks(job, dxf_path, points=pts)
     files.append(dxf_path)
 
     sheet_path = base + "_sheet.pdf"

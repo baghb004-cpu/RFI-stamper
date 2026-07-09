@@ -1,5 +1,5 @@
 """Self-contained tests for the Fieldstitch Pro A2 wire layer — the
-exchange formats (rfi_stamper.fieldwire) and the fieldpro coordinate /
+exchange formats (rfi_stamper.selvage) and the fieldpro coordinate /
 error-budget / station-log / stake-package additions.  Plain python, no
 pytest, no project data.
 
@@ -34,7 +34,7 @@ Exercises:
 * StationLog validation + QAStore round trip; export_package contents +
   manifest PDF opens in pypdf
 
-Run:  python3.12 tests/test_fieldwire.py
+Run:  python3.12 tests/test_selvage.py
 """
 import json
 import math
@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rfi_stamper.fieldstitch import (            # noqa: E402
     KITS, LayoutJob, export_kit, frame_hash)
-from rfi_stamper import fieldwire as fw          # noqa: E402
+from rfi_stamper import selvage as fw            # noqa: E402
 from rfi_stamper import fieldpro as fp           # noqa: E402
 from rfi_stamper.markups.measure import ScaleCal  # noqa: E402
 
@@ -854,7 +854,7 @@ def test_package(tmp):
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix="fieldwire_")
+    tmp = tempfile.mkdtemp(prefix="selvage_")
     test_writer_table()
     test_landxml_export(tmp)
     test_landxml_import(tmp)
@@ -878,7 +878,7 @@ def main():
     leftovers = [f for _, _, fs in os.walk(tmp) for f in fs
                  if f.endswith(".part")]
     assert not leftovers, leftovers
-    print("FIELDWIRE TESTS PASSED  (one writer table, LandXML exact doc + "
+    print("SELVAGE TESTS PASSED  (one writer table, LandXML exact doc + "
           "namespace-agnostic import, GSI-8 exact line + GSI-16 auto-switch "
           "+ unit-factor read-back, SP records + observation-record "
           "immunity, DXF attribute blocks + layer rules, sheetbend/"
@@ -893,5 +893,5 @@ if __name__ == "__main__":
     try:
         main()
     except AssertionError as e:
-        print("FIELDWIRE TEST FAILED:", e)
+        print("SELVAGE TEST FAILED:", e)
         sys.exit(1)

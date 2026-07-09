@@ -6,7 +6,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.9.1, offline construction workspace; Python package
+- Product: **Planloom** v4.9.2, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
@@ -52,6 +52,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Caller** | Holler's spoken-measurement → text grammar | the crew member who calls the cuts |
 | **Trips / Placards / Fetches / Runs** | Holler command kinds (shortcut / text insert / open target / macro) | a trip fires a tool; a placard is exact posted text; a fetch retrieves; a run is a keystroke sequence |
 | **The Songbook / The Ticker** | Holler's command dictionary / live counter tape | the book of what it knows; the running tally |
+| **The Selvage** | the wire-format dialects module (LandXML / GSI / SP-record fieldbook / DXF attribute tier + the ONE coordinate-order writer table) | the loom's self-finished edge — the woven boundary where Planloom's weave meets the field instruments without fraying |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -209,7 +210,7 @@ the implementation):
 
 Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
 
-- **fieldwire.py (new)**: LandXML 1.2 CgPoints export/import (N E [Z]
+- **selvage.py (new)**: LandXML 1.2 CgPoints export/import (N E [Z]
   INSIDE the element, Units Imperial/Metric — linearUnit says WHICH foot,
   state proposed/existing <-> kind, namespace-agnostic import); GSI-8/16
   fieldbook (exact word map, feet digit 1 / meter digit 0, E-N-Z order,
@@ -220,7 +221,7 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   tier (LAYPT block, PT/ELEV/DESC ATTDEFs, INSERT+ATTRIBx3+SEQEND per
   point alongside the plain POINT, CAD layer-name rules enforced at
   creation via add_cad_layer). Coordinate order centralized in
-  fieldwire.WRITER_ORDER (see the CLAUDE.md gotcha). All ASCII CRLF
+  selvage.WRITER_ORDER (see the CLAUDE.md gotcha). All ASCII CRLF
   no-BOM atomic. Kits: sheetbend (landxml+csv), marlinspike (gsi+sp).
 - **harvest.py (new)**: PURE generators returning proposal dicts
   ({n,e|x,y, elev, z_ref, name, desc, code, layer, provenance{gen,key,
@@ -247,7 +248,7 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   importers share collision policy; rows may carry kind/code — CONTROL
   imports locked); KITS + export_kit dispatch (test_fieldstitch.py kit-set
   assertion updated accordingly).
-- tests/test_fieldwire.py + tests/test_harvest.py: 371 asserts + 43
+- tests/test_selvage.py + tests/test_harvest.py: 371 asserts + 43
   expected-error checks. All 39 suites green.
 - Deferred to the next round (GUI): Harvest drawer (ghost pins + commit
   lever), story-pole band filter, Field Mode, gun profiles, residual
@@ -731,10 +732,25 @@ findings hand-verified (multiline-import ref-counts) then fixed:
   reportlab-free config now runs the pipeline-verify + metadata-clean
   guards). New engine tests: table defer, paragraph split, canvas guards.
 - Consciously KEPT (owner call, documented): the test-only public API tail
-  (fieldpro coordinate math, fieldwire importers, etc. — HANDOFF-documented
+  (fieldpro coordinate math, the Selvage importers, etc. — HANDOFF-documented
   surface), stamp/draft's PLOOM_PDF_ENGINE oracle branches, tracer compat
   aliases, submittal's deliberate lazy-import guard.
 - 52 suites green twice after every batch; scrub clean.
+
+## Round 24 (SHIPPED, v4.9.2): module rename — the Selvage
+
+The wire-format module's old filename collided with a third-party
+construction-software product name (invariant #7 / the vendor-name policy —
+owner caught it). Renamed everywhere in one pass: the module is now
+**rfi_stamper/selvage.py — the Selvage** (the loom's self-finished edge,
+where the weave meets the field instruments), its suite is
+tests/test_selvage.py, and every import/doc/gotcha reference follows. The
+public API is unchanged (WRITER_ORDER/ordered(), export_landxml/export_gsi/
+export_sp/export_dxf_blocks, importers); only the module name moved. A
+case-insensitive scrub confirms zero occurrences of the old name in the
+tree. NOTE: the old name does persist in pre-rename git HISTORY (commits/
+diffs); rewriting pushed history is destructive and was deliberately not
+done — say the word if you want a history rewrite instead.
 
 ## Roadmap (still open)
 

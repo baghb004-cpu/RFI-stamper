@@ -1413,8 +1413,8 @@ def _degenerate_loft(model) -> list:
 
 
 def _degenerate_dxf(path) -> list:
-    from . import fieldwire
-    pairs = fieldwire.read_dxf_pairs(path)
+    from . import selvage
+    pairs = selvage.read_dxf_pairs(path)
     lines = []
     cur = None
     kind = None
