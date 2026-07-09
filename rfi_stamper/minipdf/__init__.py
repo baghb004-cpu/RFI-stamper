@@ -14,13 +14,14 @@ MINIPDF_PLAN.md.
 """
 from __future__ import annotations
 
-from . import content, document, encoding, metrics
+from . import canvas, content, document, encoding, metrics
+from .canvas import Canvas
 from .content import Content, fmt_num
 from .document import Document, Page
 from .metrics import string_width, stringWidth, char_width, FONTS
 
 __all__ = [
-    "content", "document", "encoding", "metrics",
-    "Content", "Document", "Page", "fmt_num",
+    "canvas", "content", "document", "encoding", "metrics",
+    "Canvas", "Content", "Document", "Page", "fmt_num",
     "string_width", "stringWidth", "char_width", "FONTS",
 ]

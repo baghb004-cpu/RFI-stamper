@@ -5,10 +5,24 @@ import io
 import os
 
 from pypdf import PdfReader, PdfWriter, Transformation
-from reportlab.pdfgen import canvas
 
 from .layout import (BORDER, F_BOD, F_HDR, GAP, L_BOD, L_HDR, PAD, RED,
                      S_BOD, S_HDR, layout_entries)
+
+
+def _new_canvas(buf, pagesize):
+    """The overlay canvas, selectable by the PLOOM_PDF_ENGINE env var.
+
+    Defaults to reportlab (unchanged behavior); ``PLOOM_PDF_ENGINE=minipdf``
+    routes to Planloom's from-scratch writer.  Both expose the same
+    ``Canvas(buf, pagesize=(w, h))`` surface, so this is the only switch — the
+    two are held pixel-identical by ``tests/test_minipdf_parity.py``.
+    """
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        from .minipdf.canvas import Canvas
+        return Canvas(buf, pagesize=pagesize)
+    from reportlab.pdfgen import canvas
+    return canvas.Canvas(buf, pagesize=pagesize)
 
 
 def draw_box(c, x, ytop, w, entries):
@@ -72,7 +86,7 @@ def stamp_pdf(plan_path, out_path, placements, index, appendix=None):
         if boxes:
             info = index.info(i)
             buf = io.BytesIO()
-            c = canvas.Canvas(buf, pagesize=(info.view_w, info.view_h))
+            c = _new_canvas(buf, (info.view_w, info.view_h))
             for b in boxes:
                 draw_box(c, b["x"], b["ytop"], b["w"], b["entries"])
             c.save()
@@ -90,7 +104,7 @@ def stamp_pdf(plan_path, out_path, placements, index, appendix=None):
         first = index.info(1)
         vw, vh = first.view_w, first.view_h
         buf = io.BytesIO()
-        c = canvas.Canvas(buf, pagesize=(vw, vh))
+        c = _new_canvas(buf, (vw, vh))
         margin, col_w = 60.0, min(430.0, vw * 0.42)
         x, ytop = margin, vh - margin
         c.setFont(F_HDR, 13)
@@ -116,6 +130,15 @@ def stamp_pdf(plan_path, out_path, placements, index, appendix=None):
         buf.seek(0)
         for p in PdfReader(buf).pages:
             writer.add_page(p)
+
+    # Deliver clean, reproducible bytes: drop the /Info dictionary pypdf would
+    # otherwise stamp with a /Producer and wall-clock dates.  That removes an
+    # NDA metadata leak and makes the merged output byte-deterministic (pypdf's
+    # /ID is content-derived), matching the from-scratch writer's own policy.
+    try:
+        writer.metadata = None
+    except Exception:                        # older pypdf without the setter
+        pass
 
     # atomic write: never leave a truncated overlay at the final path
     tmp = out_path + ".part"

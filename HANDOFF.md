@@ -592,6 +592,41 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   residual is touching/broken glyphs + sub-legible small text, not thin-glyph
   loss.
 
+## Round 21 (IN PROGRESS): the mini-pdf writer — retire reportlab from scratch
+
+Owner goal: **everything from scratch** — retire reportlab (and, later,
+tkinterdnd2) the way the Tracer retired Tesseract. Research is in
+**MINIPDF_PLAN.md** (8-agent pass + full per-track dossiers). Shipped so far:
+
+- **P1 foundation** — `rfi_stamper/minipdf/` (`encoding` WinAnsi str→bytes +
+  PDF escaping; `metrics` reportlab-exact `string_width`, no kerning;
+  `content` operator builder; `document` byte-exact classic xref + deterministic
+  content-hash `/ID`, no metadata; `_metrics_data` vendored Core-14 widths +
+  256-entry WinAnsi, checksum-guarded, extracted via the reportlab oracle at dev
+  time). `tests/test_minipdf.py`: `string_width` parity worst |Δ|=2.3e-13,
+  valid/`qpdf --check`-clean/deterministic PDF, byte-exact xref.
+- **P2 stamp cutover** — `minipdf.Canvas` (reportlab-`canvas` façade); `stamp.py`
+  picks the engine via `PLOOM_PDF_ENGINE` (default reportlab, so unchanged).
+  Overlay is **pixel-identical to reportlab** (max |Δ|=0 @90+300 dpi), passes the
+  real `verify.py` on rot-0 + /Rotate 90, and the delivered file is now
+  metadata-clean (drop pypdf `/Info`). `tests/test_minipdf_parity.py`.
+- reportlab stays a **dev/test-only oracle**; NO shipped dependency added.
+- NEXT: extend the façade to `draft.py` Loft plates (clip/curve/dash), then the
+  flow/table engine (transmittal/reports/ledger/pickup), then flip the default
+  and delete reportlab from the runtime.
+
+**Deferred follow-up (tracked): decimal-sheet dot-misread.** The v4.7.1
+noise-robust glyph-height fix now KEEPS a degraded decimal sheet's dot (e.g.
+E-1.10) instead of dropping it; when it misreads as a non-confusable letter
+(E-1P10) the index cross-check does not recover it (the naive loose-snap that
+would was reverted in v4.7.1 for violating number-lock — it truncated real
+suffixes like D-101A and changed digits like A-4X8→A-401). The **number-lock-safe
+fix** is a loose sheet-route committed ONLY on a same-length substitution that
+preserves the digit multiset (recovers E-1P10→E-1.10; blocks D-101A and A-4X8);
+worth an adversarial pass before shipping. `test_tracer_p3` / `test_tracer_eval`
+sheet-accuracy tests are now DETERMINISTICALLY seeded (were `hash()`-flaky) and
+100% on their fixed sample.
+
 ## Roadmap (still open)
 
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an

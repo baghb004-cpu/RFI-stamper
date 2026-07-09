@@ -1,12 +1,18 @@
 # MINIPDF_PLAN.md — retiring reportlab (from-scratch PDF writer) and tkinterdnd2 (native drag-drop)
 
-**Status:** IN PROGRESS. Research complete; **Track A / P1 foundation shipped** — the
-`rfi_stamper/minipdf/` package (WinAnsi `encoding`, reportlab-exact `metrics`, `content`-stream
-builder, `document` serializer) emits a valid, deterministic, `qpdf --check`-clean PDF, and
-`string_width` matches the reportlab oracle to machine epsilon (`tests/test_minipdf.py`, 52 checks).
+**Status:** IN PROGRESS. Research complete; **Track A / P1 + P2 shipped.**
+- **P1 foundation** — `rfi_stamper/minipdf/` (WinAnsi `encoding`, reportlab-exact `metrics`,
+  `content`-stream builder, `document` serializer) emits a valid, deterministic, `qpdf --check`-clean
+  PDF; `string_width` matches the reportlab oracle to machine epsilon (`tests/test_minipdf.py`).
+- **P2 stamp cutover** — a reportlab-`canvas`-shaped `minipdf.Canvas` façade; `stamp.py` selects the
+  engine via `PLOOM_PDF_ENGINE` (default reportlab). The from-scratch overlay is **pixel-identical to
+  reportlab** (max |Δ|=0 at 90+300 dpi) and passes the real `verify.py` end-to-end on rot-0 + /Rotate
+  90; the delivered file is now metadata-clean (`stamp.py` drops pypdf's `/Info`)
+  (`tests/test_minipdf_parity.py`).
+
 Owner decision locked: **everything from scratch** (full platypus-equivalent table engine; native
-ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: the reportlab-`canvas`
-façade, then P2 (stamp/plate paths behind a flag + pixel-diff parity).
+ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: extend the façade to
+`draft.py` Loft plates (clip/curve/dash), then P3 — the flow/table engine for transmittal/reports.
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on
