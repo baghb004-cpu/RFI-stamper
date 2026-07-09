@@ -15,10 +15,22 @@
   engine-selectable. Plates render within the 25-gray verify threshold of reportlab everywhere
   (0 px over threshold; only sub-threshold curve AA differs). **Direct-canvas tier complete.**
 
-Owner decision locked: **everything from scratch** (full platypus-equivalent table engine; native
-ctypes drag-drop; no reportlab/tkinterdnd2 in the shipped runtime). Next: **P3 — the flow/table
-engine** (`Paragraph`/`Table`/`SimpleDocTemplate`/`_NumberedCanvas`) for transmittal/reports/ledger/
-pickup, the last and largest reportlab surface.
+- **P3 flow/table engine + ALL consumers cut over** — `minipdf/flow.py` (ParagraphStyle, Paragraph,
+  Spacer, HRFlowable, TableStyle, Table with header-repeating pagination, SimpleDocTemplate) +
+  `pagesizes.py`. Cut over behind the flag: **transmittal** (+ delegating resolution/crewpass/daybook/
+  submittal), **reports** (forms/daily/snapshot; a `_NumberedCanvas` factory dispatches by engine),
+  and **fieldpro** (landscape ledger + stake sheet; raster thumbnail → "no thumbnail" fallback). The
+  canvas duck-types reportlab `Color`, so modules' existing colour constants drive both engines.
+  Tables are a new layout engine → clean but not pixel-identical to platypus (reports aren't
+  verify.py-gated); validated structurally (valid/paginated/header-repeat/footer/round-trip, `qpdf`).
+
+**Every reportlab consumer is now engine-selectable — the whole app runs reportlab-free under
+`PLOOM_PDF_ENGINE=minipdf`, default still reportlab so the suite is green (52).** Owner decision:
+**everything from scratch** (no reportlab/tkinterdnd2 in the shipped runtime).
+
+**Remaining:** (P4) flip the default to minipdf — re-baseline the reportlab-specific table/report test
+assertions, prove the 36-RFI blind corpus — then (P5) delete reportlab from the runtime (module
+imports + requirements). Then **Track B**: the from-scratch ctypes drag-drop (retire tkinterdnd2).
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on
