@@ -45,9 +45,24 @@ Phase D (all pure canvas, no GPU):
   half-res, falls back to the painter with an honest hint note.  The
   ground grid becomes thin ground-plane quads in this mode, so the
   building correctly occludes it.
-* Measure — two clicks snap (12 px) to drawn segment endpoints and show a
-  dashed tape labeled with the TRUE feet-inches distance and ΔZ, even when
-  the slope slider distorts the drawing; a third click clears, Esc exits.
+* Measure — two picks (vertex > edge > face priority: 12 px vertex snap,
+  6 px edge snap, then a ray cast against visible faces; picks THROUGH
+  geometry, the wireframe-viewer norm) with a live rubber band, showing a
+  dashed tape with the surveying triple SD/HD/VD plus ΔN/ΔE, azimuth and
+  pipe slope — all from bim.measure3d (= fieldpro.deltas, so the tape
+  agrees with the As-Staked Ledger to the last digit).  TRUE geometry
+  even when the slope slider distorts the drawing; a third click clears,
+  Esc exits.
+* Section box — a 6-plane axis-aligned interrogation box with REAL
+  clipping (Liang-Barsky on segments, Sutherland-Hodgman on faces, pipe
+  centerlines clipped then re-extruded; sheet planes/pins in-out by
+  centroid).  Face-center handles drag their plane (end-on handles dim
+  and refuse — no divide-by-zero flings), double-click a handle resets
+  that plane, "Section" off restores the full model.  Clipping is
+  view-independent and cached, so orbiting stays cheap.  No caps: the
+  geometry is open quads/prisms, not solids — the last-moved plane glows
+  instead (the honest substitute).  Composes with the Horizon Slice,
+  which keeps its documented centroid-cull behavior.
 
 Interactions: left-drag orbit, middle-drag (or shift+left) pan, wheel zoom
 toward the cursor, double-click fit.  Clicking a sheet plane or its label
@@ -89,7 +104,8 @@ def _mix(c1, c2, t: float) -> str:
 class Bim3DViewer(ttk.Frame):
     WALK_EYE_FT = 5.5           # first-person eye height
     WALK_STEP_FT = 2.0          # one key press = one step
-    MEASURE_SNAP_PX = 12.0
+    MEASURE_SNAP_PX = 12.0      # vertex snap aperture (classic CAD ~10 px)
+    EDGE_SNAP_PX = 6.0          # edge snap aperture
 
     def __init__(self, parent, theme, on_open_sheet=None):
         super().__init__(parent)
@@ -109,9 +125,13 @@ class Bim3DViewer(ttk.Frame):
         self._walk = None           # {"x","y","z","yaw","pitch"} in walk mode
         self._saved_cam = None      # orbit camera to restore on walk exit
         self.measuring = False      # 3D measure mode on/off
-        self._measure_pts = []      # up to 2 picked (true_pt, drawn_pt)
+        self._measure_pts = []      # up to 2 picked (true, drawn, kind)
         self._photo = None          # raster blit; MUST stay referenced
         self._raster_slow = False   # sticky painter fallback for this model
+        self.section = None         # {"mn": [xyz], "mx": [xyz]} when active
+        self._sec_cache = None      # (key, segs, cut_flags, faces)
+        self._sec_drag = None       # (k, x0, y0, mn0, mx0, u) mid-drag
+        self._sec_last = None       # last-moved plane k, for the glow
 
         bar = ttk.Frame(self)
         bar.pack(fill="x")
@@ -158,6 +178,12 @@ class Bim3DViewer(ttk.Frame):
                                       style="Tool.TButton",
                                       command=self.toggle_measure)
         self.measure_btn.pack(side="left", padx=2)
+        # 6-plane section box: real clipping (Liang-Barsky segments,
+        # Sutherland-Hodgman faces), draggable face-center handles
+        self.section_var = tk.BooleanVar(master=self, value=False)
+        ttk.Checkbutton(bar2, text="Section", variable=self.section_var,
+                        command=self._on_section_toggle
+                        ).pack(side="left", padx=(6, 2))
         ttk.Separator(bar2, orient="vertical").pack(side="left", fill="y",
                                                     padx=6, pady=2)
         for corner in ("NE", "NW", "SE", "SW"):
@@ -180,7 +206,7 @@ class Bim3DViewer(ttk.Frame):
         cv.bind("<ButtonPress-1>", self._on_press)
         cv.bind("<B1-Motion>", self._on_drag)
         cv.bind("<ButtonRelease-1>", self._on_release)
-        cv.bind("<Double-Button-1>", lambda e: self.fit())
+        cv.bind("<Double-Button-1>", self._on_double)
         cv.bind("<ButtonPress-2>", self._on_pan_start)
         cv.bind("<B2-Motion>", self._on_pan)
         cv.bind("<ButtonRelease-2>", lambda e: self._end_interaction())
@@ -207,6 +233,11 @@ class Bim3DViewer(ttk.Frame):
         self.model = model
         self._lod = 1.0
         self._raster_slow = False           # new model: re-measure raster
+        self.section = None                 # stale box bounds
+        self.section_var.set(False)
+        self._sec_cache = None
+        self._sec_drag = None
+        self._sec_last = None
         self._build_legend()
         self._fit_instant()
         self._fly_in()
@@ -237,6 +268,151 @@ class Bim3DViewer(ttk.Frame):
         txt = note or HINT
         if self.hint.cget("text") != txt:
             self.hint.configure(text=txt)
+
+    # ------------------------------------------------------- section box ---
+    def _sec_full_box(self):
+        """Model bounds padded 0.5% of span — the box's reset/initial state
+        (the clip's inclusive eps makes the pad belt-and-braces)."""
+        (mnx, mny, mnz), (mxx, mxy, mxz) = self.model.bounds()
+        pad = [max((hi - lo) * 0.005, 0.01)
+               for lo, hi in ((mnx, mxx), (mny, mxy), (mnz, mxz))]
+        return ([mnx - pad[0], mny - pad[1], mnz - pad[2]],
+                [mxx + pad[0], mxy + pad[1], mxz + pad[2]])
+
+    def _on_section_toggle(self):
+        if self.section_var.get() and self.model is not None:
+            mn, mx = self._sec_full_box()
+            self.section = {"mn": mn, "mx": mx}
+        else:
+            self.section = None
+            self.section_var.set(False)
+        self._sec_cache = None
+        self._sec_drag = None
+        self._sec_last = None
+        self._render()
+
+    def _section_geo(self, segs, z_cut):
+        """(clipped segments, cut-flag pairs, clipped model faces) for the
+        active box.  Clipping is view-independent, so it is CACHED — orbit,
+        pan and zoom re-render from the cache (the zero-idle promise);
+        invalidated on box drag, model change, legend toggle, slice."""
+        sec = self.section
+        key = (id(self.model), tuple(sec["mn"]), tuple(sec["mx"]),
+               frozenset(self.hidden_systems), z_cut)
+        if self._sec_cache is not None and self._sec_cache[0] == key:
+            return self._sec_cache[1], self._sec_cache[2], self._sec_cache[3]
+        mn, mx = sec["mn"], sec["mx"]
+        out_s, out_c = [], []
+        for s in segs:
+            r = bim.clip_segment_box(s.a, s.b, mn, mx)
+            if r is None:
+                continue
+            (a2, b2), flags = r
+            if not flags[0] and not flags[1]:
+                out_s.append(s)             # untouched: keep the original
+            else:
+                out_s.append(bim.Segment(a2, b2, s.color, s.width,
+                                         s.system, s.radius))
+            out_c.append(flags)
+        out_f = []
+        for f in getattr(self.model, "faces", ()) or ():
+            if f.system in self.hidden_systems:
+                continue
+            fz = sum(p[2] for p in f.pts) / len(f.pts)
+            if z_cut is not None and fz > z_cut:
+                continue
+            pts = bim.clip_poly_box(f.pts, mn, mx)
+            if len(pts) < 3:
+                continue
+            out_f.append(f if len(pts) == len(f.pts)
+                         and all(tuple(float(c) for c in a) == b
+                                 for a, b in zip(f.pts, pts))
+                         else bim.Face(pts, f.color, f.system))
+        self._sec_cache = (key, out_s, out_c, out_f)
+        return out_s, out_c, out_f
+
+    def _sec_face_quad(self, k):
+        """World corners of box plane k (k = axis*2 + side, side 1 = max)."""
+        axis, side = divmod(k, 2)
+        mn, mx = self.section["mn"], self.section["mx"]
+        v = mx[axis] if side else mn[axis]
+        oa, ob = [i for i in range(3) if i != axis]
+        quad = []
+        for da, db in ((0, 0), (1, 0), (1, 1), (0, 1)):
+            p = [0.0, 0.0, 0.0]
+            p[axis] = v
+            p[oa] = mx[oa] if da else mn[oa]
+            p[ob] = mx[ob] if db else mn[ob]
+            quad.append(tuple(p))
+        return quad
+
+    def _sec_axis_px(self, k, w, h):
+        """Screen px per +1 world unit along plane k's axis at its center
+        (2-vector), or None when the axis is end-on to the camera (norm:
+        an unusable handle is skipped, never divided by)."""
+        axis, _side = divmod(k, 2)
+        quad = self._sec_face_quad(k)
+        c = tuple(sum(p[i] for p in quad) / 4.0 for i in range(3))
+        c2 = list(c)
+        c2[axis] += 1.0
+        scr = bim.project_points([c, tuple(c2)], self.cam, w, h)
+        if scr[0, 2] <= 1e-6 or scr[1, 2] <= 1e-6:
+            return None
+        u = (float(scr[1, 0] - scr[0, 0]), float(scr[1, 1] - scr[0, 1]))
+        if u[0] * u[0] + u[1] * u[1] < 4.0:
+            return None
+        return u
+
+    def _section_handle_at(self, x, y):
+        """Plane index k of a box handle under the cursor, or None."""
+        cv = self.canvas
+        for item in reversed(cv.find_overlapping(x - 4, y - 4,
+                                                 x + 4, y + 4)):
+            for tag in cv.gettags(item):
+                if tag.startswith("boxface:"):
+                    return int(tag.split(":", 1)[1])
+        return None
+
+    def _draw_section_box(self, w, h, c):
+        """Box gizmo: 12 accent edges, 6 face-center drag handles (square,
+        tag boxface:k; dimmed when end-on), last-moved plane glows with the
+        Horizon-Slice cut-plane idiom."""
+        cv = self.canvas
+        mn, mx = self.section["mn"], self.section["mx"]
+        corners = [(x0, y0, z0) for z0 in (mn[2], mx[2])
+                   for y0 in (mn[1], mx[1]) for x0 in (mn[0], mx[0])]
+        centers = []
+        for k in range(6):
+            quad = self._sec_face_quad(k)
+            centers.append(tuple(sum(p[i] for p in quad) / 4.0
+                                 for i in range(3)))
+        scr = bim.project_points(corners + centers, self.cam, w, h)
+        edges = ((0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6),
+                 (5, 7), (0, 4), (1, 5), (2, 6), (3, 7))
+        col = c["accent"]
+        for i, j in edges:
+            if scr[i, 2] <= 1e-6 or scr[j, 2] <= 1e-6:
+                continue
+            cv.create_line(scr[i, 0], scr[i, 1], scr[j, 0], scr[j, 1],
+                           fill=col, width=1.2, dash=(5, 3),
+                           tags="sectionbox")
+        if self._sec_last is not None:      # glow the last-moved plane
+            quad = bim.project_points(self._sec_face_quad(self._sec_last),
+                                      self.cam, w, h)
+            if not np.any(quad[:, 2] <= 1e-6):
+                coords = [v for p in quad for v in (p[0], p[1])]
+                cv.create_polygon(*coords, fill=col, stipple="gray12",
+                                  outline=col, width=2.0, tags="sectionbox")
+        for k in range(6):
+            p = scr[8 + k]
+            if p[2] <= 1e-6:
+                continue
+            usable = self._sec_axis_px(k, w, h) is not None
+            fill = col if usable else c["muted"]
+            cv.create_rectangle(p[0] - 5, p[1] - 5, p[0] + 5, p[1] + 5,
+                                fill=fill, outline=c["panel"], width=1.0,
+                                tags=("sectionbox", "boxhandle",
+                                      f"boxface:{k}"))
 
     def _cancel_cam_anim(self):
         """User input owns the camera: stop any fly-in / fit / iso tween so
@@ -444,68 +620,147 @@ class Bim3DViewer(ttk.Frame):
     def toggle_measure(self):
         self.measuring = not self.measuring
         self._measure_pts = []
+        if self.measuring:                      # rubber band: motion events
+            self.canvas.bind("<Motion>", self._measure_motion)
+        else:                                   # only — never an after loop
+            self.canvas.unbind("<Motion>")
+            self.canvas.delete("rubber")
         self.measure_btn.configure(
             text="Measuring… (Esc)" if self.measuring else "Measure")
         self._render()
 
+    def _measure_motion(self, e):
+        """Live rubber band from the first pick to the cursor."""
+        cv = self.canvas
+        cv.delete("rubber")
+        if len(self._measure_pts) != 1:
+            return
+        w = max(cv.winfo_width(), 4)
+        h = max(cv.winfo_height(), 4)
+        scr = bim.project_points([self._measure_pts[0][1]], self.cam, w, h)
+        if scr[0, 2] <= 1e-6:
+            return
+        cv.create_line(scr[0, 0], scr[0, 1], e.x, e.y,
+                       fill=self.theme.colors["accent"], width=1.2,
+                       dash=(4, 4), tags="rubber")
+
     def _measure_click(self, x, y):
-        """Measure pick: snap to the nearest DRAWN segment endpoint within
-        MEASURE_SNAP_PX.  Two points draw the dashed tape; a third click
-        clears it.  The label always reads the TRUE geometry, even when the
-        slope slider distorts the drawing."""
+        """Measure pick via _pick (vertex > edge > face).  Two points draw
+        the dashed tape; a third click clears it.  The label always reads
+        the TRUE geometry, even when the slope slider distorts the
+        drawing."""
         if len(self._measure_pts) >= 2:
             self._measure_pts = []
             self._render()
             return
-        hit = self._snap_endpoint(x, y)
+        hit = self._pick(x, y)
         if hit is None:
             return
-        self._measure_pts.append(hit)
+        self._measure_pts.append(
+            (hit["true_pt"], hit["drawn_pt"], hit["kind"]))
+        self.canvas.delete("rubber")
         self._render()
 
-    def _snap_endpoint(self, x, y):
-        """(true_pt, drawn_pt) of the closest visible segment endpoint
-        within the snap radius, or None.  Visibility mirrors _render:
-        hidden systems and the Horizon Slice cull, pipe z exaggerated."""
+    def _pick(self, x, y):
+        """Priority pick at a screen point: vertex (12 px) > edge (6 px) >
+        face (ray, front-most t).  Candidates are the same visible /
+        section-clipped / drawn geometry the frame renders; endpoints
+        MANUFACTURED by the section clip are not vertices (edge snap still
+        reaches them, honestly, as points on an edge).  Vertex/edge snaps
+        pick through geometry (the wireframe-viewer norm — said in the
+        hint); slope-exaggerated pipes pick on DRAWN, report TRUE.
+        Returns {"kind", "true_pt", "drawn_pt", "depth"} or None."""
         m = self.model
-        if m is None or not m.segments:
+        if m is None:
             return None
-        (_, _, mnz), (_, _, mxz) = m.bounds()
+        (mnx, mny, mnz), (mxx, mxy, mxz) = m.bounds()
         z_cut = None
         if self._slice_frac < 0.999:
             z_cut = mnz + (mxz - mnz) * self._slice_frac
+        segs = [s for s in m.segments
+                if s.system not in self.hidden_systems]
+        if z_cut is not None:
+            segs = [s for s in segs if (s.a[2] + s.b[2]) * 0.5 <= z_cut]
+        cuts = [(False, False)] * len(segs)
+        sec_faces = None
+        if self.section is not None:
+            segs, cuts, sec_faces = self._section_geo(segs, z_cut)
         exag = float(self.slope_var.get())
         z_mid = (mnz + mxz) / 2.0
-        true_pts, drawn_pts = [], []
-        for s in m.segments:
-            if s.system in self.hidden_systems:
-                continue
-            if z_cut is not None and (s.a[2] + s.b[2]) * 0.5 > z_cut:
-                continue
-            for p in (s.a, s.b):
-                p = tuple(float(v) for v in p)
-                true_pts.append(p)
-                if getattr(s, "radius", 0.0) > 0 and abs(exag - 1.0) > 1e-9:
-                    drawn_pts.append(bim.exaggerate_z(p, z_mid, exag))
-                else:
-                    drawn_pts.append(p)
-        if not drawn_pts:
-            return None
-        w = self.canvas.winfo_width()
-        h = self.canvas.winfo_height()
+        stretch = abs(exag - 1.0) > 1e-9
+        w = max(self.canvas.winfo_width(), 4)
+        h = max(self.canvas.winfo_height(), 4)
         if w < 4 or h < 4:
             w, h = 800, 600
-        scr = bim.project_points(drawn_pts, self.cam, w, h)
-        best, best_d = None, float(self.MEASURE_SNAP_PX)
-        for i in range(len(drawn_pts)):
-            if scr[i, 2] <= 1e-6:
-                continue
-            d = math.hypot(scr[i, 0] - x, scr[i, 1] - y)
-            if d <= best_d:
-                best, best_d = i, d
-        if best is None:
-            return None
-        return (true_pts[best], drawn_pts[best])
+
+        true_pts, drawn_pts, vert_ok = [], [], []
+        for i, s in enumerate(segs):
+            ca, cb = cuts[i]
+            piped = stretch and getattr(s, "radius", 0.0) > 0.0
+            for p, cut in ((s.a, ca), (s.b, cb)):
+                p = tuple(float(v) for v in p)
+                true_pts.append(p)
+                drawn_pts.append(bim.exaggerate_z(p, z_mid, exag)
+                                 if piped else p)
+                vert_ok.append(not cut)
+        if drawn_pts:
+            scr = bim.project_points(drawn_pts, self.cam, w, h)
+            best, best_key = None, (float(self.MEASURE_SNAP_PX), 0.0)
+            for i in range(len(drawn_pts)):     # vertex pass
+                if not vert_ok[i] or scr[i, 2] <= 1e-6:
+                    continue
+                key = (math.hypot(scr[i, 0] - x, scr[i, 1] - y),
+                       float(scr[i, 2]))       # tie -> nearer vertex
+                if key < best_key:
+                    best, best_key = i, key
+            if best is not None:
+                return {"kind": "vertex", "true_pt": true_pts[best],
+                        "drawn_pt": drawn_pts[best],
+                        "depth": float(scr[best, 2])}
+            best, best_d, best_t = None, float(self.EDGE_SNAP_PX), 0.0
+            for i in range(len(segs)):          # edge pass
+                a, b = scr[2 * i], scr[2 * i + 1]
+                if a[2] <= 1e-6 or b[2] <= 1e-6:
+                    continue
+                abx, aby = b[0] - a[0], b[1] - a[1]
+                ln2 = abx * abx + aby * aby
+                if ln2 < 1e-12:
+                    continue
+                t = max(0.0, min(1.0, ((x - a[0]) * abx
+                                       + (y - a[1]) * aby) / ln2))
+                d = math.hypot(a[0] + t * abx - x, a[1] + t * aby - y)
+                if d < best_d:
+                    best, best_d, best_t = i, d, t
+            if best is not None:
+                i, t = best, best_t
+                ta, tb = true_pts[2 * i], true_pts[2 * i + 1]
+                da, db = drawn_pts[2 * i], drawn_pts[2 * i + 1]
+                a, b = scr[2 * i], scr[2 * i + 1]
+                return {"kind": "edge",
+                        "true_pt": tuple(ta[k] + t * (tb[k] - ta[k])
+                                         for k in range(3)),
+                        "drawn_pt": tuple(da[k] + t * (db[k] - da[k])
+                                          for k in range(3)),
+                        "depth": float(a[2] + t * (b[2] - a[2]))}
+        if bool(self.shaded_var.get()):         # face pass: visible faces
+            if sec_faces is not None:
+                flist = sec_faces
+            else:
+                flist = [f for f in (getattr(m, "faces", ()) or ())
+                         if f.system not in self.hidden_systems
+                         and (z_cut is None or sum(p[2] for p in f.pts)
+                              / len(f.pts) <= z_cut)]
+            tris = [tr for f in flist for tr in bim.fan_tris(f.pts)]
+            if tris:
+                o, d = bim.screen_ray(self.cam, x, y, w, h)
+                tv = bim.ray_triangles(o, d, np.asarray(tris))
+                j = int(np.argmin(tv))
+                if np.isfinite(tv[j]):
+                    hp = tuple(float(v) for v in (o + tv[j] * d))
+                    eye, _r, _u, fwd = bim.basis(self.cam)
+                    return {"kind": "face", "true_pt": hp, "drawn_pt": hp,
+                            "depth": float((np.asarray(hp) - eye) @ fwd)}
+        return None
 
     # ------------------------------------------------------------ camera ---
     def _fit_params(self):
@@ -540,6 +795,20 @@ class Bim3DViewer(ttk.Frame):
     def _on_press(self, e):
         self._cancel_cam_anim()
         self._moved = 0.0
+        if self.section is not None and self._walk is None \
+                and not self.measuring:
+            k = self._section_handle_at(e.x, e.y)
+            if k is not None:                   # grab a box handle
+                w = max(self.canvas.winfo_width(), 4)
+                h = max(self.canvas.winfo_height(), 4)
+                u = self._sec_axis_px(k, w, h)
+                if u is not None:
+                    self._sec_drag = (k, e.x, e.y,
+                                      list(self.section["mn"]),
+                                      list(self.section["mx"]), u)
+                self._press = None              # end-on handle: consume,
+                self._pan0 = None               # never orbit through it
+                return
         if self._walk is not None:              # walk: drag turns, no pan
             self._press = (e.x, e.y, self._walk["yaw"], self._walk["pitch"])
             self._pan0 = None
@@ -552,6 +821,21 @@ class Bim3DViewer(ttk.Frame):
             self._pan0 = None
 
     def _on_drag(self, e):
+        if self._sec_drag is not None:          # move one box plane
+            k, x0, y0, mn0, mx0, u = self._sec_drag
+            axis, side = divmod(k, 2)
+            move = (((e.x - x0) * u[0] + (e.y - y0) * u[1])
+                    / (u[0] * u[0] + u[1] * u[1]))
+            gap = max((mx0[axis] - mn0[axis]) * 0.01, 1e-6)
+            sec = self.section
+            if side:
+                sec["mx"][axis] = max(mn0[axis] + gap, mx0[axis] + move)
+            else:
+                sec["mn"][axis] = min(mx0[axis] - gap, mn0[axis] + move)
+            self._sec_last = k
+            self._sec_cache = None
+            self._render()
+            return
         if self._walk is not None:
             if self._press is None:
                 return
@@ -574,6 +858,10 @@ class Bim3DViewer(ttk.Frame):
         self._render()
 
     def _on_release(self, e):
+        if self._sec_drag is not None:
+            self._sec_drag = None
+            self._end_interaction()
+            return
         if self._press is not None and self._moved < 3:
             if self.measuring:
                 self._measure_click(e.x, e.y)
@@ -582,6 +870,24 @@ class Bim3DViewer(ttk.Frame):
         self._press = None
         self._pan0 = None
         self._end_interaction()
+
+    def _on_double(self, e):
+        """Double-click a box handle resets that plane to the model bound;
+        anywhere else keeps the classic double-click-to-fit."""
+        if self.section is not None:
+            k = self._section_handle_at(e.x, e.y)
+            if k is not None:
+                axis, side = divmod(k, 2)
+                mn, mx = self._sec_full_box()
+                if side:
+                    self.section["mx"][axis] = mx[axis]
+                else:
+                    self.section["mn"][axis] = mn[axis]
+                self._sec_last = k
+                self._sec_cache = None
+                self._render()
+                return
+        self.fit()
 
     def _on_pan_start(self, e):
         if self._walk is not None:
@@ -719,6 +1025,9 @@ class Bim3DViewer(ttk.Frame):
         if z_cut is not None:
             segs = [s for s in segs
                     if (s.a[2] + s.b[2]) * 0.5 <= z_cut]
+        sec_faces = None
+        if self.section is not None:            # real clipping, cached
+            segs, _cuts, sec_faces = self._section_geo(segs, z_cut)
         if self._lod < 0.999 and len(segs) > 60:
             step = max(1, round(1.0 / self._lod))
             segs = segs[::step]
@@ -746,7 +1055,8 @@ class Bim3DViewer(ttk.Frame):
             pipe_segs, line_segs = [], segs
         raster_pref = (shaded and bool(self.raster_var.get())
                        and not self._raster_slow)
-        interacting = self._press is not None or self._pan0 is not None
+        interacting = (self._press is not None or self._pan0 is not None
+                       or self._sec_drag is not None)
         drag_lod = raster_pref and interacting
 
         planes = m.planes
@@ -754,6 +1064,19 @@ class Bim3DViewer(ttk.Frame):
                       if z_cut is None
                       or sum(cnr[2] for cnr in pl.corners) / 4.0 <= z_cut]
         pins = [p for p in self.pins if z_cut is None or p[2] <= z_cut]
+        if self.section is not None:            # markers: centroid in/out
+            smn, smx = self.section["mn"], self.section["mx"]
+
+            def _inbox(px, py, pz):
+                return all(smn[i] - 1e-9 <= v <= smx[i] + 1e-9
+                           for i, v in enumerate((px, py, pz)))
+
+            vis_planes = [
+                (j, pl) for j, pl in vis_planes
+                if _inbox(sum(cr[0] for cr in pl.corners) / 4.0,
+                          sum(cr[1] for cr in pl.corners) / 4.0,
+                          sum(cr[2] for cr in pl.corners) / 4.0)]
+            pins = [p for p in pins if _inbox(p[0], p[1], p[2])]
 
         # one projection call for every endpoint + plane corner + pin
         span = max(mxx - mnx, mxy - mny, mxz - mnz, 1.0)
@@ -771,13 +1094,17 @@ class Bim3DViewer(ttk.Frame):
         # cheap approximation of clipping, matching the midpoint rule)
         faces = []
         if shaded:
-            for f in getattr(m, "faces", ()) or ():
-                if f.system in self.hidden_systems:
-                    continue
-                fz = sum(p[2] for p in f.pts) / len(f.pts)
-                if z_cut is not None and fz > z_cut:
-                    continue
-                faces.append((f, False))
+            if sec_faces is not None:           # already filtered + clipped
+                for f in sec_faces:
+                    faces.append((f, False))
+            else:
+                for f in getattr(m, "faces", ()) or ():
+                    if f.system in self.hidden_systems:
+                        continue
+                    fz = sum(p[2] for p in f.pts) / len(f.pts)
+                    if z_cut is not None and fz > z_cut:
+                        continue
+                    faces.append((f, False))
             for s in pipe_segs:
                 # raster drag LOD: hexagon prisms, no caps (back on release)
                 tf = bim.tube_faces(draw_pt(s.a, s), draw_pt(s.b, s),
@@ -948,6 +1275,8 @@ class Bim3DViewer(ttk.Frame):
                                       tags=("chip", f"sheet:{j}"))
             cv.tag_raise(tid, rid)
 
+        if self.section is not None:
+            self._draw_section_box(w, h, c)
         self._draw_measure(w, h, c)
         if self._walk is not None:
             self._draw_hud(h, c)
@@ -961,33 +1290,54 @@ class Bim3DViewer(ttk.Frame):
                 note = "true depth too slow here — painter mode"
         elif dt < FAST_FRAME and self._lod < 1.0:
             self._lod = min(1.0, self._lod * 1.6)
+        if note is None and self.measuring:
+            note = "measure: vertex > edge > face snap · picks through · Esc"
         self._set_hint(note)
 
     def _draw_measure(self, w, h, c):
-        """Measure overlay: picked endpoints, dashed tape, feet-inches label
-        (true 3D distance + ΔZ, unaffected by slope exaggeration)."""
+        """Measure overlay: snap markers (square = vertex, diamond = edge,
+        circle = face), dashed tape, two-line surveying readout — SD/HD/VD
+        plus ΔN/ΔE, azimuth and pipe slope, all from bim.measure3d (i.e.
+        fieldpro.deltas — the tape agrees with the As-Staked Ledger to the
+        last digit).  TRUE geometry, unaffected by slope exaggeration."""
         if not self._measure_pts:
             return
         cv = self.canvas
-        drawn = [dp for _tp, dp in self._measure_pts]
+        drawn = [dp for _tp, dp, _k in self._measure_pts]
         scr = bim.project_points(drawn, self.cam, w, h)
         if np.any(scr[:, 2] <= 1e-6):
             return
         col = c["accent"]
-        for x, y, _d in scr:
-            cv.create_oval(x - 4, y - 4, x + 4, y + 4, outline=col,
-                           width=1.6, tags="measure")
+        for (_tp, _dp, kind), (x, y, _d) in zip(self._measure_pts, scr):
+            if kind == "vertex":
+                cv.create_rectangle(x - 4, y - 4, x + 4, y + 4, outline=col,
+                                    width=1.6, tags="measure")
+            elif kind == "edge":
+                cv.create_polygon(x, y - 5, x + 5, y, x, y + 5, x - 5, y,
+                                  outline=col, fill="", width=1.6,
+                                  tags="measure")
+            else:
+                cv.create_oval(x - 4, y - 4, x + 4, y + 4, outline=col,
+                               width=1.6, tags="measure")
         if len(self._measure_pts) < 2:
             return
         (ax, ay, _), (bx, by, _) = scr
         cv.create_line(ax, ay, bx, by, fill=col, width=1.6, dash=(6, 4),
                        tags="measure")
         from ..draft import fmt_ftin            # lazy: engine-side module
-        (a3, _), (b3, _) = self._measure_pts
-        d3 = math.dist(a3, b3)
-        dz = abs(b3[2] - a3[2])
-        tid = cv.create_text((ax + bx) / 2.0, (ay + by) / 2.0 - 12,
-                             text=f"{fmt_ftin(d3)}  ΔZ {fmt_ftin(dz)}",
+        a3 = self._measure_pts[0][0]
+        b3 = self._measure_pts[1][0]
+        r = bim.measure3d(a3, b3)
+        vd = r["vd"] or 0.0
+        sign = "-" if vd < -1e-9 else "+" if vd > 1e-9 else ""
+        text = (f"SD {fmt_ftin(r['sd'])}   HD {fmt_ftin(r['hd'])}   "
+                f"VD {sign}{fmt_ftin(abs(vd))}\n"
+                f"ΔN {r['dn']:+.2f}  ΔE {r['de']:+.2f}  "
+                f"az {r['azimuth']:.1f}°")
+        if r["slope_in_ft"] is not None and abs(r["slope_in_ft"]) >= 0.005:
+            text += f"  slope {abs(r['slope_in_ft']):.2f}\"/ft"
+        tid = cv.create_text((ax + bx) / 2.0, (ay + by) / 2.0 - 20,
+                             text=text, justify="center",
                              fill=col, font=(FAMILY, 9, "bold"),
                              tags="measure")
         x1, y1, x2, y2 = cv.bbox(tid)

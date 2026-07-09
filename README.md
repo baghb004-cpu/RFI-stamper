@@ -58,8 +58,12 @@ hardware:
   modes for older machines), pipe runs as solids with a **slope
   exaggeration slider** so 1/8"-per-foot is visible at building scale, a
   first-person **walk mode** at 5'-6" eye height, isometric presets,
-  depth-cued fading, and a 3D measure tape that reads feet-and-inches with
-  ΔZ — all pure canvas, no GPU required.
+  depth-cued fading, a **section box** (six draggable planes that really
+  clip the model — cut a floor open, look inside), and a 3D measure tape
+  with vertex/edge/face snapping that reads the surveying triple —
+  slope/horizontal/vertical distance, ΔN/ΔE, azimuth and pipe slope, the
+  same numbers a total-station data collector shows — all pure canvas, no
+  GPU required.
 * **Adaptive quality**: a startup probe classifies the machine; new hardware
   gets the full treatment, older machines automatically drop to reduced
   motion, and everything can be forced to full/reduced/off in View →

@@ -82,6 +82,152 @@ def project_points(pts, cam: Camera, w: int, h: int) -> np.ndarray:
     return np.nan_to_num(out, nan=0.0, posinf=1e9, neginf=-1e9)
 
 
+# -------------------------------------------------- picking / interrogation ---
+
+def screen_ray(cam: Camera, sx: float, sy: float, w: int, h: int):
+    """The world-space ray through screen pixel (sx, sy) — the exact
+    algebraic inverse of :func:`project_points`, branching the same way:
+    under ortho the ORIGIN varies per pixel and dir = fwd; under
+    perspective the DIRECTION varies and origin = eye.  Returns
+    (origin, dir), dir unit length.  Depth of a hit for sorting is
+    ``dot(hit - eye, fwd)``, matching project_points' depth column; a hit
+    with t <= 0 is a miss (never inherit the depth clamp)."""
+    eye, right, up, fwd = _basis(cam)
+    half = math.tan(math.radians(max(cam.fov, 1.0)) * 0.5)
+    if cam.ortho:
+        k = (h * 0.5) / max(abs(cam.dist) * half, _EPS)
+        origin = (eye + right * ((sx - w * 0.5) / k)
+                  + up * ((h * 0.5 - sy) / k))          # screen y is DOWN
+        return origin, fwd.copy()
+    f = (h * 0.5) / half
+    d = right * ((sx - w * 0.5) / f) + up * ((h * 0.5 - sy) / f) + fwd
+    return eye.copy(), d / max(float(np.linalg.norm(d)), _EPS)
+
+
+def fan_tris(poly) -> list:
+    """Fan-triangulate a convex polygon from vertex 0:
+    [(p0, p1, p2), (p0, p2, p3), ...]."""
+    p = [tuple(float(c) for c in q) for q in poly]
+    return [(p[0], p[i], p[i + 1]) for i in range(1, len(p) - 1)]
+
+
+def ray_triangles(origin, direction, tris) -> np.ndarray:
+    """Möller-Trumbore intersection, vectorized over (T, 3, 3) triangles,
+    TWO-SIDED (``|det|`` test — Face winding is arbitrary and walls are
+    viewed from both sides).  Returns a (T,) array of ray parameters t;
+    misses (parallel, outside, behind the origin) hold +inf."""
+    tris = np.asarray(tris, dtype=float).reshape(-1, 3, 3)
+    if not len(tris):
+        return np.zeros(0)
+    o = np.asarray(origin, dtype=float)
+    d = np.asarray(direction, dtype=float)
+    v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]
+    e1 = v1 - v0
+    e2 = v2 - v0
+    p = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, p)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = 1.0 / det
+        tv = o - v0
+        u = np.einsum("ij,ij->i", tv, p) * inv
+        q = np.cross(tv, e1)
+        v = np.einsum("j,ij->i", d, q) * inv
+        t = np.einsum("ij,ij->i", e2, q) * inv
+    beps = 1e-9
+    ok = ((np.abs(det) > 1e-12) & (u >= -beps) & (u <= 1.0 + beps)
+          & (v >= -beps) & (u + v <= 1.0 + beps) & (t > 1e-9))
+    return np.where(ok, t, np.inf)
+
+
+def clip_segment_box(a, b, mn, mx):
+    """Liang-Barsky in 3D: clip segment a->b to the axis box [mn, mx].
+    Returns ``((a2, b2), (cut_a, cut_b))`` — the single surviving
+    sub-segment plus flags marking endpoints MANUFACTURED by the clip (a
+    cut endpoint is not a real model vertex; vertex snap must skip it) —
+    or None when the segment misses the box.  Untrimmed endpoints come
+    back bitwise-identical to the input."""
+    a = tuple(float(v) for v in a)
+    b = tuple(float(v) for v in b)
+    eps = 1e-9
+    t0, t1 = 0.0, 1.0
+    d = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    for k in range(3):
+        if abs(d[k]) < 1e-12:                   # parallel to this slab
+            if a[k] < mn[k] - eps or a[k] > mx[k] + eps:
+                return None
+        else:
+            ta = (mn[k] - a[k]) / d[k]
+            tb = (mx[k] - a[k]) / d[k]
+            if ta > tb:
+                ta, tb = tb, ta
+            t0 = max(t0, ta)
+            t1 = min(t1, tb)
+            if t0 > t1:
+                return None
+    p0 = a if t0 <= 0.0 else tuple(a[k] + t0 * d[k] for k in range(3))
+    p1 = b if t1 >= 1.0 else tuple(a[k] + t1 * d[k] for k in range(3))
+    return (p0, p1), (t0 > eps, t1 < 1.0 - eps)
+
+
+def clip_poly_box(pts, mn, mx) -> list:
+    """Sutherland-Hodgman a CONVEX polygon against the six half-spaces of
+    the axis box [mn, mx].  Convex in, convex out (at most n + 6 vertices
+    total); geometry exactly ON a box plane survives (inclusive eps).
+    Returns the clipped vertex list — [] when fully outside, and sliver
+    output (< 3 vertices or ~zero area) is filtered so a degenerate
+    normal never reaches the flat shader."""
+    eps = 1e-9
+    poly = [tuple(float(c) for c in p) for p in pts]
+    for k in range(3):
+        for lo in (True, False):
+            if not poly:
+                return []
+            bound = mn[k] if lo else mx[k]
+            out = []
+            for i in range(len(poly)):
+                cur, prv = poly[i], poly[i - 1]
+                if lo:
+                    cin = cur[k] >= bound - eps
+                    pin = prv[k] >= bound - eps
+                else:
+                    cin = cur[k] <= bound + eps
+                    pin = prv[k] <= bound + eps
+                if cin != pin:                  # crossing: lerp on axis k
+                    t = (bound - prv[k]) / (cur[k] - prv[k])
+                    out.append(tuple(prv[j] + t * (cur[j] - prv[j])
+                                     for j in range(3)))
+                if cin:
+                    out.append(cur)
+            poly = out
+    if len(poly) < 3:
+        return []
+    p = np.asarray(poly)
+    n = np.zeros(3)
+    for i in range(1, len(p) - 1):
+        n += np.cross(p[i] - p[0], p[i + 1] - p[0])
+    if float(np.linalg.norm(n)) < 1e-12:        # sliver
+        return []
+    return poly
+
+
+def measure3d(a, b) -> dict:
+    """3D measure readout between two world points (viewer frame: x=E,
+    y=N, z=elevation) — a thin adapter over ``fieldpro.deltas``, THE
+    single source of delta math, so the tape agrees with the As-Staked
+    Ledger to the last digit.  Adds the surveying triple: ``sd`` (slope
+    distance), ``vd`` (signed, = dz) and ``slope_in_ft`` (pipe slope in
+    inches per foot of run; None when the run is too short to judge)."""
+    from . import fieldpro              # one-way import: bim -> fieldpro
+    rec = fieldpro.deltas((float(a[1]), float(a[0]), float(a[2])),
+                          (float(b[1]), float(b[0]), float(b[2])))
+    dz = rec.dz or 0.0
+    return {"dn": rec.dn, "de": rec.de, "dz": rec.dz, "hd": rec.hd,
+            "vd": rec.dz, "azimuth": rec.azimuth,
+            "sd": math.hypot(rec.hd, dz),
+            "cut_fill": fieldpro.cut_fill(rec.dz),
+            "slope_in_ft": (12.0 * dz / rec.hd) if rec.hd > 0.01 else None}
+
+
 # ------------------------------------------------------------------- model ---
 
 @dataclass

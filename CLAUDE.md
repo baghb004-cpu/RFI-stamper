@@ -96,6 +96,11 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
                               drop-folder scan — NEVER network
     rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
+                              + interrogation kernel: screen_ray (inverse of
+                              project_points), Möller-Trumbore ray_triangles
+                              (two-sided), Liang-Barsky clip_segment_box (cut
+                              flags), Sutherland-Hodgman clip_poly_box,
+                              measure3d (adapter over fieldpro.deltas)
     rfi_stamper/raster.py     GUI-free numpy z-buffer rasterizer for the BIM
                               shaded mode: per-pixel depth (1/z persp, -z
                               ortho), near-plane Sutherland-Hodgman clip,
@@ -276,6 +281,16 @@ were proven on real export files. GUI constructs under xvfb.
   bit-exact hash); rotated cameras assert structure, not hashes. The GUI's
   sticky `_raster_slow` painter fallback can trip DURING the set_model fly-in
   on slow boxes (xvfb!) — tests cancel the tween before asserting on the blit.
+- The pick ray (`bim.screen_ray`) is the algebraic INVERSE of
+  `project_points` — never inherit its `depth <= _EPS` clamp (a hit with
+  t <= 0 is a miss) and never re-derive a second camera model. Möller-
+  Trumbore must test `|det|` (two-sided): `det > eps` silently makes half
+  the walls unpickable depending on orbit side. Section-clip-manufactured
+  endpoints are NOT vertices — `clip_segment_box`'s cut flags exclude them
+  from vertex snap (edge snap reaches them honestly); a box set exactly to
+  `model.bounds()` must be a no-op (inclusive eps, bitwise-kept endpoints).
+  The measure tape reads `bim.measure3d` = `fieldpro.deltas` — THE single
+  delta source; viewer x=E, y=N, so deltas args are (y, x, z) order.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.

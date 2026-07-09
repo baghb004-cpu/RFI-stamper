@@ -1219,7 +1219,8 @@ def main():
     m_texts = [bv3.canvas.itemcget(i, "text")
                for i in bv3.canvas.find_withtag("measure")
                if bv3.canvas.type(i) == "text"]
-    assert any("'" in t and "ΔZ" in t for t in m_texts), m_texts
+    assert any("'" in t and "SD" in t and "HD" in t and "VD" in t
+               for t in m_texts), m_texts
     bv3._measure_click(5, 5)                      # third click clears
     root.update()
     assert not bv3.canvas.find_withtag("measure")

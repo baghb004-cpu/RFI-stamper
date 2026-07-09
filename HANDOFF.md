@@ -6,7 +6,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.11.0, offline construction workspace; Python package
+- Product: **Planloom** v4.12.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
@@ -837,6 +837,70 @@ crossing walls) now resolve exactly, per pixel.
   wireframe, no threads/C extensions). 53 suites green twice. NEXT: Phase
   C — section box + 3D picking + measure-in-3D (the `fid` buffer is
   already the picking substrate).
+
+## Round 27 (SHIPPED, v4.12.0): BUILDOUT Phase C — section box, picking, 3D measure
+
+The viewer became an interrogation tool: cut the model open, pick real
+geometry, read surveying numbers off the tape.
+
+- **bim.py interrogation kernel (GUI-free)**: `screen_ray` — the exact
+  algebraic inverse of `project_points` (ortho: origin varies per pixel,
+  dir = fwd; perspective: the reverse; never inherits the depth clamp —
+  t <= 0 is a miss). `ray_triangles` — Möller-Trumbore vectorized over
+  (T,3,3), TWO-SIDED (`|det|`; `det > eps` silently makes half the walls
+  unpickable). `fan_tris`, `clip_segment_box` — Liang-Barsky 3D returning
+  the one surviving sub-segment + CUT flags (a clip-manufactured endpoint
+  is not a real vertex), untouched endpoints bitwise-kept.
+  `clip_poly_box` — Sutherland-Hodgman against the 6 half-spaces,
+  inclusive eps (geometry ON a box plane survives; box at bounds is a
+  no-op), sliver output filtered. `measure3d` — thin adapter over
+  `fieldpro.deltas` (THE single delta source; viewer x=E y=N so args go
+  (y, x, z)), adding SD, signed VD and pipe slope in inches/ft.
+- **Section box (gui/bim3d)**: "Section" checkbutton -> box at padded
+  model bounds; 12 dashed accent edges + 6 face-center square handles
+  (tag `boxface:k`); dragging a handle converts screen motion to an axis
+  move via px-per-world-unit projection (end-on handles dim and refuse —
+  no divide-by-near-zero flings); double-click a handle resets that
+  plane; last-moved plane glows (the Horizon-Slice idiom — the honest
+  substitute for caps, which open quads/prisms cannot have). Everything
+  obeys the box: segments (Liang-Barsky), model faces (S-H), pipe prisms
+  (centerline clipped then re-extruded — never S-H 10 prism faces),
+  sheet planes/pins (centroid in/out). Clipping is view-independent and
+  CACHED (key: model, box, hidden systems, slice) so orbiting re-renders
+  from the cache — the zero-idle promise holds. Composes with the
+  Horizon Slice, which keeps its documented centroid-cull behavior
+  (owner-approved cheap rule — deliberately not unified).
+- **Picking**: `_pick` = vertex (12 px) > edge (6 px) > face (ray,
+  front-most t), replacing endpoint-only `_snap_endpoint`. Candidates are
+  the same visible/section-clipped/drawn geometry the frame renders; cut
+  endpoints are excluded from vertex snap (edge snap reaches them,
+  honestly); pipes pick on their centerline (drawn/exaggerated) and
+  report TRUE geometry; faces only when shaded (visible = pickable).
+  Picks through geometry — the wireframe-viewer norm, said in the hint.
+- **Measure-in-3D**: same two-click shell, now with snap markers
+  (square = vertex, diamond = edge, circle = face), a live rubber band
+  (bound to <Motion> only while measuring — no after loops), and a
+  two-line readout: `SD/HD/VD` (feet-inches) + `ΔN/ΔE` (decimal feet,
+  matching the Fieldstitch HUD) + azimuth + pipe slope. All numbers from
+  `bim.measure3d` = `fieldpro.deltas`, so the tape agrees with the
+  As-Staked Ledger to the last digit by construction.
+- **Tests**: headless — ray round-trip (seeded grid x cameras, both
+  projections, < 1e-6 x depth), M-T vs a scalar reference on seeded rays
+  + winding/parallel/behind cases, both clippers (bitwise-inside,
+  cut-flag, on-plane survival, diamond-vs-box analytic area 92, sliver
+  filter), box-at-bounds invariance over the whole demo building,
+  measure3d parity with fieldpro.deltas to the last bit + azimuth 90 due
+  east + 1/8"-per-ft slope. GUI — 6 handles, full-box no-op on drawn
+  scene, handle drag moves the plane and drops geometry, vertex pick
+  exact, cut endpoint demoted to edge, double-click plane reset, face
+  pick on the wall plane, vertex-over-face priority, rubber band,
+  SD/HD/VD/az label, Esc clears. Construct-test label assertion updated
+  (ΔZ -> SD/HD/VD).
+- SKIP list held (no caps, no rotated/multiple boxes, no measurement
+  chains/angles/areas, no persistent 3D annotations, no occlusion-aware
+  snapping, no midpoint/intersection snaps, no S-H for markers). 53
+  suites green twice. NEXT: Phase D — clash-lite through the Backcheck
+  (needs this phase's picking/highlight substrate).
 
 ## Roadmap (still open)
 
