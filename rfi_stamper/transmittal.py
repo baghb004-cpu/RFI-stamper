@@ -183,6 +183,109 @@ def _styles():
 
 # ------------------------------------------------------------------ public ---
 
+def _table_pdf_minipdf(out_path, headers, rows, title, subtitle, col_widths, log):
+    """The from-scratch (reportlab-free) rendering of :func:`table_pdf`.
+
+    Same layout intent — red title over a rule, zebra table with a repeating
+    header, "Page X of Y" footer over a red baseline — built on
+    ``minipdf.flow``.  Output is clean but not pixel-identical to the platypus
+    version (report PDFs are not verify.py-gated).
+    """
+    from .minipdf import colors as C
+    from .minipdf.pagesizes import letter as _letter
+    from .minipdf.flow import (ParagraphStyle, Paragraph, Table, TableStyle,
+                               HRFlowable, SimpleDocTemplate)
+
+    accent = C.Color(0.84, 0.06, 0.06)
+    ink, subtle = C.Color(0.12, 0.12, 0.12), C.Color(0.34, 0.34, 0.34)
+    zebra = C.Color(0.960, 0.960, 0.962)
+    gridline, boxline = C.Color(0.80, 0.80, 0.82), C.Color(0.70, 0.70, 0.72)
+
+    headers = list(headers)
+    rows = [list(r) for r in rows]
+    ncol = len(headers)
+    if ncol == 0:
+        raise ValueError("headers must contain at least one column")
+
+    title_style = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=24,
+                                 leading=27, textColor=accent, spaceAfter=2)
+    subtitle_style = ParagraphStyle("s", fontName="Helvetica", fontSize=11,
+                                    leading=14, textColor=subtle, spaceAfter=4)
+    header_style = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=9,
+                                  leading=11, textColor=C.white)
+    body_style = ParagraphStyle("b", fontName="Helvetica", fontSize=8.5,
+                                leading=11, textColor=ink)
+
+    data = [[Paragraph(_cell_text(h), header_style) for h in headers]]
+    for row in rows:
+        cells = list(row)
+        if len(cells) < ncol:
+            cells += [""] * (ncol - len(cells))
+        cells = cells[:ncol]
+        data.append([Paragraph(_cell_text(c), body_style) for c in cells])
+
+    if col_widths is not None:
+        widths = [float(w) for w in col_widths]
+        if len(widths) != ncol:
+            raise ValueError(
+                f"col_widths has {len(widths)} entries, expected {ncol}")
+    else:
+        widths = _auto_widths(headers, rows, _letter[0] - 2 * _MARGIN)
+
+    style = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), accent),
+        ("TEXTCOLOR", (0, 0), (-1, 0), C.white),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.9, accent),
+        ("GRID", (0, 1), (-1, -1), 0.4, gridline),
+        ("BOX", (0, 0), (-1, -1), 0.7, boxline),
+    ])
+    for i in range(1, len(data)):
+        if i % 2 == 0:
+            style.add("BACKGROUND", (0, i), (-1, i), zebra)
+
+    table = Table(data, colWidths=widths, repeatRows=1, style=style)
+
+    story = []
+    if title:
+        story.append(Paragraph(_cell_text(title), title_style))
+    if subtitle:
+        story.append(Paragraph(_cell_text(subtitle), subtitle_style))
+    if title or subtitle:
+        story.append(HRFlowable(width="100%", thickness=1.5, color=accent,
+                                spaceBefore=2, spaceAfter=12))
+    story.append(table)
+
+    footer_note = title.strip() or subtitle.strip()
+
+    def footer(c, page_no, total):
+        w, _h = _letter
+        c.saveState()
+        c.setStrokeColor(accent)
+        c.setLineWidth(0.75)
+        c.line(_MARGIN, _FOOTER_Y, w - _MARGIN, _FOOTER_Y)
+        c.setFont("Helvetica", 8)
+        c.setFillColor(subtle)
+        if footer_note:
+            c.drawString(_MARGIN, _FOOTER_Y - 12, footer_note)
+        c.drawRightString(w - _MARGIN, _FOOTER_Y - 12, f"Page {page_no} of {total}")
+        c.restoreState()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=_letter, leftMargin=_MARGIN,
+                            rightMargin=_MARGIN, topMargin=_MARGIN,
+                            bottomMargin=_MARGIN + 18, title=(title or "Table"))
+    pages = doc.build(story, footer=footer)
+    _atomic_write_bytes(buf.getvalue(), out_path)
+    log(f"  wrote {out_path} ({len(rows)} row(s), {pages} page(s))")
+    return {"out_path": out_path, "rows": len(rows), "pages": int(pages)}
+
+
 def table_pdf(out_path: str, headers: list[str], rows: list[list],
               title: str = "", subtitle: str = "",
               col_widths: list[float] | None = None, log=print) -> dict:
@@ -199,6 +302,9 @@ def table_pdf(out_path: str, headers: list[str], rows: list[list],
 
     Returns ``{"out_path": ..., "rows": len(rows), "pages": int}``.
     """
+    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
+        return _table_pdf_minipdf(out_path, headers, rows, title, subtitle,
+                                  col_widths, log)
     headers = list(headers)
     rows = [list(r) for r in rows]
     ncol = len(headers)

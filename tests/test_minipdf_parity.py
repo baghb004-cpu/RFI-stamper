@@ -220,12 +220,63 @@ def test_plate_parity():
     print(f"  plate parity: 0 px over threshold (curves/clip/dash), result {rmp}")
 
 
+def test_table_engine():
+    """The from-scratch flow/table engine renders a valid, paginated table.
+
+    Tables are a NEW layout engine (not pixel-identical to platypus, and not
+    verify.py-gated), so the bar is structural: valid PDF, correct pagination
+    with a repeating header, "Page X of Y" footer, and every row's text present.
+    """
+    import fitz
+    from rfi_stamper import transmittal
+
+    headers = ["RFI", "Title", "Sheet(s)", "Via", "Answered"]
+    rows = [[f"{i:03d}",
+             f"Long RFI title number {i} that wraps within its column nicely — "
+             f"exercising the wrap and row-height logic",
+             "A-101, P-201", "planref", "Yes" if i % 2 else "No"]
+            for i in range(48)]
+    tmp = os.path.join(tempfile.mkdtemp(prefix="minipdf_tbl_"), "log.pdf")
+
+    prev = os.environ.get("PLOOM_PDF_ENGINE")
+    os.environ["PLOOM_PDF_ENGINE"] = "minipdf"
+    try:
+        res = transmittal.table_pdf(tmp, headers, rows, title="RFI LOG",
+                                    subtitle="Parity fixture",
+                                    col_widths=[44.0, 218.0, 116.0, 58.0, 68.0],
+                                    log=lambda m: None)
+    finally:
+        if prev is None:
+            os.environ.pop("PLOOM_PDF_ENGINE", None)
+        else:
+            os.environ["PLOOM_PDF_ENGINE"] = prev
+
+    A(res["rows"] == 48, "row count reported")
+    A(res["pages"] >= 2, f"48 rows paginate across pages, got {res['pages']}")
+    with open(tmp, "rb") as f:
+        data = f.read()
+    A(b"/Producer" not in data, "table PDF is metadata-clean")
+    doc = fitz.open(stream=data, filetype="pdf")
+    A(doc.page_count == res["pages"], "reported page count matches the file")
+    p0 = doc[0].get_text("text")
+    A("RFI LOG" in p0 and "Parity fixture" in p0, "title + subtitle on page 1")
+    A(f"Page 1 of {res['pages']}" in p0, "Page X of Y footer")
+    A("Answered" in doc[1].get_text("text"), "header row repeats on page 2")
+    # every RFI number round-trips somewhere in the document
+    alltext = "".join(doc[i].get_text("text") for i in range(doc.page_count))
+    missing = [f"{i:03d}" for i in range(48) if f"{i:03d}" not in alltext]
+    A(not missing, f"every row's RFI number is present (missing {missing[:5]})")
+    doc.close()
+    print(f"  table engine: {res['rows']} rows -> {res['pages']} pages, header repeats, footer, all rows present")
+
+
 def main():
     for fn, label in [
         (test_overlay_pixel_identity, "overlay pixel-identity vs reportlab (90+300 dpi)"),
         (test_appendix_text_identity, "appendix header pixel-identity"),
         (test_pipeline_minipdf_verifies, "full stamp+verify pipeline on the minipdf engine"),
         (test_plate_parity, "draft.py Loft plate parity (curves + clip + dash)"),
+        (test_table_engine, "from-scratch flow/table engine (transmittal)"),
     ]:
         fn()
         print(f"PASS {label}")
