@@ -1765,15 +1765,16 @@ def plate_pdf(model: DraftModel, out_path: str, sheet: str = "ARCH D",
     graphic scale bar sized to the plotted ratio sit bottom-left.  The plot
     is monochrome: color is a screen concept, plates are ink.  Returns
     {"scale": label, "fit": bool, "ops": n}; write is atomic."""
-    # engine-selectable (PLOOM_PDF_ENGINE): reportlab by default, or Planloom's
-    # from-scratch writer.  Plates are not verify.py-gated, so the tiny curve
-    # anti-aliasing difference between the two rasterizations is cosmetic.
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        from .minipdf.colors import black
-        from .minipdf import canvas as rl_canvas
-    else:
+    # engine-selectable (PLOOM_PDF_ENGINE): Planloom's from-scratch writer by
+    # default; PLOOM_PDF_ENGINE=reportlab opts back into the retired library as
+    # a dev-box parity oracle.  Plates are not verify.py-gated, so the tiny
+    # curve anti-aliasing difference between rasterizations is cosmetic.
+    if os.environ.get("PLOOM_PDF_ENGINE", "minipdf").lower() == "reportlab":
         from reportlab.lib.colors import black
         from reportlab.pdfgen import canvas as rl_canvas
+    else:
+        from .minipdf.colors import black
+        from .minipdf import canvas as rl_canvas
 
     meta = dict(meta or {})
     try:

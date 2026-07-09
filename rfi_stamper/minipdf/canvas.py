@@ -101,11 +101,33 @@ class Canvas:
         self._pagesize = tuple(pagesize)
         self._doc = Document()
         self._page = self._doc.add_page(*self._pagesize)
-        self._c = self._page.content
-        self._font = None
-        self._fontsize = None
+        self._content = self._page.content
+        self._page_pending = False           # True between showPage() and the next draw
+        self._font = "Helvetica"             # reportlab's canvas default font
+        self._fontsize = 12
         self._fontstack: list[tuple] = []
         self._saved = False
+
+    @property
+    def _c(self):
+        """The current page's content stream — reportlab page semantics.
+
+        ``showPage()`` only *ends* the current page; the next page materializes
+        here on the first drawing call after it.  That mirrors reportlab, where
+        the pervasive trailing ``showPage(); save()`` idiom must NOT leave a
+        blank last page (form/report/plate producers all end that way).
+        """
+        if self._page_pending:
+            self._page = self._doc.add_page(*self._pagesize)
+            self._content = self._page.content
+            self._page_pending = False
+        return self._content
+
+    @_c.setter
+    def _c(self, content):
+        # _MiniNumberedCanvas.save() re-targets committed pages to stamp footers.
+        self._content = content
+        self._page_pending = False
 
     # -- graphics state ----------------------------------------------------- #
     def setFillColorRGB(self, r, g, b):
@@ -255,13 +277,22 @@ class Canvas:
 
     def setPageSize(self, size):
         self._pagesize = tuple(size)
-        self._page.width, self._page.height = self._pagesize
+        if not self._page_pending:           # never resize an already-ended page
+            self._page.width, self._page.height = self._pagesize
 
     def showPage(self):
-        self._page = self._doc.add_page(*self._pagesize)
-        self._c = self._page.content
-        self._font = None
-        self._fontsize = None
+        """End the current page (reportlab semantics).
+
+        The next page is created lazily by the first drawing call, so a
+        trailing ``showPage()`` before ``save()`` adds no blank page — while an
+        explicit second ``showPage()`` with nothing drawn between them commits a
+        deliberately blank page, exactly like reportlab.
+        """
+        if self._page_pending:               # showPage(); showPage() -> blank page
+            _ = self._c                      # materialize the blank page
+        self._page_pending = True
+        self._font = "Helvetica"             # per-page state reset, like reportlab
+        self._fontsize = 12
         self._fontstack.clear()
 
     def drawImage(self, *args, **kwargs):

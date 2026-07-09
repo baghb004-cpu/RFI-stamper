@@ -4,7 +4,11 @@ from __future__ import annotations
 import re
 
 import numpy as np
-from reportlab.pdfbase.pdfmetrics import stringWidth
+
+# From-scratch Core-14 metrics — proven equal to the reportlab oracle to
+# machine epsilon (tests/test_minipdf.py), so box geometry and the header
+# width-fit are byte-identical to the historical reportlab-measured layout.
+from .minipdf.metrics import string_width as stringWidth
 
 RED = (0.84, 0.06, 0.06)
 F_HDR, S_HDR, L_HDR = "Helvetica-Bold", 9.2, 11.6

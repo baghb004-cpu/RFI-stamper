@@ -55,7 +55,15 @@ run; the `*_report.txt` must end in PASS).
                               split + merge, field + reference parsing
     rfi_stamper/sheets.py     plan-set index: page -> sheet number, geometry
     rfi_stamper/layout.py     note text, box math, empty-rectangle finder, zones
-    rfi_stamper/stamp.py      reportlab overlay + rotation-general pypdf merge,
+    rfi_stamper/minipdf/      the from-scratch PDF WRITER (retired reportlab at
+                              v4.8.0): WinAnsi encoding, Core-14 metrics
+                              (oracle-equal to 1e-13), content-stream builder,
+                              byte-exact classic-xref document (no metadata,
+                              content-hash /ID), reportlab-canvas facade
+                              (Bezier/clip/dash, reportlab page semantics),
+                              flow/table layout engine; PLOOM_PDF_ENGINE=
+                              reportlab re-enables the dev-box parity oracle
+    rfi_stamper/stamp.py      minipdf overlay + rotation-general pypdf merge,
                               appendix pages
     rfi_stamper/verify.py     pre/post render pixel-diff verification
     rfi_stamper/pipeline.py   scan -> map -> place -> stamp -> verify -> report
@@ -73,7 +81,7 @@ run; the `*_report.txt` must end in PASS).
                               reads title-block/large lettering (OCR_PLAN.md
                               staged P1-P4; Tesseract removed only at P4)
     rfi_stamper/hyperlink.py  auto sheet cross-linking (native GoTo links) + outline
-    rfi_stamper/transmittal.py  RFI-log / generic table PDF (reportlab)
+    rfi_stamper/transmittal.py  RFI-log / generic table PDF (minipdf flow engine)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile
     rfi_stamper/submittal.py  submittal-register parser + log PDF
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
@@ -272,6 +280,20 @@ were proven on real export files. GUI constructs under xvfb.
   scales. The eval's speckle tier (`test_tracer_eval.py`, ≤2%) is the guard —
   keep it. Genuine degraded residual is now touching/broken glyphs + sub-legible
   text (OCR_PLAN §8), not thin-glyph loss.
+- minipdf's `Canvas.showPage()` has REPORTLAB semantics: it *ends* the page and
+  the next page materializes lazily on the first draw, so the pervasive
+  trailing `showPage(); save()` idiom never adds a blank page — and the default
+  font is Helvetica-12, reset per page. An eager-append showPage masqueraded as
+  "3 tests need re-baselining" during the cutover; it was one engine bug. The
+  semantics probe in `tests/test_minipdf_parity.py` and the 1/1/2-page cases
+  are the guard. Text must be WinAnsi single-byte (em dash 0x97, middot 0xB7):
+  the ONE shared encoder in `minipdf/encoding.py` feeds both `string_width` and
+  drawing — never add a second encode path or measurement and ink can diverge
+  (box geometry drifts and `verify.py` FAILs).
+- `layout.py` measures text through `minipdf.metrics.string_width`, which is
+  held equal to the historical reportlab metrics to ~1e-13 by
+  `tests/test_minipdf.py`'s oracle-parity test (kerning OFF). Changing width
+  tables re-clips every header and moves every box — don't.
 
 ## Summaries
 

@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz
 from pypdf import PdfReader
-from reportlab.lib.pagesizes import A4, landscape, letter
-from reportlab.pdfgen import canvas
+from rfi_stamper.minipdf.pagesizes import A4, landscape, letter
+from rfi_stamper.minipdf import canvas
 
 from rfi_stamper.merge import (MergeItem, merge_pdfs, parse_page_range,
                                pdf_page_count, rotate_pdf, split_pdf)

@@ -24,13 +24,22 @@
   Tables are a new layout engine → clean but not pixel-identical to platypus (reports aren't
   verify.py-gated); validated structurally (valid/paginated/header-repeat/footer/round-trip, `qpdf`).
 
-**Every reportlab consumer is now engine-selectable — the whole app runs reportlab-free under
-`PLOOM_PDF_ENGINE=minipdf`, default still reportlab so the suite is green (52).** Owner decision:
-**everything from scratch** (no reportlab/tkinterdnd2 in the shipped runtime).
+- **P4 default flip + P5 reportlab RETIRED (v4.8.0).** The zero-re-baseline flip: the three
+  "failing" tests were ONE canvas-semantics bug (reportlab's `showPage()` *ends* a page — the next
+  page materializes lazily on the first draw, so the pervasive trailing `showPage(); save()` idiom
+  adds no blank page; plus reportlab's Helvetica-12 default font). With lazy-page semantics +
+  default-font parity in `minipdf.Canvas`, **the whole suite passes on the from-scratch engine with
+  zero test edits**. Then: `layout.py` measures via `minipdf.metrics` (oracle-equal to 1e-13);
+  `transmittal`/`reports`/`fieldpro` are minipdf-only; `stamp`/`draft` default to minipdf with
+  `PLOOM_PDF_ENGINE=reportlab` as the dev-box parity-oracle opt-in; test fixtures build plans with
+  `minipdf.Canvas`; reportlab is OUT of requirements.txt and `excludes=["reportlab"]` guards both
+  PyInstaller Analysis blocks. A meta-path blocker proof imports every module and produces
+  stamp/table/form PDFs with reportlab unavailable.
 
-**Remaining:** (P4) flip the default to minipdf — re-baseline the reportlab-specific table/report test
-assertions, prove the 36-RFI blind corpus — then (P5) delete reportlab from the runtime (module
-imports + requirements). Then **Track B**: the from-scratch ctypes drag-drop (retire tkinterdnd2).
+**Track A COMPLETE (v4.8.0): Planloom generates every PDF with its own engine.** reportlab remains
+only an optional dev-box install for the parity-oracle tests (which skip cleanly without it).
+
+**Remaining: Track B** — the from-scratch ctypes drag-drop (retire tkinterdnd2).
 **Scope:** two independent efforts — **(1)** a from-scratch "mini-pdf" writer to retire `reportlab`,
 and **(2)** removing `tkinterdnd2` (graceful, with an optional native drag-drop shim).
 **Provenance:** synthesized from an 8-agent parallel research pass (6 agents on the PDF writer, 2 on

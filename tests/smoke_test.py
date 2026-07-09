@@ -12,8 +12,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pypdf import PdfReader, PdfWriter               # noqa: E402
-from reportlab.lib.pagesizes import letter           # noqa: E402
-from reportlab.pdfgen import canvas                  # noqa: E402
+from rfi_stamper.minipdf.pagesizes import letter     # noqa: E402
+from rfi_stamper.minipdf import canvas               # noqa: E402
 
 from rfi_stamper import pipeline                     # noqa: E402
 

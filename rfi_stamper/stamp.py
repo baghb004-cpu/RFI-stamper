@@ -13,16 +13,17 @@ from .layout import (BORDER, F_BOD, F_HDR, GAP, L_BOD, L_HDR, PAD, RED,
 def _new_canvas(buf, pagesize):
     """The overlay canvas, selectable by the PLOOM_PDF_ENGINE env var.
 
-    Defaults to reportlab (unchanged behavior); ``PLOOM_PDF_ENGINE=minipdf``
-    routes to Planloom's from-scratch writer.  Both expose the same
-    ``Canvas(buf, pagesize=(w, h))`` surface, so this is the only switch — the
-    two are held pixel-identical by ``tests/test_minipdf_parity.py``.
+    Defaults to Planloom's own from-scratch writer (``minipdf``);
+    ``PLOOM_PDF_ENGINE=reportlab`` opts back into the retired library as a
+    dev-box parity oracle (it is no longer a shipped dependency).  Both expose
+    the same ``Canvas(buf, pagesize=(w, h))`` surface, and the two are held
+    pixel-identical by ``tests/test_minipdf_parity.py``.
     """
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        from .minipdf.canvas import Canvas
-        return Canvas(buf, pagesize=pagesize)
-    from reportlab.pdfgen import canvas
-    return canvas.Canvas(buf, pagesize=pagesize)
+    if os.environ.get("PLOOM_PDF_ENGINE", "minipdf").lower() == "reportlab":
+        from reportlab.pdfgen import canvas
+        return canvas.Canvas(buf, pagesize=pagesize)
+    from .minipdf.canvas import Canvas
+    return Canvas(buf, pagesize=pagesize)
 
 
 def draw_box(c, x, ytop, w, entries):

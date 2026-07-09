@@ -14,8 +14,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz
-from reportlab.lib.pagesizes import landscape, letter
-from reportlab.pdfgen import canvas
+from rfi_stamper.minipdf.pagesizes import landscape, letter
+from rfi_stamper.minipdf import canvas
 
 from rfi_stamper.submittal import (CANONICAL_STATUSES, SubmittalRecord,
                                    normalize_status, parse_submittals,

@@ -9,8 +9,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from rfi_stamper.minipdf.pagesizes import letter
+from rfi_stamper.minipdf import canvas
 
 from rfi_stamper import project as project_mod
 from rfi_stamper.project import (KINDS, BudgetLine, ChangeOrder, DocEntry,

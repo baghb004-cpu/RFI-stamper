@@ -18,11 +18,11 @@ import fitz
 import numpy as np
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import RectangleObject
-from reportlab.pdfbase.pdfmetrics import stringWidth
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from rfi_stamper import layout, stamp, verify  # noqa: E402
+from rfi_stamper import layout, stamp, verify           # noqa: E402
+from rfi_stamper.minipdf.metrics import stringWidth     # noqa: E402
 
 
 # --------------------------------------------------------- #01 CropBox anchor --

@@ -23,7 +23,7 @@ project spec"):
   (compare-then-round) — stated in the ledger footer;
 * check shots are compared, never averaged, and never overwrite control.
 
-Fully offline; stdlib + reportlab only; all writes are atomic.
+Fully offline; stdlib + Planloom's own minipdf engine; all writes are atomic.
 """
 from __future__ import annotations
 
@@ -35,17 +35,17 @@ import re
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import landscape, letter
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import (
+from .minipdf import colors
+from .minipdf.flow import (
     HRFlowable,
     Paragraph,
+    ParagraphStyle,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
+from .minipdf.pagesizes import landscape, letter
 
 from . import transmittal
 from .fieldstitch import (
@@ -981,26 +981,14 @@ _MARGIN = 40.0
 
 
 def _pdf_engine():
-    """The platypus-shaped classes for the selected engine (PLOOM_PDF_ENGINE).
+    """The flow-engine classes bundle (all from Planloom's own minipdf).
 
-    reportlab by default; the from-scratch ``minipdf`` when set.  reportlab
-    colour constants are duck-typed by minipdf's canvas, so the shared
-    ``transmittal.ACCENT`` etc. work under either.
+    Kept as a namespace so the ledger builders receive one explicit handle
+    rather than reaching for module globals.
     """
     from types import SimpleNamespace
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        from .minipdf import colors as _colors
-        from .minipdf.pagesizes import letter as _letter, landscape as _landscape
-        from .minipdf.flow import (ParagraphStyle, Paragraph, HRFlowable, Spacer,
-                                   Table, TableStyle, SimpleDocTemplate)
-    else:
-        from reportlab.lib import colors as _colors
-        from reportlab.lib.pagesizes import letter as _letter, landscape as _landscape
-        from reportlab.lib.styles import ParagraphStyle
-        from reportlab.platypus import (Paragraph, HRFlowable, Spacer, Table,
-                                        TableStyle, SimpleDocTemplate)
     return SimpleNamespace(
-        colors=_colors, letter=_letter, landscape=_landscape,
+        colors=colors, letter=letter, landscape=landscape,
         ParagraphStyle=ParagraphStyle, Paragraph=Paragraph, HRFlowable=HRFlowable,
         Spacer=Spacer, Table=Table, TableStyle=TableStyle,
         SimpleDocTemplate=SimpleDocTemplate)
@@ -1061,7 +1049,7 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
                area: str = "", crew: str = "", instrument: str = "",
                control_held: str = "", datum: str = "", foot: str = "",
                tolerance_note: str = "", log=print) -> dict:
-    """Render the signed staking report (reportlab, landscape letter, same
+    """Render the signed staking report (minipdf, landscape letter, same
     visual language as :func:`rfi_stamper.transmittal.table_pdf`).
 
     Rows are EVERY staked attempt, grouped by Station-Log session id so a
@@ -1773,14 +1761,12 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
                        name: str, pts, route_labels, pkg: dict) -> None:
     """The one-page paper manifest — a first-class deliverable for the
     clipboard-and-tape crew, doubling as the morning briefing."""
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        from .minipdf.pagesizes import letter
-        from .minipdf import canvas as rl_canvas
-        ImageReader = None          # no raster embedding -> "no thumbnail" fallback
-    else:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib.utils import ImageReader
-        from reportlab.pdfgen import canvas as rl_canvas
+    from .minipdf import canvas as rl_canvas
+
+    # The from-scratch writer embeds no raster images (a deliberate scope cut,
+    # MINIPDF_PLAN §6), so the plan-thumbnail block below is skipped and the
+    # sheet honestly says so — the pins live in the DXF either way.
+    ImageReader = None
 
     W, H = letter
     m = 40.0
@@ -1825,7 +1811,7 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
             counts[p.page] = counts.get(p.page, 0) + 1
         page_no = max(counts, key=counts.get)
     drew = False
-    if job.pdf_path and os.path.exists(job.pdf_path):
+    if ImageReader is not None and job.pdf_path and os.path.exists(job.pdf_path):
         try:
             import fitz
             doc = fitz.open(job.pdf_path)

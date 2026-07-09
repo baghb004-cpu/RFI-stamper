@@ -1,4 +1,4 @@
-"""Transmittal / log & cover-sheet PDF generation (offline, reportlab only).
+"""Transmittal / log & cover-sheet PDF generation (offline, from scratch).
 
 Produces clean, paginated table PDFs — an RFI log, a transmittal register, or
 any generic tabular document — on US-letter portrait pages.  Each page carries
@@ -7,9 +7,11 @@ inside its column.  The visual language matches the rest of the toolkit: a red
 accent (RGB 0.84, 0.06, 0.06) on the title, rules and header row, generous
 whitespace and a large title.
 
-The module depends only on reportlab.  It never touches the network and never
-imports the pipeline: the ``report`` argument to :func:`rfi_log_pdf` is treated
-purely by duck typing, so there is no import cycle.
+Built entirely on Planloom's own :mod:`rfi_stamper.minipdf` engine — no
+third-party PDF library (reportlab was retired the way Tesseract was; see
+MINIPDF_PLAN.md).  It never touches the network and never imports the
+pipeline: the ``report`` argument to :func:`rfi_log_pdf` is treated purely by
+duck typing, so there is no import cycle.
 """
 from __future__ import annotations
 
@@ -19,17 +21,16 @@ import re
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape as _xml_escape
 
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfgen import canvas as _canvas
-from reportlab.platypus import (
+from .minipdf import colors
+from .minipdf.flow import (
     HRFlowable,
     Paragraph,
+    ParagraphStyle,
     SimpleDocTemplate,
     Table,
     TableStyle,
 )
+from .minipdf.pagesizes import letter
 
 # ---------------------------------------------------------------- palette ---
 
@@ -60,13 +61,13 @@ class TableSpec:
 # ------------------------------------------------------------- text utils ---
 
 #: Hard cap on cell characters.  A single cell taller than one usable page
-#: raises reportlab's LayoutError and aborts the whole PDF; bounding the text
+#: cannot paginate (the layout engine would have to overflow it); bounding the text
 #: keeps any one row paginatable.  Well above any legitimate note length.
 _CELL_MAX = 2000
 
 
 def _cell_text(value) -> str:
-    """Escape a cell value for reportlab and keep intentional line breaks.
+    """Escape a cell value for the paragraph mini-markup, keeping line breaks.
 
     Text longer than :data:`_CELL_MAX` is truncated with an ellipsis so no
     single row can grow taller than a page and crash the build.
@@ -124,52 +125,16 @@ def _atomic_write_bytes(data: bytes, out_path: str) -> None:
 
 # ---------------------------------------------------------- numbered canvas ---
 
-class _RLNumberedCanvas(_canvas.Canvas):
+class _NumberedCanvas:
     """Canvas that defers the footer until ``save`` so it can print the total
-    page count as "Page X of Y", and draws a thin red baseline rule."""
-
-    def __init__(self, *args, footer_note: str = "",
-                 count_holder: dict | None = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_states: list[dict] = []
-        self._footer_note = footer_note
-        self._count_holder = count_holder if count_holder is not None else {}
-
-    def showPage(self):
-        self._saved_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        total = len(self._saved_states)
-        self._count_holder["pages"] = total
-        for i, state in enumerate(self._saved_states, 1):
-            self.__dict__.update(state)
-            self._draw_footer(i, total)
-            _canvas.Canvas.showPage(self)
-        _canvas.Canvas.save(self)
-
-    def _draw_footer(self, page_no: int, total: int) -> None:
-        w, _h = self._pagesize
-        self.saveState()
-        self.setStrokeColor(ACCENT)
-        self.setLineWidth(0.75)
-        self.line(_MARGIN, _FOOTER_Y, w - _MARGIN, _FOOTER_Y)
-        self.setFont("Helvetica", 8)
-        self.setFillColor(_SUBTLE)
-        if self._footer_note:
-            self.drawString(_MARGIN, _FOOTER_Y - 12, self._footer_note)
-        self.drawRightString(w - _MARGIN, _FOOTER_Y - 12,
-                             f"Page {page_no} of {total}")
-        self.restoreState()
-
-
-class _MiniNumberedCanvas:
-    """The from-scratch equivalent of :class:`_RLNumberedCanvas`.
+    page count as "Page X of Y", and draws a thin red baseline rule.
 
     Wraps a ``minipdf.Canvas`` and delegates every drawing call to it; on
-    ``save`` it draws the same deferred "Page X of Y" footer (red baseline +
-    optional note) onto every accumulated page, then serializes.  The page count
-    is simply ``len(doc.pages)`` — no reportlab-internal snapshotting.
+    ``save`` it draws the deferred footer (red baseline + optional note) onto
+    every accumulated page, then serializes.  The page count is simply
+    ``len(doc.pages)`` — the from-scratch document model makes the old
+    reportlab canvas-state-snapshot two-pass trick unnecessary.  Imported by
+    name from :mod:`reports` and :mod:`fieldpro`.
     """
 
     def __init__(self, buf, pagesize=None, footer_note="",
@@ -189,22 +154,19 @@ class _MiniNumberedCanvas:
         self._canvas.showPage()
 
     def save(self):
-        from .minipdf import colors as C
         c = self._canvas
         doc = c._doc
         total = len(doc.pages)
         self._count_holder["pages"] = total
-        accent = C.Color(0.84, 0.06, 0.06)
-        subtle = C.Color(0.34, 0.34, 0.34)
         for i, page in enumerate(doc.pages, 1):
             c._c = page.content          # re-target this page's content stream
             w = page.width
             c.saveState()
-            c.setStrokeColor(accent)
+            c.setStrokeColor(ACCENT)
             c.setLineWidth(0.75)
             c.line(_MARGIN, _FOOTER_Y, w - _MARGIN, _FOOTER_Y)
             c.setFont("Helvetica", 8)
-            c.setFillColor(subtle)
+            c.setFillColor(_SUBTLE)
             if self._footer_note:
                 c.drawString(_MARGIN, _FOOTER_Y - 12, self._footer_note)
             c.drawRightString(w - _MARGIN, _FOOTER_Y - 12, f"Page {i} of {total}")
@@ -218,141 +180,7 @@ class _MiniNumberedCanvas:
                 f.write(data)
 
 
-def _NumberedCanvas(buf, pagesize=None, footer_note="", count_holder=None, **kw):
-    """Engine-selectable numbered canvas (reportlab default, minipdf when set).
-
-    A factory (not a class) so both this module and ``reports.py`` get the right
-    implementation by constructing it the same way.
-    """
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        return _MiniNumberedCanvas(buf, pagesize=pagesize, footer_note=footer_note,
-                                   count_holder=count_holder, **kw)
-    return _RLNumberedCanvas(buf, pagesize=pagesize or letter,
-                             footer_note=footer_note, count_holder=count_holder, **kw)
-
-
-# ------------------------------------------------------------ paragraph mold ---
-
-def _styles():
-    title = ParagraphStyle(
-        "TransmittalTitle", fontName="Helvetica-Bold", fontSize=24,
-        leading=27, textColor=ACCENT, spaceAfter=2)
-    subtitle = ParagraphStyle(
-        "TransmittalSubtitle", fontName="Helvetica", fontSize=11,
-        leading=14, textColor=_SUBTLE, spaceAfter=4)
-    header = ParagraphStyle(
-        "TransmittalHeader", fontName="Helvetica-Bold", fontSize=9,
-        leading=11, textColor=colors.white)
-    body = ParagraphStyle(
-        "TransmittalCell", fontName="Helvetica", fontSize=8.5,
-        leading=11, textColor=_INK)
-    return title, subtitle, header, body
-
-
 # ------------------------------------------------------------------ public ---
-
-def _table_pdf_minipdf(out_path, headers, rows, title, subtitle, col_widths, log):
-    """The from-scratch (reportlab-free) rendering of :func:`table_pdf`.
-
-    Same layout intent — red title over a rule, zebra table with a repeating
-    header, "Page X of Y" footer over a red baseline — built on
-    ``minipdf.flow``.  Output is clean but not pixel-identical to the platypus
-    version (report PDFs are not verify.py-gated).
-    """
-    from .minipdf import colors as C
-    from .minipdf.pagesizes import letter as _letter
-    from .minipdf.flow import (ParagraphStyle, Paragraph, Table, TableStyle,
-                               HRFlowable, SimpleDocTemplate)
-
-    accent = C.Color(0.84, 0.06, 0.06)
-    ink, subtle = C.Color(0.12, 0.12, 0.12), C.Color(0.34, 0.34, 0.34)
-    zebra = C.Color(0.960, 0.960, 0.962)
-    gridline, boxline = C.Color(0.80, 0.80, 0.82), C.Color(0.70, 0.70, 0.72)
-
-    headers = list(headers)
-    rows = [list(r) for r in rows]
-    ncol = len(headers)
-    if ncol == 0:
-        raise ValueError("headers must contain at least one column")
-
-    title_style = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=24,
-                                 leading=27, textColor=accent, spaceAfter=2)
-    subtitle_style = ParagraphStyle("s", fontName="Helvetica", fontSize=11,
-                                    leading=14, textColor=subtle, spaceAfter=4)
-    header_style = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=9,
-                                  leading=11, textColor=C.white)
-    body_style = ParagraphStyle("b", fontName="Helvetica", fontSize=8.5,
-                                leading=11, textColor=ink)
-
-    data = [[Paragraph(_cell_text(h), header_style) for h in headers]]
-    for row in rows:
-        cells = list(row)
-        if len(cells) < ncol:
-            cells += [""] * (ncol - len(cells))
-        cells = cells[:ncol]
-        data.append([Paragraph(_cell_text(c), body_style) for c in cells])
-
-    if col_widths is not None:
-        widths = [float(w) for w in col_widths]
-        if len(widths) != ncol:
-            raise ValueError(
-                f"col_widths has {len(widths)} entries, expected {ncol}")
-    else:
-        widths = _auto_widths(headers, rows, _letter[0] - 2 * _MARGIN)
-
-    style = TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), accent),
-        ("TEXTCOLOR", (0, 0), (-1, 0), C.white),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.9, accent),
-        ("GRID", (0, 1), (-1, -1), 0.4, gridline),
-        ("BOX", (0, 0), (-1, -1), 0.7, boxline),
-    ])
-    for i in range(1, len(data)):
-        if i % 2 == 0:
-            style.add("BACKGROUND", (0, i), (-1, i), zebra)
-
-    table = Table(data, colWidths=widths, repeatRows=1, style=style)
-
-    story = []
-    if title:
-        story.append(Paragraph(_cell_text(title), title_style))
-    if subtitle:
-        story.append(Paragraph(_cell_text(subtitle), subtitle_style))
-    if title or subtitle:
-        story.append(HRFlowable(width="100%", thickness=1.5, color=accent,
-                                spaceBefore=2, spaceAfter=12))
-    story.append(table)
-
-    footer_note = title.strip() or subtitle.strip()
-
-    def footer(c, page_no, total):
-        w, _h = _letter
-        c.saveState()
-        c.setStrokeColor(accent)
-        c.setLineWidth(0.75)
-        c.line(_MARGIN, _FOOTER_Y, w - _MARGIN, _FOOTER_Y)
-        c.setFont("Helvetica", 8)
-        c.setFillColor(subtle)
-        if footer_note:
-            c.drawString(_MARGIN, _FOOTER_Y - 12, footer_note)
-        c.drawRightString(w - _MARGIN, _FOOTER_Y - 12, f"Page {page_no} of {total}")
-        c.restoreState()
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=_letter, leftMargin=_MARGIN,
-                            rightMargin=_MARGIN, topMargin=_MARGIN,
-                            bottomMargin=_MARGIN + 18, title=(title or "Table"))
-    pages = doc.build(story, footer=footer)
-    _atomic_write_bytes(buf.getvalue(), out_path)
-    log(f"  wrote {out_path} ({len(rows)} row(s), {pages} page(s))")
-    return {"out_path": out_path, "rows": len(rows), "pages": int(pages)}
-
 
 def table_pdf(out_path: str, headers: list[str], rows: list[list],
               title: str = "", subtitle: str = "",
@@ -370,16 +198,24 @@ def table_pdf(out_path: str, headers: list[str], rows: list[list],
 
     Returns ``{"out_path": ..., "rows": len(rows), "pages": int}``.
     """
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        return _table_pdf_minipdf(out_path, headers, rows, title, subtitle,
-                                  col_widths, log)
     headers = list(headers)
     rows = [list(r) for r in rows]
     ncol = len(headers)
     if ncol == 0:
         raise ValueError("headers must contain at least one column")
 
-    title_style, subtitle_style, header_style, body_style = _styles()
+    title_style = ParagraphStyle(
+        "TransmittalTitle", fontName="Helvetica-Bold", fontSize=24,
+        leading=27, textColor=ACCENT, spaceAfter=2)
+    subtitle_style = ParagraphStyle(
+        "TransmittalSubtitle", fontName="Helvetica", fontSize=11,
+        leading=14, textColor=_SUBTLE, spaceAfter=4)
+    header_style = ParagraphStyle(
+        "TransmittalHeader", fontName="Helvetica-Bold", fontSize=9,
+        leading=11, textColor=colors.white)
+    body_style = ParagraphStyle(
+        "TransmittalCell", fontName="Helvetica", fontSize=8.5,
+        leading=11, textColor=_INK)
 
     # --- assemble the table data with wrapped paragraphs -----------------
     data: list[list] = [[Paragraph(_cell_text(h), header_style) for h in headers]]

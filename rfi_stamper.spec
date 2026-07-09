@@ -20,6 +20,10 @@ a_gui = Analysis(
     pathex=["."],
     datas=tkdnd_datas + [("assets/planloom.png", "assets")] + _tracer_model,
     hiddenimports=["tkinterdnd2"],   # optional drag-and-drop; warning-only if absent
+    # PDF generation is the built-in minipdf engine; reportlab is retired and
+    # must never ride into the exe even if a dev box has it installed (its only
+    # remaining role is the optional test-time parity oracle).
+    excludes=["reportlab"],
     noarchive=False,
 )
 pyz_gui = PYZ(a_gui.pure)
@@ -40,6 +44,7 @@ a_cli = Analysis(
     pathex=["."],
     datas=tkdnd_datas + _tracer_model,
     hiddenimports=["tkinterdnd2"],
+    excludes=["reportlab"],          # retired; built-in minipdf generates PDFs
     noarchive=False,
 )
 pyz_cli = PYZ(a_cli.pure)

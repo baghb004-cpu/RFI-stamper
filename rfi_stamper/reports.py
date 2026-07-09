@@ -1,4 +1,4 @@
-"""Printable field forms & project report PDFs (offline, reportlab + pypdf).
+"""Printable field forms & project report PDFs (offline, minipdf + pypdf).
 
 Two capabilities, both sharing the toolkit's visual identity (red accent
 RGB 0.84, 0.06, 0.06, generous whitespace, "Page X of Y" footers):
@@ -32,11 +32,15 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 
 from pypdf import PdfReader, PdfWriter
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import simpleSplit
-from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.pdfgen import canvas as _canvas
+from .minipdf import colors
+from .minipdf.flow import wrap_text as _wrap_text
+from .minipdf.metrics import string_width as stringWidth
+from .minipdf.pagesizes import letter
+
+
+def simpleSplit(text, fontName, fontSize, maxWidth):
+    """Greedy word-wrap with the reportlab ``simpleSplit`` signature."""
+    return _wrap_text(text, fontName, fontSize, maxWidth)
 
 from .merge import _atomic_write as _atomic_write_writer
 from .transmittal import (
@@ -52,16 +56,9 @@ from .transmittal import (
 
 
 def _new_canvas(buf, pagesize):
-    """A plain page canvas, selectable via PLOOM_PDF_ENGINE (default reportlab).
-
-    The reportlab colour constants above are duck-typed by the from-scratch
-    canvas, and stringWidth/simpleSplit are metric-identical, so the drawing
-    code is unchanged across engines.
-    """
-    if os.environ.get("PLOOM_PDF_ENGINE", "reportlab").lower() == "minipdf":
-        from .minipdf.canvas import Canvas
-        return Canvas(buf, pagesize=pagesize)
-    return _canvas.Canvas(buf, pagesize=pagesize)
+    """A plain page canvas on the from-scratch engine."""
+    from .minipdf.canvas import Canvas
+    return Canvas(buf, pagesize=pagesize)
 
 # ---------------------------------------------------------------- geometry ---
 
