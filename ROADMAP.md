@@ -261,6 +261,43 @@ D (3D uplift) → E (Weaver v2) → F (Corral hardening). B before C because
 the Weaver needs hands before a voice; D after C so the first wow is
 functional, not cosmetic. Each phase is independently shippable.
 
+## Phase H — Holler: hands-free voice control for ANY app (owner brief,
+## added after Phase G)
+
+A system-wide voice layer that types real keystrokes into whatever window
+has focus — driving external CAD/BIM the way a caller reads cuts to the
+crew. ENHANCES mouse+keyboard, never replaces them. Reuses the Squawk Box
+recognizer (from-scratch MFCC+DTW, speaker-trained) as the ear; adds the
+deterministic hands. Honest boundaries: the keystroke SENDER is OS-level
+(Windows user32 SendInput via ctypes — sibling of the winmm capture;
+dry-run + intent log on non-Windows, GUI says so); opening targets is a
+local OS shell hand-off so Planloom's own process opens ZERO sockets and
+the offline invariant holds; URL targets opt-in per row, clearly labeled.
+Multi-language falls out free: speaker-trained = any language you record,
+no speech-pack dependency.
+
+Original names (whole feature = **Holler**):
+- **The Caller** — spoken-measurement grammar → formatted text; composes
+  any dimension from a small trained number-vocabulary; "one hundred five
+  feet six and seven eighths" → `105'-6 7/8"`; shape mode → `L2 1/2x2
+  1/2x1/4`; format profiles (arch hyphen/space/no-hyphen, decimal, mm,
+  custom) to fit any CAD.
+- **Trips** — spoken word fires a tool-shortcut chord (user maps their CAD).
+- **Placards** — exact boilerplate text inserts, case/format preserved.
+- **Fetches** — open a file/folder/app (opt-in URL) by phrase.
+- **Runs** — keystroke macros with real waits between steps.
+- **The Songbook** — the editable command dictionary (JSON + CSV round-trip).
+- **The Ticker** — live heard/did preview, command counter, keystrokes saved.
+
+Engine rfi_stamper/holler.py (Caller grammar pure/testable, Songbook model
++ persistence + CSV, keystroke Sender w/ HAS_SEND honest dry-run, Router
+w/ Songbook-then-grammar precedence + reused confidence gate, Ticker).
+GUI: a floating always-on-top Holler companion (global — status bar +
+palette + from the Squawk Box), device picker + hands-free/push-to-talk,
+Ticker tape, Songbook table editor + format-profile picker. Tests: Caller
+corpus (100+ spoken→text incl owner examples verbatim), Songbook CSV
+round-trip, Sender dry-run intent asserts, Router precedence, Ticker.
+
 **Status: COMPLETE. All six phases shipped in order — A1 v3.4.0, A2
 v3.5.0, B v3.6.0, C1 v3.7.0, C2 v3.8.0, D v3.9.0, E v4.0.0, F v4.1.0 —
 each green across the full suite, scrubbed, and pushed to main. Deferred
