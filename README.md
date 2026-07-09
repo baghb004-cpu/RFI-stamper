@@ -52,8 +52,10 @@ hardware:
 * eased section transitions, an animated nav indicator, gradient headers with
   a drifting sheen, count-up KPIs, sweep-in Gantt bars, draw-in sparklines,
   arc gauges, an ambient animated blueprint backdrop, toasts, and a real-time
-  **3D building viewer** — flat-shaded walls with painter's-algorithm depth
-  (wireframe mode for older machines), pipe runs as solids with a **slope
+  **3D building viewer** — flat-shaded walls with true per-pixel depth
+  (a built-in software z-buffer: pipes passing through walls hide exactly
+  right, with crisp silhouette outlines; painter's-algorithm and wireframe
+  modes for older machines), pipe runs as solids with a **slope
   exaggeration slider** so 1/8"-per-foot is visible at building scale, a
   first-person **walk mode** at 5'-6" eye height, isometric presets,
   depth-cued fading, and a 3D measure tape that reads feet-and-inches with

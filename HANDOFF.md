@@ -6,13 +6,13 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.10.0, offline construction workspace; Python package
+- Product: **Planloom** v4.11.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
-  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice and KB
-  engines are all Planloom's own.
-- 52 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB and
+  3D raster engines are all Planloom's own.
+- 53 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -783,6 +783,60 @@ image slice — no codec was written:
   thumbnail + honest fallback both asserted end to end.
 - SKIP list held (no PNG parser, no CMYK/alpha/EXIF/inline images). 52
   suites green twice. NEXT: Phase B — the BIM z-buffer rasterizer.
+
+## Round 26 (SHIPPED, v4.11.0): BUILDOUT Phase B — the BIM z-buffer rasterizer
+
+Shaded mode gained per-pixel depth ("True depth"), fixing the painter's one
+correctness hole: interpenetrating faces (a pipe through a wall, two
+crossing walls) now resolve exactly, per pixel.
+
+- **raster.py (new, GUI-free)**: numpy z-buffer over `bim.Face` polygons.
+  Fan triangulation; camera space via the new public `bim.basis` (NEVER
+  through `project_points` — its depth clamp is the painter's crutch and
+  smears behind-camera triangles); Sutherland-Hodgman near-plane clip
+  (perspective; the room the walker stands in stays visible), then the
+  SAME viewport formulas as `project_points` so canvas overlays land on
+  identical pixels. Pineda edge functions at pixel centers, inclusive >=0
+  fill + strict-> depth ties in fixed draw order (no cracks, deterministic
+  winner), depth as 1/z under perspective / camera-z under ortho,
+  two-sided fill (open wall quads are unoriented — no backface culling,
+  ever), per-triangle affine-evaluation fill loop (the measured-fastest
+  shape; the fully-vectorized scatter variant degrades with bbox area —
+  SKIPPED). `outline_mask` = fid/depth-discontinuity silhouettes
+  (`soft_from` keeps the ground grid from outlining itself). Shading is
+  single-source now: `lambert_bucket`/`shade`/`mix_rgb` ARE the painter
+  formula; bim3d's painter path imports them (`_mix` delegates,
+  `_LIGHT`/`_hex_rgb` removed).
+- **gui/bim3d.py**: "True depth" checkbutton, default ON at fx quality
+  "full" only (the old-hardware promise keeps reduced/off on the painter),
+  always user-toggleable. The raster branch blits ONE PhotoImage (P6 PPM,
+  reference pinned) beneath all canvas overlays — wireframe, sheet planes,
+  pins, chips, measure, HUD stay canvas items, so click routing is
+  untouched. Drags render at half resolution with hexagon capless pipe
+  prisms, pixel-doubled up, refined on release (reuses `_lod`). Honest
+  fallbacks with a hint note: > 6k triangles -> painter this model; still
+  over SLOW_FRAME at half-res -> sticky `_raster_slow` until re-toggle or
+  a new model. The ground grid becomes thin ground-plane quads in raster
+  mode (correctly occluded by the building — an upgrade); painter mode
+  keeps the stippled canvas grid via the shared `_grid_lattice`.
+- **Tests**: `tests/test_raster.py` — hand-computed pixel-center coverage,
+  crack-free fan diagonal, two-sided walls, an interpenetrating-X scene
+  where the z-buffer is right AND a centroid-painter emulation is provably
+  wrong, glancing-quad-vs-near-post 1/z guard, first-drawn z-tie
+  determinism, clipper units (1->1 and 2->2 triangles) + no-smear +
+  behind-camera-renders-empty, shade parity against an independent replica
+  of the historical mix formula, outline-mask behavior, a golden sha256 at
+  a yaw=0/pitch=0 ortho camera (exact trig -> stable hash; `PLOOM_REGOLD=1`
+  re-mints), and a perf tripwire. test_bim's GUI portion: blit exists, no
+  painter polygons in raster mode, overlays above the image, chip clicks
+  route through it, toggle-off restores the painter. Gotcha pinned: the
+  set_model fly-in must be cancelled before asserting on the blit — its
+  slow xvfb frames legitimately trip the sticky fallback.
+- SKIP list held (no textures/gouraud/MSAA, no side-plane frustum clip, no
+  top-left fill rule, no scatter rasterizer, no per-pixel hidden-line
+  wireframe, no threads/C extensions). 53 suites green twice. NEXT: Phase
+  C — section box + 3D picking + measure-in-3D (the `fid` buffer is
+  already the picking substrate).
 
 ## Roadmap (still open)
 

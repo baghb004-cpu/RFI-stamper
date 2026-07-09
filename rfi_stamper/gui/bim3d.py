@@ -34,6 +34,17 @@ Phase D (all pure canvas, no GPU):
   pitch to 30 through one fx.animate call (quality "off" snaps).
 * Depth cueing — line and face colors mix toward the canvas bg with camera
   distance (bucketed continuous fade, subtle); skipped at quality "off".
+* True depth — shaded mode can rasterize the face set through
+  ``rfi_stamper.raster`` (numpy z-buffer, per-pixel depth) and blit ONE
+  full-canvas image beneath the wireframe overlays, fixing painter's
+  interpenetration (a pipe through a wall resolves per pixel) and adding
+  silhouette outlines.  Defaults ON at fx quality "full" only (the
+  old-hardware promise keeps "reduced"/"off" on the painter), always
+  user-toggleable.  Drags render at half resolution + hexagon pipe prisms
+  and refine on release; a model past ~6k triangles, or one still slow at
+  half-res, falls back to the painter with an honest hint note.  The
+  ground grid becomes thin ground-plane quads in this mode, so the
+  building correctly occludes it.
 * Measure — two clicks snap (12 px) to drawn segment endpoints and show a
   dashed tape labeled with the TRUE feet-inches distance and ΔZ, even when
   the slope slider distorts the drawing; a third click clears, Esc exits.
@@ -51,17 +62,14 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 
-from .. import bim
+from .. import bim, raster
 from .theme import FAMILY
 
 SLOW_FRAME = 0.028      # above this, drop detail
 FAST_FRAME = 0.012      # below this, climb back toward full detail
 MIN_LOD = 0.2
+RASTER_MAX_TRIS = 6000  # past this, honest painter fallback
 HINT = "drag orbit · middle pan · wheel zoom · click a sheet chip to open it"
-
-# fixed light for flat shading (unit vector, from the south-west and above)
-_LIGHT = np.array([0.45, 0.35, 0.82])
-_LIGHT = _LIGHT / np.linalg.norm(_LIGHT)
 
 _ISO_YAW = {"NE": 45.0, "NW": 135.0, "SE": 225.0, "SW": 315.0}
 
@@ -74,19 +82,8 @@ def _fx_quality() -> str:
         return "full"
 
 
-def _hex_rgb(color) -> tuple:
-    s = str(color).strip().lstrip("#")
-    if len(s) == 3:
-        s = "".join(ch * 2 for ch in s)
-    n = int(s[:6], 16)
-    return ((n >> 16) & 255, (n >> 8) & 255, n & 255)
-
-
 def _mix(c1, c2, t: float) -> str:
-    a, b = _hex_rgb(c1), _hex_rgb(c2)
-    return "#%02x%02x%02x" % tuple(
-        max(0, min(255, int(round(a[i] + (b[i] - a[i]) * t))))
-        for i in range(3))
+    return "#%02x%02x%02x" % raster.mix_rgb(c1, c2, t)
 
 
 class Bim3DViewer(ttk.Frame):
@@ -113,6 +110,8 @@ class Bim3DViewer(ttk.Frame):
         self._saved_cam = None      # orbit camera to restore on walk exit
         self.measuring = False      # 3D measure mode on/off
         self._measure_pts = []      # up to 2 picked (true_pt, drawn_pt)
+        self._photo = None          # raster blit; MUST stay referenced
+        self._raster_slow = False   # sticky painter fallback for this model
 
         bar = ttk.Frame(self)
         bar.pack(fill="x")
@@ -145,6 +144,13 @@ class Bim3DViewer(ttk.Frame):
             master=self, value=_fx_quality() == "full")
         ttk.Checkbutton(bar2, text="Shaded", variable=self.shaded_var,
                         command=self._render).pack(side="left", padx=(0, 6))
+        # True depth = raster z-buffer instead of the painter sort; defaults
+        # ON at quality "full" only (old hardware stays on the painter)
+        self.raster_var = tk.BooleanVar(
+            master=self, value=_fx_quality() == "full")
+        ttk.Checkbutton(bar2, text="True depth", variable=self.raster_var,
+                        command=self._on_raster_toggle
+                        ).pack(side="left", padx=(0, 6))
         self.walk_btn = ttk.Button(bar2, text="Walk", style="Tool.TButton",
                                    command=self.toggle_walk)
         self.walk_btn.pack(side="left", padx=2)
@@ -200,6 +206,7 @@ class Bim3DViewer(ttk.Frame):
         self._measure_pts = []              # stale world points
         self.model = model
         self._lod = 1.0
+        self._raster_slow = False           # new model: re-measure raster
         self._build_legend()
         self._fit_instant()
         self._fly_in()
@@ -221,6 +228,15 @@ class Bim3DViewer(ttk.Frame):
         v = round(float(self.slope_var.get()), 1)
         self.slope_lbl.configure(text=f"slope ×{v:g}")
         self._render()
+
+    def _on_raster_toggle(self):
+        self._raster_slow = False           # explicit ask: re-measure
+        self._render()
+
+    def _set_hint(self, note=None):
+        txt = note or HINT
+        if self.hint.cget("text") != txt:
+            self.hint.configure(text=txt)
 
     def _cancel_cam_anim(self):
         """User input owns the camera: stop any fly-in / fit / iso tween so
@@ -690,8 +706,6 @@ class Bim3DViewer(ttk.Frame):
             return
         cam = self.cam
 
-        self._draw_grid(w, h, c)
-
         # Horizon Slice: cut everything above z_cut (live section cut)
         (mnx, mny, mnz), (mxx, mxy, mxz) = m.bounds()
         z_cut = None
@@ -730,6 +744,10 @@ class Bim3DViewer(ttk.Frame):
                          if getattr(s, "radius", 0.0) <= 0.0]
         else:
             pipe_segs, line_segs = [], segs
+        raster_pref = (shaded and bool(self.raster_var.get())
+                       and not self._raster_slow)
+        interacting = self._press is not None or self._pan0 is not None
+        drag_lod = raster_pref and interacting
 
         planes = m.planes
         vis_planes = [(j, pl) for j, pl in enumerate(planes)
@@ -761,9 +779,13 @@ class Bim3DViewer(ttk.Frame):
                     continue
                 faces.append((f, False))
             for s in pipe_segs:
-                for f in bim.tube_faces(draw_pt(s.a, s), draw_pt(s.b, s),
-                                        s.radius, sides=8, color=s.color,
-                                        system=s.system):
+                # raster drag LOD: hexagon prisms, no caps (back on release)
+                tf = bim.tube_faces(draw_pt(s.a, s), draw_pt(s.b, s),
+                                    s.radius, sides=6 if drag_lod else 8,
+                                    color=s.color, system=s.system)
+                if drag_lod:
+                    tf = tf[:-2]
+                for f in tf:
                     faces.append((f, True))
         fscr = None
         if faces:
@@ -800,9 +822,24 @@ class Bim3DViewer(ttk.Frame):
                 got = fade_cache[key] = _mix(color, bg, 0.45 * b / 6.0)
             return got
 
-        # shaded faces: painter's algorithm among themselves (far first,
-        # by face-centroid camera distance), drawn BENEATH the wireframe
-        if fscr is not None:
+        # shaded faces: raster z-buffer (per-pixel depth, one blitted image)
+        # when enabled and sane; painter's algorithm by face-centroid
+        # distance otherwise.  Either way faces sit BENEATH the wireframe.
+        tri_est = sum(max(0, len(f.pts) - 2) for f, _p in faces)
+        use_raster = bool(raster_pref and faces and tri_est <= RASTER_MAX_TRIS)
+        note = None
+        if raster_pref and faces and not use_raster:
+            note = "model too heavy for true depth — painter mode"
+        elif shaded and self.raster_var.get() and self._raster_slow:
+            note = "true depth too slow here — painter mode"
+        rscale = 1.0
+        if use_raster:
+            rscale = self._raster_blit(faces, fscr, fade, w, h, c,
+                                       interacting)
+        else:
+            self._photo = None
+            self._draw_grid(w, h, c)
+        if fscr is not None and not use_raster:
             shade_cache: dict = {}
             polys = []
             idx = 0
@@ -813,16 +850,12 @@ class Bim3DViewer(ttk.Frame):
                 if np.any(quad[:, 2] <= 1e-6):  # behind the camera -> cull
                     continue
                 depth = float(quad[:, 2].mean())
-                p3 = np.asarray(f.pts, dtype=float)
-                nrm = np.cross(p3[1] - p3[0], p3[2] - p3[0])
-                ln = float(np.linalg.norm(nrm))
-                lam = abs(float(nrm @ _LIGHT)) / ln if ln > 1e-9 else 0.5
-                lamb = int(lam * 12 + 0.5)      # bucket: reuse mixed colors
-                skey = (f.color, lamb)
+                lamb = raster.lambert_bucket(raster.face_normal(f))
+                skey = (f.color, lamb)          # bucket: reuse mixed colors
                 base = shade_cache.get(skey)
                 if base is None:
-                    base = shade_cache[skey] = _mix(
-                        f.color, bg, 0.12 + 0.5 * (1.0 - lamb / 12.0))
+                    base = shade_cache[skey] = "#%02x%02x%02x" % \
+                        raster.shade(f.color, lamb, bg)
                 coords = [v for q in quad for v in (q[0], q[1])]
                 polys.append((depth, coords, fade(base, depth), is_pipe))
             polys.sort(key=lambda it: -it[0])   # far first
@@ -923,8 +956,12 @@ class Bim3DViewer(ttk.Frame):
         dt = time.perf_counter() - t0
         if dt > SLOW_FRAME:
             self._lod = max(MIN_LOD, self._lod * 0.6)
+            if use_raster and rscale < 0.999:   # still slow at half-res:
+                self._raster_slow = True        # honest sticky fallback
+                note = "true depth too slow here — painter mode"
         elif dt < FAST_FRAME and self._lod < 1.0:
             self._lod = min(1.0, self._lod * 1.6)
+        self._set_hint(note)
 
     def _draw_measure(self, w, h, c):
         """Measure overlay: picked endpoints, dashed tape, feet-inches label
@@ -975,8 +1012,9 @@ class Bim3DViewer(ttk.Frame):
                                   tags="hud")
         cv.tag_raise(tid, rid)
 
-    def _draw_grid(self, w, h, c):
-        """Fine ground grid under everything (not depth-sorted with model)."""
+    def _grid_lattice(self):
+        """Ground-grid line endpoints [((x,y,z), (x,y,z)), ...] shared by
+        the canvas grid and its rasterized ground-quad counterpart."""
         (mnx, mny, mnz), (mxx, mxy, _) = self.model.bounds()
         span = max(mxx - mnx, mxy - mny, 1.0)
         step = _nice_step(span / 8.0)
@@ -987,17 +1025,20 @@ class Bim3DViewer(ttk.Frame):
         gy0 = math.floor((cy - half) / step) * step
         gy1 = math.ceil((cy + half) / step) * step
         z = min(mnz, 0.0)
-        pts = []
+        lines = []
         x = gx0
         while x <= gx1 + 1e-9:
-            pts.append((x, gy0, z))
-            pts.append((x, gy1, z))
+            lines.append(((x, gy0, z), (x, gy1, z)))
             x += step
         y = gy0
         while y <= gy1 + 1e-9:
-            pts.append((gx0, y, z))
-            pts.append((gx1, y, z))
+            lines.append(((gx0, y, z), (gx1, y, z)))
             y += step
+        return lines
+
+    def _draw_grid(self, w, h, c):
+        """Fine ground grid under everything (not depth-sorted with model)."""
+        pts = [p for ab in self._grid_lattice() for p in ab]
         scr = bim.project_points(pts, self.cam, w, h)
         for i in range(0, len(pts), 2):
             a, b = scr[i], scr[i + 1]
@@ -1005,6 +1046,72 @@ class Bim3DViewer(ttk.Frame):
                 continue
             self.canvas.create_line(a[0], a[1], b[0], b[1], fill=c["muted"],
                                     width=1, stipple="gray50", tags="grid")
+
+    def _grid_faces(self, color):
+        """The grid as thin ground-plane quads for the rasterizer — unlike
+        the canvas grid, the building then correctly occludes it."""
+        wid = max(self._world_per_px(), 1e-6) * 0.9     # ~1 px wide
+        out = []
+        for (xa, ya, z), (xb, yb, _z2) in self._grid_lattice():
+            dx, dy = xb - xa, yb - ya
+            ln = math.hypot(dx, dy)
+            if ln < 1e-9:
+                continue
+            nx = -dy / ln * wid / 2.0
+            ny = dx / ln * wid / 2.0
+            out.append(bim.Face([(xa - nx, ya - ny, z), (xb - nx, yb - ny, z),
+                                 (xb + nx, yb + ny, z), (xa + nx, ya + ny, z)],
+                                color))
+        return out
+
+    def _raster_blit(self, faces, fscr, fade, w, h, c, interacting):
+        """Rasterize the face set + ground grid through rfi_stamper.raster
+        and blit ONE canvas image at (0, 0); overlays draw above it.  Half
+        resolution while interacting or decimated, pixel-doubled back up
+        (refine-on-release).  Returns the scale used."""
+        bg = c["canvas_bg"]
+        s = 0.5 if (interacting or self._lod < 0.999) else 1.0
+        rw, rh = max(2, int(w * s)), max(2, int(h * s))
+        shade_cache: dict = {}
+        rfaces, cols = [], []
+        idx = 0
+        for f, _pipe in faces:
+            n = len(f.pts)
+            depth = float(fscr[idx: idx + n, 2].mean())
+            idx += n
+            lamb = raster.lambert_bucket(raster.face_normal(f))
+            skey = (f.color, lamb)
+            base = shade_cache.get(skey)
+            if base is None:
+                base = shade_cache[skey] = "#%02x%02x%02x" % \
+                    raster.shade(f.color, lamb, bg)
+            rfaces.append(f)
+            cols.append(raster.hex_rgb(fade(base, depth)))
+        n_real = len(rfaces)
+        gcol = _mix(c["muted"], bg, 0.5)    # the canvas grid's stipple look
+        glamb = raster.lambert_bucket((0.0, 0.0, 1.0))
+        for gf in self._grid_faces(gcol):
+            rfaces.append(gf)
+            cols.append(raster.shade(gf.color, glamb, bg))
+        frame = raster.render(rfaces, self.cam, rw, rh, bg, colors=cols)
+        arr = frame.rgb
+        edge = raster.outline_mask(frame, soft_from=n_real)
+        if edge.any():                      # CAD-style occluding contours
+            fg = np.asarray(raster.hex_rgb(c["fg"]), dtype=float)
+            px = arr[edge].astype(float)
+            arr[edge] = (px + (fg - px) * 0.45 + 0.5).astype(np.uint8)
+        if s < 1.0:
+            arr = np.repeat(np.repeat(arr, 2, axis=0), 2, axis=1)[:h, :w]
+            if arr.shape[0] < h or arr.shape[1] < w:    # odd w/h: pad edge
+                arr = np.pad(arr, ((0, h - arr.shape[0]),
+                                   (0, w - arr.shape[1]), (0, 0)),
+                             mode="edge")
+        header = f"P6 {arr.shape[1]} {arr.shape[0]} 255 ".encode()
+        self._photo = tk.PhotoImage(
+            data=header + np.ascontiguousarray(arr).tobytes())
+        self.canvas.create_image(0, 0, anchor="nw", image=self._photo,
+                                 tags="raster")
+        return s
 
     def _draw_empty(self, w, h, c):
         """Friendly empty state: little axonometric cube + a nudge."""

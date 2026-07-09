@@ -1,6 +1,6 @@
 # BUILDOUT_PLAN.md — the from-scratch feature campaign (post-v4.9.2)
 
-**Status:** RESEARCH COMPLETE — build phases begin at Phase A and land one at a time.
+**Status:** BUILDING — Phase A shipped v4.10.0; Phase B shipped v4.11.0; next up: Phase C.
 **Owner directive:** every feature on this list gets built, from scratch, with **no code bloat** —
 every line purposeful; honest SKIP lists over speculative generality; smallest correct algorithm wins.
 **Provenance:** synthesized from an 8-agent parallel research pass (per-track dossiers appended as
@@ -42,8 +42,8 @@ one version. Acceptance gates are per-phase; a phase does not start until the pr
 
 | Phase | Feature | Version | Depends on |
 |---|---|---|---|
-| **A** | minipdf raster image XObjects (JPEG passthrough + Flate RGB) — restores the stake-sheet plan thumbnail, enables Daybook photo sheets | v4.10.0 | — |
-| **B** | BIM z-buffer software rasterizer (numpy, PhotoImage blit) with fx-tiered fallback to the painter | v4.11.0 | — |
+| **A** | minipdf raster image XObjects (JPEG passthrough + Flate RGB) — restores the stake-sheet plan thumbnail, enables Daybook photo sheets — **SHIPPED v4.10.0** | v4.10.0 | — |
+| **B** | BIM z-buffer software rasterizer (numpy, PhotoImage blit) with fx-tiered fallback to the painter — **SHIPPED v4.11.0** (`rfi_stamper/raster.py`) | v4.11.0 | — |
 | **C** | BIM interaction: 6-plane section box (real clipping), 3D picking, measure-in-3D (HD/VD/SD in the Fieldstitch frame) | v4.12.0 | B |
 | **D** | Clash-lite: capsule/box + capsule/capsule interference, clustered findings through the Backcheck format, viewer highlight | v4.13.0 | C (picking/highlight) |
 | **E** | Vector drawing diff (addendum redline): segment match + change clustering + minipdf redline overlay | v4.14.0 | A (overlay PDF) |

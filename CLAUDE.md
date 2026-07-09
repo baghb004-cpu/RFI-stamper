@@ -96,6 +96,12 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
                               drop-folder scan — NEVER network
     rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
+    rfi_stamper/raster.py     GUI-free numpy z-buffer rasterizer for the BIM
+                              shaded mode: per-pixel depth (1/z persp, -z
+                              ortho), near-plane Sutherland-Hodgman clip,
+                              two-sided fill, painter-parity 12-bucket
+                              lambert (single source), fid/silhouette mask;
+                              gui/bim3d blits it as ONE PhotoImage
     rfi_stamper/fieldstitch.py layout points: layers, numbering (spools +
                               tombstones), statuses, witness points, world
                               coords, PNEZD/PENZD CSV (+.tag.txt, frame hash) /
@@ -260,6 +266,16 @@ were proven on real export files. GUI constructs under xvfb.
 - The animation quality tiers (full/reduced/off, `fx.set_quality`) are a user
   promise: old hardware must stay usable. `quality()=="off"` must never touch
   tk mid-animation (it jumps straight to the final state).
+- raster.py NEVER goes through `bim.project_points` — its `depth <= _EPS`
+  clamp is the painter's crutch and smears behind-camera triangles across the
+  frame; the rasterizer clips at z=znear in camera space, then projects with
+  the SAME viewport formulas so canvas overlays land on identical pixels.
+  Painter and raster share ONE shading source (`raster.shade`/`mix_rgb`,
+  int(round()) quantization) — a second formula or rounding drifts colors
+  between modes. Raster golden tests use yaw=0/pitch=0 cameras (exact trig →
+  bit-exact hash); rotated cameras assert structure, not hashes. The GUI's
+  sticky `_raster_slow` painter fallback can trip DURING the set_model fly-in
+  on slow boxes (xvfb!) — tests cancel the tween before asserting on the blit.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.

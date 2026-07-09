@@ -48,6 +48,9 @@ def _basis(cam: Camera):
     return eye, right, up, fwd
 
 
+basis = _basis      # public alias — raster.py builds its camera space on it
+
+
 def project_points(pts, cam: Camera, w: int, h: int) -> np.ndarray:
     """Project world points to screen.  Returns (N, 3): x, y (pixels, y down),
     depth (camera-space distance along the view axis).

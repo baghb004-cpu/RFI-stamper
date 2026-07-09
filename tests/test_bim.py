@@ -245,6 +245,45 @@ def test_gui():
     # adaptive-detail state exists and sits at full detail when idle
     assert v._lod == 1.0
 
+    # -- True depth (raster z-buffer) ------------------------------------
+    # a model WITH faces + raster on: one blitted image, no painter
+    # polygons, wireframe overlays above, chip clicks still route
+    m2 = bim.Model(segments=[bim.Segment((0, 0, 0), (20, 0, 0))],
+                   systems=[("walls", "#9aab9e")])
+    m2.faces = bim.wall_faces([((0.0, 0.0), (20.0, 0.0)),
+                               ((20.0, 0.0), (20.0, 15.0))], 9.0)
+    v.set_model(m2)
+    v._cancel_cam_anim()        # kill the fly-in: xvfb frames are slow
+    v._fit_instant()            # enough to trip the honest painter fallback
+    v.shaded_var.set(True)
+    v.raster_var.set(True)
+    v._raster_slow = False
+    v._lod = 1.0
+    v._render()
+    root.update()
+    assert v._photo is not None, "raster blit missing"
+    assert cv.find_withtag("raster"), "raster image item missing"
+    assert not cv.find_withtag("face"), "painter polygons in raster mode"
+    assert cv.find_withtag("seg"), "wireframe overlay missing above blit"
+
+    opened.clear()
+    v.add_sheet("A-102", 7, 4.0)
+    root.update()
+    box = cv.bbox("chip")
+    assert box, "sheet chip not drawn in raster mode"
+    mx, my = int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)
+    cv.event_generate("<ButtonPress-1>", x=mx, y=my)
+    cv.event_generate("<ButtonRelease-1>", x=mx, y=my)
+    root.update()
+    assert opened and opened[-1] == (7, "A-102"), opened
+
+    # toggling raster off restores the painter polygons, drops the image
+    v.raster_var.set(False)
+    v._on_raster_toggle()
+    root.update()
+    assert not cv.find_withtag("raster") and v._photo is None
+    assert cv.find_withtag("face"), "painter polygons missing after toggle"
+
     root.destroy()
     print("-- gui portion ok")
 
