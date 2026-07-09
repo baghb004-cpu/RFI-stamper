@@ -8,7 +8,6 @@ Handles three input shapes seen in the wild:
 """
 from __future__ import annotations
 
-import io
 import os
 import re
 import zipfile

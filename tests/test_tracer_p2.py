@@ -30,7 +30,7 @@ import fitz                                          # noqa: E402
 
 from rfi_stamper import tracer                       # noqa: E402
 from rfi_stamper.tracer import (                     # noqa: E402
-    binarize, classify, components, features, fonts, normalize, segment, synth)
+    binarize, classify, features, fonts, normalize, segment, synth)
 from rfi_stamper.tracer import eval as tracer_eval   # noqa: E402
 from rfi_stamper.tracer.components import Box         # noqa: E402
 

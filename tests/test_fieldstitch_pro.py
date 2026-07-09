@@ -35,7 +35,6 @@ Run:  python3.12 tests/test_fieldstitch_pro.py
 """
 import hashlib
 import json
-import math
 import os
 import sys
 import tempfile

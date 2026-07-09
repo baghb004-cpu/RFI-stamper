@@ -68,12 +68,14 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/verify.py     pre/post render pixel-diff verification
     rfi_stamper/pipeline.py   scan -> map -> place -> stamp -> verify -> report
     rfi_stamper/summarize.py  offline extractive cliff-note summarizer
+    rfi_stamper/fsutil.py     shared atomic-write primitive (tmp+fsync+replace)
     rfi_stamper/offline_guard.py  process-wide outbound-socket kill-switch
     rfi_stamper/merge.py      combine / split / rotate engine (pypdf)
     rfi_stamper/align.py      auto-align + color overlay compare (numpy FFT)
     rfi_stamper/pdfdoctor.py  diagnose + repair/unlock/compress/rasterize/upscale/
                               linearize/strip-metadata/normalize-rotation, verify_safe
-    rfi_stamper/ocr.py        offline Tesseract searchable-layer OCR (optional binary)
+    rfi_stamper/ocr.py        thin facade over the Tracer (historical API names
+                              kept; no external OCR binary since v4.7.0)
     rfi_stamper/tracer/       the Tracer: from-scratch OCR (pure numpy + fitz, no
                               external engine) — render/binarize/deskew/linework/
                               components/segment/normalize/fonts/classify(NCC)/
@@ -133,6 +135,10 @@ run; the `*_report.txt` must end in PASS).
                               lessons lane, honest SKIP list (GD&T/molding/
                               sleeve need a solid part model)
     rfi_stamper/daybook.py    daily progress journal store + PDF log
+    rfi_stamper/squawk.py     Squawk Box speech engine: winmm capture, MFCC+DTW
+                              speaker-trained recognizer (pure numpy, offline)
+    rfi_stamper/weaver.py     the Weaver: typed/spoken drafting agent -> Loft/
+                              Pipewright commands (ask/refuse contract)
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
     rfi_stamper/holler.py     Holler: hands-free voice control for ANY app —
@@ -159,7 +165,8 @@ run; the `*_report.txt` must end in PASS).
                               router; tkinterdnd2 retired at v4.9.0) +
                               dnd_win32 (ctypes OLE IDropTarget backend,
                               HAS_NATIVE honest off-Windows), widgets, palette,
-                              overlay, viewer, prefs (~/.planloom), oldhand
+                              overlay, viewer, prefs (~/.planloom), pano (offline 360° site-photo viewer), tab_fieldstitch
+                              (layout-points board), oldhand
                               (the Old Hand: global Heartwood Q&A drawer,
                               Ctrl+/ from any section), squawk_deck (Squawk
                               Box voice deck), holler_deck (Holler floating

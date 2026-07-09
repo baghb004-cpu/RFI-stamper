@@ -99,6 +99,12 @@ def test_merge(tmp):
     merge_pdfs([MergeItem(a, pages="1")], out2, bookmarks=False, log=quiet)
     assert PdfReader(out2).outline == []
 
+    # delivered files are metadata-clean: no tool name, no wall-clock dates
+    with open(out, "rb") as f:
+        raw = f.read()
+    assert b"/Producer" not in raw and b"/CreationDate" not in raw, \
+        "merged output must not leak producer/date metadata"
+
     expect_value_error(merge_pdfs, [], out)
     expect_value_error(merge_pdfs, [MergeItem(a, pages="9")], out)
     expect_value_error(merge_pdfs, [MergeItem(a, rotation=45)], out)

@@ -17,7 +17,7 @@ with a full timestamped history.  The current status is surfaced two ways:
   RFI that is not yet verified, with a concrete "what to do next" instruction.
 
 Fully offline; depends only on the standard library and
-:mod:`rfi_stamper.transmittal` (reportlab).  All writes are atomic.
+:mod:`rfi_stamper.transmittal` (minipdf).  All writes are atomic.
 """
 from __future__ import annotations
 

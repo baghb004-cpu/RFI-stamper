@@ -106,8 +106,24 @@ def check_dnd(root):
     if sys.platform != "win32":
         assert dnd_win32.attach(win, router) is False
 
+    # lifecycle: destroying a registered widget prunes its router entry
+    n_before = len(router.targets)
+    b.destroy()
+    pump(win)
+    assert len(router.targets) == n_before - 1, "destroyed target pruned"
+    assert all(t["widget"] is not b for t in router.targets)
+    # a second toplevel gets its OWN router with no backend — enable_drop on
+    # it must report False (its window frame has no native registration)
+    win2 = tk.Toplevel(root)
+    assert dnd.enable_drop(win2, lambda p: None) is False
+    assert dnd._router_for(win2) is not router, "routers are per-toplevel"
+    n_routers = len(dnd._routers)
+    win2.destroy()
+    pump(win)
+    assert len(dnd._routers) == n_routers - 1, "destroyed toplevel's router pruned"
+
     win.destroy()
-    print("  dnd: router routing/hover/filter/fallback + honest no-backend, ok")
+    print("  dnd: router routing/hover/filter/fallback/lifecycle + honest no-backend, ok")
 
 
 def main():

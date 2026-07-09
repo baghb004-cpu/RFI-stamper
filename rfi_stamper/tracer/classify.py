@@ -51,7 +51,6 @@ class NCC:
 
     def __init__(self):
         self._T = None            # (n_templates, D) normalized template rows
-        self._labels = None       # char per template row
         self._classes = None      # unique class list (stable order)
         self._col_of_class = None # per-template class index
         self._aspect = None       # per-template raw aspect ratio
@@ -65,7 +64,6 @@ class NCC:
             labels.extend([ch] * flat.shape[0])
             aspects.extend(list(np.asarray(asp)))
         self._T = np.vstack(rows)
-        self._labels = np.array(labels, dtype="<U2")
         self._classes = list(dict.fromkeys(labels))  # insertion-ordered unique
         idx = {c: i for i, c in enumerate(self._classes)}
         self._col_of_class = np.array([idx[c] for c in labels])

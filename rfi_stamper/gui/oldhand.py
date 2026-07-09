@@ -18,7 +18,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import fx
-from .theme import mix
 from .widgets import make_tree, run_bg, toast
 
 W = 420          # drawer width in px
@@ -30,7 +29,6 @@ class OldHandDrawer:
         self.get_records = get_records          # answered RFIs from the scan
         self.db_path = None                     # resolved lazily; tests override
         self.open_ = False
-        self._last_q = ""
 
         f = tk.Frame(root, highlightthickness=1)
         self.frame = f
@@ -169,7 +167,6 @@ class OldHandDrawer:
         if not q:
             return
         self.q_var.set("")
-        self._last_q = q
         self._append(f"\nYou:  {q}\n", ("you",))
         mode = "plain" if self.plain.get() else "quote"
 

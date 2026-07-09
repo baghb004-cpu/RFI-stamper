@@ -14,10 +14,6 @@ from .theme import mix, section_color
 from .widgets import Tooltip, make_tree, open_path, run_bg, toast
 
 
-def _iso(d: _dt.date) -> str:
-    return d.isoformat()
-
-
 class ScheduleView(ttk.Frame):
     """Canvas Gantt: month grid, colored bars with % complete fill, today
     line.  Bars sweep in with an eased animation on refresh."""

@@ -16,9 +16,7 @@ duck typing, so there is no import cycle.
 from __future__ import annotations
 
 import io
-import os
 import re
-from dataclasses import dataclass, field
 from xml.sax.saxutils import escape as _xml_escape
 
 from .minipdf import colors
@@ -45,17 +43,6 @@ _BOXLINE = colors.Color(0.70, 0.70, 0.72)
 _MARGIN = 54.0                     # 0.75 in on every side
 _FOOTER_Y = 40.0                   # baseline of the footer rule
 USABLE_WIDTH = letter[0] - 2 * _MARGIN
-
-
-@dataclass
-class TableSpec:
-    """A fully resolved table ready to render (mostly for internal use/tests)."""
-
-    headers: list[str]
-    rows: list[list] = field(default_factory=list)
-    title: str = ""
-    subtitle: str = ""
-    col_widths: list[float] | None = None
 
 
 # ------------------------------------------------------------- text utils ---
@@ -111,16 +98,8 @@ def _auto_widths(headers: list[str], rows: list[list],
 
 
 # ------------------------------------------------------------ atomic write ---
+from .fsutil import atomic_write_bytes as _atomic_write_bytes  # noqa: E402
 
-def _atomic_write_bytes(data: bytes, out_path: str) -> None:
-    """Write ``data`` beside ``out_path``, fsync, then atomically replace so a
-    crash or kill can never leave a truncated PDF at the final path."""
-    tmp = out_path + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, out_path)
 
 
 # ---------------------------------------------------------- numbered canvas ---

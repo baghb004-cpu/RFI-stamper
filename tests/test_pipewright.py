@@ -130,7 +130,7 @@ def test_pipe_entity():
 def test_network():
     m = DraftModel()
     m.add("fixture", [(0, 0.4)], stencil="wc")
-    a = m.add("pipe", [(0, 0), (10, 0), (20, 0)])
+    m.add("pipe", [(0, 0), (10, 0), (20, 0)])
     m.add("pipe", [(20, 0), (40, 0)])
     m.add("pipe", [(10, 8), (10, 0)], dia_in=3.0)
     net = network(m)

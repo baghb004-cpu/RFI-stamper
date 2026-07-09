@@ -155,15 +155,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def _atomic_bytes(data: bytes, out_path: str) -> None:
-    """Write beside out_path, fsync, then atomically replace: a killed process
-    or crash can never leave a truncated file at the final path."""
-    tmp = out_path + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, out_path)
+from .fsutil import atomic_write_bytes as _atomic_bytes  # noqa: E402 -- one shared atomic write
 
 
 # ------------------------------------------------------------- DXF colors --
@@ -762,14 +754,6 @@ class LayoutJob:
         self.points.append(p)
         self._autosave()
         return p
-
-    def witnesses_of(self, parent_or_uid) -> list:
-        parent = self._resolve_point(parent_or_uid)
-        if parent is None:
-            return []
-        return [p for p in self.points if p.parent_uid == parent.id]
-
-    # ------------------------------------------------------------ layers --
 
     def layer(self, name) -> PointLayer | None:
         for ly in self.layers:

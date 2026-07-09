@@ -68,17 +68,8 @@ class _Path:
     def __init__(self):
         self.ops = []            # list of ("m"/"l"/"c"/"re"/"h", *coords)
 
-    def moveTo(self, x, y):
-        self.ops.append(("m", x, y))
-
-    def lineTo(self, x, y):
-        self.ops.append(("l", x, y))
-
     def rect(self, x, y, w, h):
         self.ops.append(("re", x, y, w, h))
-
-    def close(self):
-        self.ops.append(("h",))
 
 
 def _as_rgb(color):
@@ -106,7 +97,6 @@ class Canvas:
         self._font = "Helvetica"             # reportlab's canvas default font
         self._fontsize = 12
         self._fontstack: list[tuple] = []
-        self._saved = False
 
     @property
     def _c(self):
@@ -136,12 +126,6 @@ class Canvas:
     def setStrokeColorRGB(self, r, g, b):
         self._c.stroke_rgb(r, g, b)
 
-    def setFillGray(self, gray):
-        self._c.fill_gray(gray)
-
-    def setStrokeGray(self, gray):
-        self._c.stroke_gray(gray)
-
     def setFillColor(self, color):
         self._c.fill_rgb(*_as_rgb(color))
 
@@ -165,9 +149,10 @@ class Canvas:
         self._fontstack.append((self._font, self._fontsize))
 
     def restoreState(self):
+        if not self._fontstack:            # reportlab raises here too — an
+            raise ValueError("restoreState with no matching saveState")
         self._c.restore()
-        if self._fontstack:
-            self._font, self._fontsize = self._fontstack.pop()
+        self._font, self._fontsize = self._fontstack.pop()
 
     def translate(self, tx, ty):
         self._c.translate(tx, ty)
@@ -229,18 +214,8 @@ class Canvas:
         return _Path()
 
     def clipPath(self, path, stroke=0, fill=0):
-        for op in path.ops:
-            k = op[0]
-            if k == "m":
-                self._c.move_to(op[1], op[2])
-            elif k == "l":
-                self._c.line_to(op[1], op[2])
-            elif k == "re":
-                self._c.rect(op[1], op[2], op[3], op[4])
-            elif k == "c":
-                self._c.curve_to(*op[1:])
-            elif k == "h":
-                self._c.close()
+        for op in path.ops:                # _Path records rectangles only
+            self._c.rect(op[1], op[2], op[3], op[4])
         self._c.clip()          # W n — intersect the clip region, paint nothing
 
     # -- text --------------------------------------------------------------- #
@@ -257,9 +232,6 @@ class Canvas:
         w = self.stringWidth(text)
         self._c.text(x - w / 2.0, y, text, self._font, self._fontsize)
 
-    # reportlab spells it both ways
-    drawCenteredString = drawCentredString
-
     def drawRightString(self, x, y, text):
         self._need_font()
         w = self.stringWidth(text)
@@ -275,11 +247,6 @@ class Canvas:
         # produces metadata-free, deterministic output).
         pass
 
-    def setPageSize(self, size):
-        self._pagesize = tuple(size)
-        if not self._page_pending:           # never resize an already-ended page
-            self._page.width, self._page.height = self._pagesize
-
     def showPage(self):
         """End the current page (reportlab semantics).
 
@@ -288,21 +255,19 @@ class Canvas:
         explicit second ``showPage()`` with nothing drawn between them commits a
         deliberately blank page, exactly like reportlab.
         """
+        if self._fontstack:                  # reportlab raises here too — a
+            raise ValueError("showPage with an unbalanced saveState "
+                             "(leaked q would corrupt later pages)")
         if self._page_pending:               # showPage(); showPage() -> blank page
             _ = self._c                      # materialize the blank page
         self._page_pending = True
         self._font = "Helvetica"             # per-page state reset, like reportlab
         self._fontsize = 12
-        self._fontstack.clear()
 
     def drawImage(self, *args, **kwargs):
-        # Raster image XObjects are intentionally unsupported (MINIPDF_PLAN §6):
-        # the only caller (fieldpro's plan thumbnail) wraps this in try/except
-        # and degrades to a "no thumbnail" placeholder.
+        # Raster image XObjects are intentionally unsupported (MINIPDF_PLAN §6);
+        # no shipped code path draws images — this guard catches future misuse.
         raise NotImplementedError("minipdf does not embed raster images")
-
-    def getpdfdata(self) -> bytes:
-        return self._doc.to_bytes()
 
     def save(self):
         data = self._doc.to_bytes()

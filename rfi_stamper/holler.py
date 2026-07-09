@@ -107,14 +107,12 @@ FRACTION_WORDS = {
 #: full number-word registry (documented union; "thirty second(s)" = 1/32 is
 #: a two-word fraction handled specially so the tens word "thirty" is not
 #: swallowed as 30).
-NUMBER_WORDS = dict(_ONES, **_TENS, **_SCALES)
 
 #: unit words that mark a value as feet / as inches
 _FEET_UNITS = {"foot", "feet", "ft", "'"}
 _INCH_UNITS = {"inch", "inches", "in", '"'}
 
 #: connectors the grammar recognizes
-CONNECTORS = ("and", "point", "by")
 
 
 def _as_tokens(text) -> list:

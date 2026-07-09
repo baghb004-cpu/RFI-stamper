@@ -90,6 +90,14 @@ def _check_rotation(rotation: int) -> int:
 def _atomic_write(writer, out_path: str) -> None:
     """Write beside out_path, fsync, then atomically replace: a killed process
     or crash can never leave a truncated PDF at the final path."""
+    # Deliver clean, reproducible bytes: drop the /Info dictionary pypdf would
+    # otherwise stamp with a /Producer — this is the one choke point for every
+    # merge/split/rotate output and the project snapshot (same policy as
+    # stamp.stamp_pdf; an NDA posture leaks no tool names or wall-clock dates).
+    try:
+        writer.metadata = None
+    except Exception:                        # older pypdf without the setter
+        pass
     tmp = out_path + ".part"
     with open(tmp, "wb") as f:
         writer.write(f)

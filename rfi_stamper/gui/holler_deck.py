@@ -21,7 +21,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .. import holler
-from .theme import mix, section_color
 from .widgets import make_tree, open_path, toast
 
 KIND_LABEL = {"trip": "Trip · tool shortcut", "placard": "Placard · text",
@@ -59,7 +58,6 @@ class HollerDeck:
             pass
         w.protocol("WM_DELETE_WINDOW", self.close)
 
-        col = section_color("plans")
         head = tk.Frame(w)
         self._head = head
         head.pack(fill="x")

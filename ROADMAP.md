@@ -331,3 +331,26 @@ v3.5.0, B v3.6.0, C1 v3.7.0, C2 v3.8.0, D v3.9.0, E v4.0.0, F v4.1.0 —
 each green across the full suite, scrubbed, and pushed to main. Deferred
 polish items live in HANDOFF.md round notes (A-polish list, Weaver zoom
 refinements, real-Windows mic smoke, threshold field-tuning).**
+
+
+## Phase J — the mini-pdf writer: retire reportlab (owner directive:
+## "everything from scratch")
+
+**Status: COMPLETE (v4.8.0).** `rfi_stamper/minipdf/` — WinAnsi encoding,
+Core-14 metrics (oracle-equal to ~1e-13), content-stream builder, byte-exact
+classic-xref document (no metadata, content-hash /ID), reportlab-canvas
+facade with reportlab page semantics, flow/table layout engine. Stamp
+overlays pixel-identical to the retired library; plates within the verify
+threshold; tables/forms/reports are the new engine's own clean layout.
+reportlab OUT of requirements and excluded from both exes; dev boxes may
+install it for the optional parity-oracle tests. Full plan + research
+dossiers in MINIPDF_PLAN.md.
+
+## Phase K — from-scratch drag-and-drop: retire tkinterdnd2
+
+**Status: COMPLETE (v4.9.0).** `gui/dnd.py` is a pure per-toplevel drop
+Router (hover synthesis, smallest-target routing, ext filter, overlay
+fallback, deferred callbacks, destroy-pruning) fed by `gui/dnd_win32.py`,
+a from-scratch ctypes OLE IDropTarget with explicit Win64-safe prototypes.
+Click-to-browse remains the honest fallback everywhere the backend is not
+live. Real-Windows drag smoke rides the standing Windows checklist.

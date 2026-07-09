@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz  # noqa: E402
 
-from rfi_stamper.markups import (MARKUP_TYPES, STATUSES, Markup, MarkupStore,  # noqa: E402
+from rfi_stamper.markups import (MARKUP_TYPES, Markup, MarkupStore,  # noqa: E402
                                  ScaleCal, Style, ToolChest, ToolPreset,
                                  apply_to_pdf, area, caption_for,
                                  cloud_path_points, compute, fmt_value, length,

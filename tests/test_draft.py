@@ -18,7 +18,6 @@ Plain python, no pytest, no project data.  Exercises:
 Run:  python3.12 tests/test_draft.py
 """
 import json
-import math
 import os
 import sys
 import tempfile

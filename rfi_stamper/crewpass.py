@@ -11,7 +11,7 @@ work never prompts an outbound connection).
 
 Released seats keep their record (device cleared, history appended) so the
 usage report stays a complete audit trail.  Depends only on the standard
-library plus :mod:`rfi_stamper.transmittal` (reportlab) for the printable
+library plus :mod:`rfi_stamper.transmittal` (minipdf) for the printable
 report.  All writes are atomic (temp file + fsync + ``os.replace``).
 """
 from __future__ import annotations

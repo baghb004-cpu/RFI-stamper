@@ -23,7 +23,7 @@ from rfi_stamper import pipeline
 ```
 
 Install deps if missing:
-`pip install pymupdf pypdf reportlab numpy --break-system-packages`.
+`pip install pymupdf pypdf numpy --break-system-packages`.
 
 ## Division of labor
 

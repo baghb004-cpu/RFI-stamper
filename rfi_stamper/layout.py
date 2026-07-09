@@ -9,6 +9,9 @@ import numpy as np
 # machine epsilon (tests/test_minipdf.py), so box geometry and the header
 # width-fit are byte-identical to the historical reportlab-measured layout.
 from .minipdf.metrics import string_width as stringWidth
+# ONE greedy word-wrap for the whole app (same metrics, same algorithm as the
+# flow engine; behavior guarded by the stamp/verify + oracle-parity suites)
+from .minipdf.flow import wrap_text as wrap  # noqa: E402
 
 RED = (0.84, 0.06, 0.06)
 F_HDR, S_HDR, L_HDR = "Helvetica-Bold", 9.2, 11.6
@@ -90,21 +93,6 @@ def _fit_header(hdr: str, inner: float) -> str:
                                     F_HDR, S_HDR) > inner:
         hi -= 1
     return base[:hi].rstrip() + ell + suffix
-
-
-def wrap(text, font, size, width):
-    lines, line = [], ""
-    for word in text.split():
-        trial = (line + " " + word).strip()
-        if stringWidth(trial, font, size) <= width:
-            line = trial
-        else:
-            if line:
-                lines.append(line)
-            line = word
-    if line:
-        lines.append(line)
-    return lines
 
 
 def layout_entries(entries, w):

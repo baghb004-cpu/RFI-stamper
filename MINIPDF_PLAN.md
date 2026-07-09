@@ -196,6 +196,11 @@ the title strip).
 
 ## 4. What a successful build needs (the checklist — Appendices E, H)
 
+> **Post-ship note:** the boxes below were the *plan*; the shipped equivalents live in
+> `tests/test_minipdf.py` / `tests/test_minipdf_parity.py` (metric parity, pixel identity,
+> verify-gate, qpdf conformance, determinism) and the HANDOFF Round 21/22 records — kept
+> unticked here as the historical planning artifact.
+
 **Correctness gate (the writer)**
 - [ ] `stringWidth` parity test: mini-pdf width == reportlab width to ≤ 0.01 pt over a corpus including
       the app's non-ASCII glyphs — **gate the whole cutover on this**.

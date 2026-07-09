@@ -47,6 +47,13 @@ def seed_entries() -> list[dict]:
                        if e and e.get("field") and e.get("canonical")
                        and e.get("approved") is True]
     except (OSError, ValueError):
+        # The seed SHIPS with the package (and is bundled in the frozen build
+        # via rfi_stamper.spec datas) — its absence is a packaging bug, not a
+        # normal state.  Degrade to an empty thesaurus but say so once, or the
+        # loss is invisible (meaning search quietly weakens).
+        import sys
+        print(f"planloom: thesaurus seed missing or unreadable at {_SEED_PATH}"
+              " — trade-term synonyms disabled", file=sys.stderr)
         _seed_cache = []
     return _seed_cache
 

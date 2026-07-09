@@ -135,12 +135,9 @@ def _dropfall_cut(crop: np.ndarray, seed_col: int) -> int:
     H, W = crop.shape
     ink = crop.astype(bool)
     col = int(np.clip(seed_col, 1, W - 2))
-    crossed = 0
     cols = []
     for r in range(H):
         cols.append(col)
-        if ink[r, col]:
-            crossed += 1
         best = col
         best_ink = ink[min(r + 1, H - 1), col]
         for dc in (-1, 1):

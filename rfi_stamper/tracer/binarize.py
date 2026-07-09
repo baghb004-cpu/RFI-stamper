@@ -24,7 +24,6 @@ SAUVOLA_WINDOW = 15      # px @300 dpi (≈ 2–3× stroke width); odd
 SAUVOLA_K = 0.2          # 0.2 clean; raise toward 0.34–0.5 for stained scans
 SAUVOLA_R = 128.0        # dynamic range of the local std (8-bit midpoint)
 FLATNESS_FLAT = 12.0     # paper-brightness std below which a sheet is "flat"
-CONTENT_THRESH = 225     # layout.py's content-pixel rule (gray < 225 = ink)
 
 
 def _integral(a: np.ndarray) -> np.ndarray:

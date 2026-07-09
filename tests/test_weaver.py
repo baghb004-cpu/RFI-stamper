@@ -35,7 +35,6 @@ Weaver v2 (ROADMAP Phase E):
 Run:  python3 tests/test_weaver.py
 """
 import json
-import math
 import os
 import re
 import sys

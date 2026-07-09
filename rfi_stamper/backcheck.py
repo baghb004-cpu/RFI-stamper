@@ -425,11 +425,6 @@ def _room_zone(model, pt, walls):
     return bbox, hit_ids
 
 
-def _material_group(word: str):
-    w = word.lower().strip()
-    return MATERIAL_GROUPS.get(w)
-
-
 def _in_sweep(pt, hinge, r, a0, extent) -> bool:
     """Is pt inside the quarter-disk a door leaf sweeps (center hinge, radius
     r, angular span [a0, a0+extent] degrees CCW)?"""

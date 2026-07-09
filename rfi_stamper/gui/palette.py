@@ -3,7 +3,6 @@ preference and run it from the keyboard — feature discovery without menus."""
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
 
 
 class Command:

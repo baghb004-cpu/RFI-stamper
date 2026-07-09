@@ -688,7 +688,7 @@ class LoftTab(ttk.Frame):
             ex, ey = self._drag[2] if len(self._drag) > 2 else (e.x, e.y)
             self._box_select(sx, sy, ex, ey, add=bool(e.state & 0x0001))
         elif kind == "move":
-            eid, (mx0, my0) = self._drag[1], self._drag[2]
+            mx0, my0 = self._drag[2]
             mx1, my1 = self._snapped(e)
             dx, dy = mx1 - mx0, my1 - my0
             if abs(dx) > 1e-9 or abs(dy) > 1e-9:

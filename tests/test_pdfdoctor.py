@@ -1,6 +1,6 @@
 """Tests for rfi_stamper.pdfdoctor (offline PDF repair / optimize).
 
-Plain python, no pytest.  Builds its own synthetic PDFs with fitz / reportlab
+Plain python, no pytest.  Builds its own synthetic PDFs with fitz
 into a tempdir, exercises every fix, and asserts the input is never mutated
 and every output is a valid, page-count-preserving PDF.
 """

@@ -74,13 +74,6 @@ def _estimate_cap(gray: np.ndarray) -> float:
     return float(np.median(hs)) if hs else 0.0
 
 
-def _as_gray(page) -> tuple[np.ndarray, float, float]:
-    """Render one fitz page to a grayscale array; return (gray, xres, yres)."""
-    pix = page.get_pixmap(colorspace=fitz.csGRAY, alpha=False)
-    gray = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width).copy()
-    return gray, float(pix.xres), float(pix.yres)
-
-
 def render_gray(page_or_path, page_no: int = 1, dpi: int = 300):
     """Render a page to grayscale and normalize polarity + size.
 

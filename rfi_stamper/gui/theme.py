@@ -19,7 +19,6 @@ F_TITLE = (FAMILY, 15, "bold")
 F_HERO = (FAMILY, 26, "bold")
 F_STAT = (FAMILY, 22, "bold")
 F_GHOST = (FAMILY, 15)
-F_MONO = ("Consolas", 9)
 
 # Color theory: the light base is warm drafting-paper (slight yellow-red cast,
 # easy on daylight screens); the dark base is deep blueprint blue-charcoal

@@ -9,7 +9,7 @@ where they were.
 Entries live in a versioned JSON sidecar next to the project store
 (``<base>.daybook.json``, same convention as the markups and resolution
 sidecars).  Fully offline; depends only on the standard library and
-:mod:`rfi_stamper.transmittal` (reportlab) for the printable log.  All writes
+:mod:`rfi_stamper.transmittal` (minipdf) for the printable log.  All writes
 are atomic (temp file + fsync + ``os.replace``).
 """
 from __future__ import annotations

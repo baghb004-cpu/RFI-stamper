@@ -20,7 +20,7 @@ import re
 
 from . import metrics
 from .canvas import Canvas
-from .colors import Color, black, white
+from .colors import Color, black
 
 TA_LEFT, TA_CENTER, TA_RIGHT = 0, 1, 2
 
@@ -93,6 +93,7 @@ class Paragraph(Flowable):
     def __init__(self, text, style):
         self.style = style
         self._hard = _plain_lines(text)
+        self._fixed = None                 # pre-wrapped lines (split() parts)
         self.lines = []
         self.width = 0.0
         self.height = 0.0
@@ -101,13 +102,35 @@ class Paragraph(Flowable):
 
     def wrap(self, availWidth, availHeight=0):
         st = self.style
-        self.lines = []
-        for hard in self._hard:
-            wl = wrap_text(hard, st.fontName, st.fontSize, availWidth)
-            self.lines.extend(wl if wl else [""])
+        if self._fixed is not None:
+            self.lines = list(self._fixed)
+        else:
+            self.lines = []
+            for hard in self._hard:
+                wl = wrap_text(hard, st.fontName, st.fontSize, availWidth)
+                self.lines.extend(wl if wl else [""])
         self.width = availWidth
         self.height = len(self.lines) * st.leading
         return (availWidth, self.height)
+
+    def _from_lines(self, lines):
+        p = Paragraph("", self.style)
+        p._fixed = list(lines)
+        return p
+
+    def split(self, availWidth, availHeight):
+        """Partition the wrapped lines by what fits — a paragraph taller than
+        the frame paginates instead of silently drawing below the margin."""
+        self.wrap(availWidth)
+        lead = self.style.leading or 1.0
+        n = int(availHeight // lead)
+        if n <= 0 or n >= len(self.lines):
+            return [self]                  # defer whole, or no split needed
+        first = self._from_lines(self.lines[:n])
+        rest = self._from_lines(self.lines[n:])
+        first.spaceBefore, first.spaceAfter = self.spaceBefore, 0
+        rest.spaceBefore, rest.spaceAfter = 0, self.spaceAfter
+        return [first, rest]
 
     def drawOn(self, canvas, x, y):
         st = self.style
@@ -273,8 +296,12 @@ class Table(Flowable):
         if self._rowHeights is None:
             self.wrap(availWidth, availHeight)
         head = self.repeatRows
-        # rows that fit after the repeated header
         used = sum(self._rowHeights[:head])
+        # When even the repeated header + the FIRST body row exceed this slot,
+        # defer the whole table ([self]) so the doc template retries it on a
+        # fresh frame — never force a row into the bottom margin.
+        if head < self.nrows and used + self._rowHeights[head] > availHeight:
+            return [self]
         cut = head
         for r in range(head, self.nrows):
             if used + self._rowHeights[r] > availHeight and cut > head:
@@ -283,8 +310,6 @@ class Table(Flowable):
             cut = r + 1
         if cut >= self.nrows:
             return [self]
-        if cut <= head:                                # not even one body row fits
-            cut = head + 1                             # force progress (overflow)
         keep = list(range(head)) + list(range(cut, self.nrows))  # remainder rows
         first_rows = list(range(cut))
         return [self._subtable(first_rows), self._subtable(keep)]
@@ -409,7 +434,12 @@ class SimpleDocTemplate:
         ftop = ph - self.topMargin
         fbot = self.bottomMargin
 
-        # PASS 1 — lay the story out into pages (list of (flowable, x, y_ll))
+        # PASS 1 — lay the story out into pages (list of (flowable, x, y_ll)).
+        # For an over-tall flowable: try split() in the current slot (fills the
+        # remainder of the page); a [self] answer means "can't make progress
+        # here" -> retry once on a fresh frame; still unsplittable and taller
+        # than a whole frame -> place it with bounded overflow (pathological
+        # content; reportlab raises LayoutError there instead).
         pages, cur = [], []
         y = ftop
         queue = list(story)
@@ -419,23 +449,29 @@ class SimpleDocTemplate:
             sb = max(getattr(fl, "spaceBefore", 0) or 0, 0)
             if cur:
                 y -= max(prev_after, sb)
-            avail = y - fbot
-            w, h = fl.wrap(fw, avail)
-            if h > avail and hasattr(fl, "split") and not isinstance(fl, (Paragraph, Spacer, HRFlowable)):
+            split_placed = False
+            for attempt in (0, 1):
+                avail = y - fbot
+                w, h = fl.wrap(fw, avail)
+                if h <= avail:
+                    break
                 parts = fl.split(fw, avail)
                 if len(parts) > 1:
                     first = parts[0]
-                    fw_, fh = first.wrap(fw, avail)
+                    _, fh = first.wrap(fw, avail)
                     cur.append((first, fx, y - fh))
                     pages.append(cur)
                     cur, y, prev_after = [], ftop, 0.0
                     queue[0:0] = parts[1:]
-                    continue
-            if h > avail and cur:                       # start a fresh page
-                pages.append(cur)
-                cur, y = [], ftop
-                avail = y - fbot
-                w, h = fl.wrap(fw, avail)
+                    split_placed = True
+                    break
+                if attempt == 0 and cur:               # defer to a fresh page
+                    pages.append(cur)
+                    cur, y, prev_after = [], ftop, 0.0
+                else:
+                    break                              # unsplittable overflow
+            if split_placed:
+                continue
             cur.append((fl, fx, y - h))
             y -= h
             prev_after = max(getattr(fl, "spaceAfter", 0) or 0, 0)

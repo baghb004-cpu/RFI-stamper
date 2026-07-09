@@ -23,6 +23,11 @@ Pure numpy + stdlib, deterministic, offline.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                      # annotation-only; no runtime import
+    from .lexicon import Context  # noqa: F401
+
 import os
 from dataclasses import dataclass, field
 

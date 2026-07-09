@@ -126,14 +126,6 @@ class PDFViewer(ttk.Frame):
         cv.create_text(x, y + 48, fill=c["muted"], font=("Segoe UI", 10),
                        text="drag a file anywhere onto this window")
 
-    def reload(self):
-        """Re-open the same file (after an external write) keeping position."""
-        if not self.path:
-            return
-        path, page = self.path, self.page_no
-        self.open(path)
-        self.goto(page)
-
     @property
     def page_count(self) -> int:
         return len(self.doc) if self.doc is not None else 0

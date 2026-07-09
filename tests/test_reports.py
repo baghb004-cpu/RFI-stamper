@@ -54,7 +54,6 @@ def test_builtin_templates():
     for t in BUILTIN_TEMPLATES:
         assert t.id, f"template {t.name!r} has no id"
         assert t.fields, f"template {t.name!r} has no fields"
-        keys = [f.key for f in t.fields]
         for f in t.fields:
             assert isinstance(f, FormField)
             assert f.key and f.label, (t.name, f)

@@ -8,7 +8,6 @@ Data layer: rfi_stamper.markups (GUI-free, tested separately).
 from __future__ import annotations
 
 import json
-import math
 import os
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
@@ -61,7 +60,6 @@ class MarkupTab(ttk.Frame):
         self._start = None      # in-progress two-point start
         self._drag_from = None  # move-drag anchor (page pt)
         self._moved = False
-        self._count_n = 0
         self.chest = None       # ToolChest, loaded lazily
         self.on_opened = None   # app hook: called with path after open_pdf
         self.drop_hint = "Open in Markup & Measure"
@@ -299,7 +297,6 @@ class MarkupTab(ttk.Frame):
         self.selection.clear()
         self.undo_stack.clear()
         self.redo_stack.clear()
-        self._count_n = sum(1 for m in self.store.markups if m.type == "count")
         self._show_cal()
         self.fill_list()
         self._load_sheets(path)
@@ -559,7 +556,6 @@ class MarkupTab(ttk.Frame):
                 self.after_change()
         elif t == "count":
             self.push_undo()
-            self._count_n += 1
             label = self.textlbl_var.get() or self.subject_var.get() or "count"
             if self.autonum_var.get():
                 prefix = label.rstrip("-0123456789 ").strip() or "C"

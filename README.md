@@ -323,7 +323,7 @@ Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (18 scripts)
+    python tests/run_all.py          # full test suite (52 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,

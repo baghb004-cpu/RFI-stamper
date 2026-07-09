@@ -26,7 +26,7 @@ are stored in paper inches and convert to model feet through the sheet
 scale: ``model_ft = paper_in * ratio / 12``.  Angles are degrees CCW from
 +x; arcs sweep CCW from a0 to a1 (mod 360).
 
-Fully offline: stdlib + reportlab only; the PDF rasterizer is imported
+Fully offline: stdlib + the built-in minipdf engine; the rasterizer is imported
 lazily by :func:`to_png` and stays optional.  All writes are atomic
 (temp file + fsync + ``os.replace``).
 """
@@ -143,15 +143,7 @@ def _scale_label(ratio: int) -> str:
 
 # ----------------------------------------------------------- atomic write ---
 
-def _atomic_bytes(data: bytes, out_path: str) -> None:
-    """Write beside out_path, fsync, then atomically replace: a killed
-    process can never leave a truncated file at the final path."""
-    tmp = out_path + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, out_path)
+from .fsutil import atomic_write_bytes as _atomic_bytes  # noqa: E402 -- one shared atomic write
 
 
 # ------------------------------------------------------------- DXF colors ---
@@ -714,11 +706,6 @@ class DraftModel:
                 return e
         return None
 
-    def on_ply(self, name: str) -> list:
-        return [e for e in self.ents if e.ply == name]
-
-    # -------------------------------------------------------------- plies --
-
     def ply(self, name: str) -> Ply | None:
         for p in self.plies:
             if p.name == name:
@@ -732,41 +719,6 @@ class DraftModel:
         self.plies.append(ply)
         self._commit(snap_state)
         return ply
-
-    def remove_ply(self, name: str) -> bool:
-        """Remove a ply; stranded entities land on G-ANNO (created if it was
-        the ply being removed) rather than pointing at nothing."""
-        target = self.ply(name)
-        if target is None:
-            return False
-        snap_state = self._snapshot()
-        self.plies.remove(target)
-        fallback = "G-ANNO"
-        if self.ply(fallback) is None:
-            if self.plies:
-                fallback = self.plies[0].name
-            elif any(e.ply == name for e in self.ents):
-                self.plies.append(Ply(fallback))
-        for e in self.ents:
-            if e.ply == name:
-                e.ply = fallback
-        self._commit(snap_state)
-        return True
-
-    def rename_ply(self, old: str, new: str) -> None:
-        target = self.ply(old)
-        if target is None:
-            raise ValueError(f"no ply named {old!r}")
-        if new != old and self.ply(new) is not None:
-            raise ValueError(f"ply {new!r} already exists")
-        snap_state = self._snapshot()
-        target.name = new
-        for e in self.ents:
-            if e.ply == old:
-                e.ply = new
-        self._commit(snap_state)
-
-    # ------------------------------------------------------------ queries --
 
     def next_grid_label(self, axis: str) -> str:
         """Next free grid label: axis "num" counts 1, 2, ...; "alpha" runs
@@ -841,7 +793,9 @@ class DraftModel:
     @classmethod
     def load(cls, path: str) -> "DraftModel":
         """Load a drawing; malformed entities are dropped rather than
-        crashing (the file is user-visible JSON)."""
+        crashing (the file is user-visible JSON).  Drops are COUNTED in
+        ``model.load_dropped`` and warned once — silent loss would become
+        permanent on the next save."""
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict) or int(data.get("planloom_loft") or 0) != 1:
@@ -850,26 +804,33 @@ class DraftModel:
         model = cls(title=str(data.get("title", "")),
                     number=str(data.get("number", "")),
                     scale_ratio=int(data.get("scale_ratio", 96)))
+        dropped = 0
         if "plies" in data:
             plies = []
             for d in data.get("plies") or []:
                 try:
                     plies.append(Ply.from_dict(d))
                 except Exception:
-                    continue
+                    dropped += 1
             model.plies = plies
         ents = []
         for d in data.get("ents") or []:
             try:
                 ents.append(Ent.from_dict(d))
             except Exception:
-                continue
+                dropped += 1
         model.ents = ents
         model._next_id = 1 + max(
             (int(e.id[1:]) for e in ents
              if e.id[:1] == "e" and e.id[1:].isdigit()), default=0)
         model.path = path
         model.dirty = False
+        model.load_dropped = dropped
+        if dropped:
+            import sys
+            print(f"planloom: {path}: {dropped} malformed item(s) skipped on "
+                  "load — saving will make the loss permanent; keep a copy if "
+                  "unexpected", file=sys.stderr)
         return model
 
 

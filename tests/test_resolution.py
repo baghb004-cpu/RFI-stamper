@@ -27,7 +27,7 @@ from pypdf import PdfReader, PdfWriter               # noqa: E402
 from rfi_stamper.minipdf.pagesizes import letter     # noqa: E402
 from rfi_stamper.minipdf import canvas               # noqa: E402
 
-from rfi_stamper import layout, pipeline, resolution  # noqa: E402
+from rfi_stamper import layout, pipeline  # noqa: E402
 from rfi_stamper.resolution import (                  # noqa: E402
     LABELS, NEXT_STEP, STATUSES, ResolutionStore, pickup_pdf, status_suffix)
 

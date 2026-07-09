@@ -4,14 +4,16 @@ Read this + CLAUDE.md first in any new session. This file records the naming
 registry, the in-flight round, and the roadmap distilled from the product
 owner's feature briefs, so work can resume mid-stream without re-asking.
 
-## Current state (start of "Fieldstitch round")
+## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v3.1.0, offline construction workspace; Python package
+- Product: **Planloom** v4.9.1, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
-  App Integrations, Ground Truth.
-- 18 green test scripts via `python tests/run_all.py` (GUI needs xvfb).
-- Branch `claude/rfi-stamper-improvements-tw1e2c`; never push elsewhere.
+  App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
+  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice and KB
+  engines are all Planloom's own.
+- 52 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+- Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
 ## Naming registry (unique, untraceable, meaningful — USE THESE)
@@ -688,6 +690,51 @@ preserves the digit multiset (recovers E-1P10→E-1.10; blocks D-101A and A-4X8)
 worth an adversarial pass before shipping. `test_tracer_p3` / `test_tracer_eval`
 sheet-accuracy tests are now DETERMINISTICALLY seeded (were `hash()`-flaky) and
 100% on their fixed sample.
+
+## Round 23 (SHIPPED, v4.9.1): the airtight pass — 3-agent audit, bloat purge,
+## missed-gap fixes
+
+Owner ask: "analyze the whole code base, remove code bloat, see what we
+missed — airtight before we move on." Three parallel read-only audits (dead
+code / new-code correctness / cross-cutting consistency) + a ruff sweep,
+findings hand-verified (multiline-import ref-counts) then fixed:
+
+- **Real bugs found & fixed:** (1) dnd_win32 had NO ctypes restype/argtypes —
+  64-bit pointer truncation meant every native drop returned zero paths on
+  the shipped x64 target (invisible from POSIX CI); explicit Win64-safe
+  prototypes + a tymed guard now. (2) merge._atomic_write leaked
+  "/Producer (pypdf)" into merge/split/rotate + project-snapshot deliverables
+  — scrubbed at the one choke point, asserted in test_merge. (3) flow.Table
+  could force a too-tall first row into the bottom margin — split() now
+  defers ([self]) and build() retries on a fresh frame; Paragraphs SPLIT
+  across pages instead of drawing below the margin. (4) the Home tab's
+  "Drop anything" zone routed to a no-op (set_router never wired) — wired to
+  app.route_paths. (5) canvas guards: showPage with an open saveState and
+  restoreState underflow now raise like the retired library; fmt_num(bool)
+  can't emit "True". (6) packaging: heartwood/thesaurus_seed.json now rides
+  in BOTH exe datas (frozen builds silently shipped an EMPTY thesaurus);
+  seed load + Loft entity-drop on load now warn instead of silent loss.
+- **Router lifecycle:** destroyed widgets/toplevels prune their entries;
+  enable_drop answers False inside secondary toplevels (no false "live DnD").
+- **Bloat purge (~350 lines):** fieldpro's dead engine-namespace threading +
+  constant-false thumbnail block + dead constants; one shared fsutil
+  atomic-write (4 byte-identical copies removed); ONE greedy word-wrap
+  (layout.wrap = flow.wrap_text; reports shim inlined); dead facade members
+  (grays/setPageSize/getpdfdata/text_lines/…), dead pagesizes, TableSpec,
+  witnesses_of, viewer.reload, DND_FILES sentinel, tracer/holler/backcheck
+  dead constants + write-only attrs, ~25 unused imports (package + tests).
+- **Docs truth pass:** HANDOFF "current state" un-staled (was v3.1.0/18
+  scripts); README suite count; CLAUDE.md ocr.py line + missing map entries
+  (squawk/weaver/fsutil/pano/tab_fieldstitch); four "(reportlab)" docstrings;
+  SKILL.md no longer pip-installs the retired library; ROADMAP Phases J/K.
+- Un-gated the two minipdf tests that needed no oracle (the shipped
+  reportlab-free config now runs the pipeline-verify + metadata-clean
+  guards). New engine tests: table defer, paragraph split, canvas guards.
+- Consciously KEPT (owner call, documented): the test-only public API tail
+  (fieldpro coordinate math, fieldwire importers, etc. — HANDOFF-documented
+  surface), stamp/draft's PLOOM_PDF_ENGINE oracle branches, tracer compat
+  aliases, submittal's deliberate lazy-import guard.
+- 52 suites green twice after every batch; scrub clean.
 
 ## Roadmap (still open)
 

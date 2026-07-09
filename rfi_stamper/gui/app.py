@@ -92,6 +92,9 @@ class App:
                          if self.project else "", "new": self.new_project,
                          "open": self.open_project},
             recent=self.prefs.get("recent", []), on_recent=self.open_recent)
+        # the Home drop zone routes like the overlay does — without this its
+        # _route callback is a silent no-op and a drop there vanishes
+        self.home.set_router(self.route_paths)
         self.field = FieldSection(self.container, self.theme, self.status,
                                   get_project, self.data_changed, root=root,
                                   author=self.prefs.get("author", ""))

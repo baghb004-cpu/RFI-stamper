@@ -50,7 +50,6 @@ _LIFT_TO = 0.95           # confidence a grammar/index-verified token is lifted 
 # --------------------------------------------------------------------------- #
 #  Edit-distance thresholds (OCR_PLAN §5 "Edit distance" / "SymSpell")         #
 # --------------------------------------------------------------------------- #
-WORD_DELTA = 1            # high-confidence snap distance
 WORD_DELTA_MAX = 2        # never exceed this raw edit distance
 SYMSPELL_MAX_DEL = 2      # precompute dictionary deletes to distance 2
 WORD_COST_MAX = 1.6       # weighted-cost ceiling for a word snap
@@ -255,11 +254,6 @@ INVERT CENTERLINE EQUAL CLEAR OPPOSITE HAND MOUNTING
 _BUILTIN_WORDS = frozenset(
     w for chunk in (_ROOM_WORDS, _CSI_WORDS, _PLAN_WORDS) for w in chunk.split())
 
-# Common sheet-prefix letters (discipline codes) — a generic, non-proprietary
-# hint set for the sheet grammar; SHEET_TOKEN does the real shape work.
-SHEET_PREFIXES = frozenset(
-    "A C D E F G H I L M P S T V".split()
-    + ["FA", "FP", "AD", "ID", "SP", "PL", "EL", "ME", "GT", "LS"])
 
 
 def _deletes(word: str, max_d: int) -> set:
@@ -625,7 +619,7 @@ def _result(text, conf, changed, fieldname, why, keep=True):
 
 
 def _correct_sheet(text, ctx, char_scores):
-    from ..core import SHEET_TOKEN, canon, canon_loose
+    from ..core import SHEET_TOKEN, canon
     up = text.upper().strip()
     m = SHEET_TOKEN.search(up)
     canonical = canon(m.group(1), m.group(2)) if m else up

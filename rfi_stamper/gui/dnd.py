@@ -18,7 +18,7 @@ testable:
   target degrades to its click-to-browse path exactly as before — DnD is an
   enhancement, never a requirement.
 
-The public surface is unchanged: ``HAS_DND``, ``DND_FILES``, ``make_root``,
+The public surface is unchanged: ``HAS_DND``, ``make_root``,
 ``parse_drop_paths``, ``enable_drop(widget, callback, exts=, on_enter=,
 on_leave=)``.
 """
@@ -26,9 +26,6 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-
-#: Compat sentinel (the old wrapper exported the tkdnd type name).
-DND_FILES = "DND_Files"
 
 #: True once a native backend is actually registered on the root window.
 HAS_DND = False
@@ -44,14 +41,26 @@ class Router:
     def __init__(self, root):
         self.root = root
         self.targets: list[dict] = []      # {widget, callback, exts, enter, leave}
+        self.backend_live = False          # a native backend feeds THIS router
         self._hover = None                 # target currently under the cursor
         self._inside = False               # a drag is over the window
 
     # -- registration ------------------------------------------------------ #
     def add(self, widget, callback, exts=None, on_enter=None, on_leave=None):
-        self.targets.append({"widget": widget, "callback": callback,
-                             "exts": tuple(exts) if exts else None,
-                             "enter": on_enter, "leave": on_leave})
+        entry = {"widget": widget, "callback": callback,
+                 "exts": tuple(exts) if exts else None,
+                 "enter": on_enter, "leave": on_leave}
+        self.targets.append(entry)
+        # prune on destroy so rebuilt panels/dialogs never leave stale targets
+        # (a dead entry is harmless to routing but grows forever otherwise)
+        widget.bind("<Destroy>",
+                    lambda e, w=widget: e.widget is w and self.remove(w),
+                    add="+")
+
+    def remove(self, widget):
+        if self._hover is not None and self._hover["widget"] is widget:
+            self._hover = None
+        self.targets = [t for t in self.targets if t["widget"] is not widget]
 
     # -- geometry ---------------------------------------------------------- #
     @staticmethod
@@ -145,6 +154,9 @@ def _router_for(widget) -> Router:
     r = _routers.get(top)
     if r is None:
         r = _routers[top] = Router(top)
+        top.bind("<Destroy>",
+                 lambda e, t=top: e.widget is t and _routers.pop(t, None),
+                 add="+")
     return r
 
 
@@ -169,7 +181,9 @@ def make_root() -> tk.Tk:
     root = tk.Tk()
     try:
         from . import dnd_win32
-        HAS_DND = bool(dnd_win32.attach(root, _router_for(root)))
+        router = _router_for(root)
+        router.backend_live = bool(dnd_win32.attach(root, router))
+        HAS_DND = router.backend_live
     except Exception:                      # noqa: BLE001 -- DnD never blocks startup
         HAS_DND = False
     return root
@@ -180,12 +194,16 @@ def enable_drop(widget: tk.Misc, callback, exts=None,
     """Register ``widget`` as a drop target; callback(list_of_paths).
 
     Registration always succeeds (the router is platform-neutral); the return
-    value says whether REAL OS drag-drop is live, so callers can advertise
-    their click-to-browse fallback when it is not.
+    value says whether REAL OS drag-drop is live FOR THIS WINDOW, so callers
+    can advertise their click-to-browse fallback when it is not.  (Only the
+    app root has a native backend registered on its window frame — a target
+    inside a secondary Toplevel/dialog gets its own router but no OS events,
+    and must honestly report False.)
     """
     try:
-        _router_for(widget).add(widget, callback, exts=exts,
-                                on_enter=on_enter, on_leave=on_leave)
+        router = _router_for(widget)
+        router.add(widget, callback, exts=exts,
+                   on_enter=on_enter, on_leave=on_leave)
     except Exception:                      # noqa: BLE001 -- never break the app
         return False
-    return HAS_DND
+    return router.backend_live

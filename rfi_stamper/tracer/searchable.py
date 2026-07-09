@@ -112,7 +112,7 @@ def write_searchable(in_pdf: str, out_pdf: str, dpi: int = 300,
                         continue
                     # pixel → point (raster placed at zoom on a /Rotate 0 page)
                     px0, py0 = x0 / zoom, y0 / zoom
-                    px1, py1 = x1 / zoom, y1 / zoom
+                    py1 = y1 / zoom
                     cap_pts = max(1.0, (py1 - py0))
                     fs = min(1000.0, cap_pts / _CAP_RATIO)
                     new.insert_text((px0, py1), text, fontname="helv",

@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rfi_stamper.heartwood import (                # noqa: E402
     Heartwood, HeartwoodStore, default_path)
 from rfi_stamper.heartwood import (                # noqa: E402
-    ask as hw_ask, digest, ingest, lex, restate, search, thesaurus, vectors)
+    digest, ingest, lex, restate, search, thesaurus, vectors)
 
 TMP = tempfile.mkdtemp(prefix="heartwood_test_")
 

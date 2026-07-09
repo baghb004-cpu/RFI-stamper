@@ -53,7 +53,6 @@ class Box(NamedTuple):
 MIN_AREA_300 = 8         # drop CCs smaller than this many px @300 dpi
 MIN_SIDE = 3             # drop CCs whose bbox side < 3 px
 CAP_LO, CAP_HI = 10, 60  # plausible cap-height band (px); wide for P1 safety
-STROKE_LO, STROKE_HI = 2, 8   # plausible stroke width (px)
 FILL_LO = 0.06           # below this the bbox is too sparse (hatch/line remnant)
 SOLID_FILL = 0.88        # a *large* box this full is a filled block, not a glyph
 SHEET_FRAC = 0.5         # drop any CC whose bbox side spans > 50% of the sheet

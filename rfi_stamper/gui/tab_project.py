@@ -15,7 +15,7 @@ from .tab_merge import MergeTab
 from .tab_pdftools import PdfToolsTab
 from .tab_stamp import StampTab
 from .theme import mix, section_color
-from .widgets import DropZone, Tooltip, make_tree, open_path, run_bg, toast
+from .widgets import DropZone, make_tree, open_path, run_bg, toast
 
 STATUS_COLORS = {"open": "#d99c20", "answered": "#3f6fe0",
                  "in_work": "#8b5cf6", "fixed": "#2f9e62",

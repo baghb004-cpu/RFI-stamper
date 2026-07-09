@@ -103,15 +103,7 @@ _CSV_HEADERS = {
 # shared helpers
 # ---------------------------------------------------------------------------
 
-def _atomic_write_bytes(data: bytes, out_path: str) -> None:
-    """Write beside out_path, fsync, then atomically replace (merge.py
-    pattern): a crash can never leave a truncated file at the final path."""
-    tmp = out_path + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, out_path)
+from .fsutil import atomic_write_bytes as _atomic_write_bytes  # noqa: E402 -- one shared atomic write
 
 
 def _as_dict(item) -> dict:

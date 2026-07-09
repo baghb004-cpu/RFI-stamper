@@ -16,7 +16,6 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from rfi_stamper import core                                   # noqa: E402
 from rfi_stamper.core import parse_fields, split_records, parse_paths  # noqa: E402
 
 

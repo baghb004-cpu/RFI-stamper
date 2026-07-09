@@ -58,6 +58,30 @@ def _attach_win32(root, router) -> bool:
     kernel32 = ctypes.windll.kernel32
     user32 = ctypes.windll.user32
 
+    # EXPLICIT prototypes — ctypes defaults every windll call to c_int in AND
+    # out, which silently truncates 64-bit pointers/handles on the shipped
+    # x64 target: GlobalLock would receive a masked HGLOBAL and return a
+    # masked pointer, so every drop would "succeed" with zero paths.  This is
+    # invisible on the POSIX test rig (HAS_NATIVE False) — the prototypes ARE
+    # the fix; never call these through the untyped defaults.
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = wintypes.BOOL
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    shell32.DragQueryFileW.restype = ctypes.c_uint
+    shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
+                                       ctypes.c_wchar_p, ctypes.c_uint]
+    user32.GetParent.restype = wintypes.HWND
+    user32.GetParent.argtypes = [wintypes.HWND]
+    ole32.OleInitialize.restype = ctypes.c_long
+    ole32.OleInitialize.argtypes = [ctypes.c_void_p]
+    ole32.RegisterDragDrop.restype = ctypes.c_long
+    ole32.RegisterDragDrop.argtypes = [wintypes.HWND, ctypes.c_void_p]
+    ole32.RevokeDragDrop.restype = ctypes.c_long
+    ole32.RevokeDragDrop.argtypes = [wintypes.HWND]
+    ole32.ReleaseStgMedium.restype = None
+    ole32.ReleaseStgMedium.argtypes = [ctypes.c_void_p]
+
     class GUID(ctypes.Structure):
         _fields_ = [("Data1", ctypes.c_uint32), ("Data2", ctypes.c_uint16),
                     ("Data3", ctypes.c_uint16), ("Data4", ctypes.c_ubyte * 8)]
@@ -140,6 +164,9 @@ def _attach_win32(root, router) -> bool:
         med = STGMEDIUM()
         fn = _dataobj_slot(pdata, 3, GETDATA_T)
         if fn(pdata, ctypes.byref(fmt), ctypes.byref(med)) != S_OK:
+            return []
+        if med.tymed != TYMED_HGLOBAL or not med.hGlobal:
+            ole32.ReleaseStgMedium(ctypes.byref(med))
             return []
         try:
             hdrop = kernel32.GlobalLock(med.hGlobal)

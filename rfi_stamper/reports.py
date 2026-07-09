@@ -33,14 +33,10 @@ from dataclasses import asdict, dataclass, field
 
 from pypdf import PdfReader, PdfWriter
 from .minipdf import colors
+from .minipdf.canvas import Canvas as _Canvas
 from .minipdf.flow import wrap_text as _wrap_text
 from .minipdf.metrics import string_width as stringWidth
 from .minipdf.pagesizes import letter
-
-
-def simpleSplit(text, fontName, fontSize, maxWidth):
-    """Greedy word-wrap with the reportlab ``simpleSplit`` signature."""
-    return _wrap_text(text, fontName, fontSize, maxWidth)
 
 from .merge import _atomic_write as _atomic_write_writer
 from .transmittal import (
@@ -54,11 +50,6 @@ from .transmittal import (
     table_pdf,
 )
 
-
-def _new_canvas(buf, pagesize):
-    """A plain page canvas on the from-scratch engine."""
-    from .minipdf.canvas import Canvas
-    return Canvas(buf, pagesize=pagesize)
 
 # ---------------------------------------------------------------- geometry ---
 
@@ -86,7 +77,7 @@ def _wrap(text, font: str, size: float, width: float) -> list[str]:
     lines: list[str] = []
     for para in _latin(text).replace("\r\n", "\n").split("\n"):
         if para.strip():
-            lines.extend(simpleSplit(para, font, size, width) or [""])
+            lines.extend(_wrap_text(para, font, size, width) or [""])
         else:
             lines.append("")
     return lines or [""]
@@ -582,7 +573,7 @@ def _snapshot_page1(project, title: str) -> bytes:
 
     today = _dt.date.today().isoformat()
     buf = io.BytesIO()
-    c = _new_canvas(buf, letter)
+    c = _Canvas(buf, pagesize=letter)
     c.setTitle(title)
 
     # -- title bar ----------------------------------------------------------

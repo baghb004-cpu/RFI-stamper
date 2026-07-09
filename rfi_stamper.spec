@@ -5,8 +5,14 @@
 # Build on the target OS (run build_windows.bat on Windows to get .exe files).
 
 # the Tracer's trained OCR model rides along so the built-in OCR works with
-# no retraining (and no external engine) in the frozen build
-_tracer_model = [("rfi_stamper/tracer/model.npz", "rfi_stamper/tracer")]
+# no retraining (and no external engine) in the frozen build; the Heartwood
+# trade-thesaurus seed likewise (loaded __file__-relative — without it the
+# frozen exe would silently ship an EMPTY thesaurus and meaning search
+# degrades with no error).
+_tracer_model = [
+    ("rfi_stamper/tracer/model.npz", "rfi_stamper/tracer"),
+    ("rfi_stamper/heartwood/thesaurus_seed.json", "rfi_stamper/heartwood"),
+]
 
 # Drag-and-drop is Planloom's own ctypes OLE backend (gui/dnd_win32.py) and PDF
 # generation is the built-in minipdf engine — the retired tkinterdnd2 and

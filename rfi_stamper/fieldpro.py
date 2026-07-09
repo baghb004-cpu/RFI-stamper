@@ -51,7 +51,6 @@ from . import transmittal
 from .fieldstitch import (
     LayoutJob,
     LayoutPoint,
-    POINT_STATUSES,
     STATUS_RANK,
     _atomic_bytes,
     _split_label,
@@ -70,7 +69,6 @@ def _now_iso() -> str:
 # ------------------------------------------------------- tolerance classes --
 
 #: The brief's ft-per-inch-fraction conversions (decimal feet, as shipped).
-SIXTEENTH_IN_FT = 0.0052
 EIGHTH_IN_FT = 0.0104
 QUARTER_IN_FT = 0.0208
 THREE_EIGHTHS_IN_FT = 0.0313
@@ -82,12 +80,6 @@ TOLERANCE_DISCLAIMER = ("Editable defaults — verify against project spec.")
 LAYOUT_BUDGET_NOTE = (
     "Layout budget <= 1/3 (at most 1/2) of the construction tolerance it "
     "serves — these presets encode the layout share, not the code limit.")
-TOP_OF_BOLT_NOTE = (
-    "Bolts laid out at top-of-concrete are often checked at top-of-bolt: a "
-    "5 deg lean on a 6 in projection reads as 1/2 in of position error "
-    "that isn't real.  Delta records carry measured_at "
-    "(surface | projection).")
-
 
 @dataclass
 class ToleranceClass:
@@ -301,10 +293,6 @@ def job_codes(job: LayoutJob) -> dict:
     return out
 
 
-def set_job_code(job: LayoutJob, sc: StitchCode) -> None:
-    """Store a job-level Stitch Code (override or new); autosaves."""
-    job.stitch_codes[sc.code] = sc.to_dict()
-    job._autosave()
 
 
 def compose(code: str, args=(), codes: dict | None = None) -> str:
@@ -344,7 +332,6 @@ def apply_code(job: LayoutJob, p: LayoutPoint, code: str, args=()) -> None:
 
 # -------------------------------------------------------------- delta math --
 
-VERDICTS = ("TIGHT", "SNUG", "LOOSE")
 
 
 @dataclass
@@ -766,7 +753,6 @@ class QAStore:
 
 #: Pairing rungs, in ladder order.  ``manual`` is set by the reviewer;
 #: ``unmatched`` rows land in the review bucket and are never guessed.
-PAIR_VIAS = ("id", "block", "desc", "proximity", "manual", "unmatched")
 
 #: Rungs the commit step takes without a human click.
 _AUTO_COMMIT_VIAS = ("id", "block", "desc", "manual")
@@ -980,23 +966,7 @@ _LEDGER_WEIGHTS = [5.2, 8.0, 6.0, 8.4, 8.4, 4.6, 4.6, 4.6, 4.6, 4.4, 5.0,
 _MARGIN = 40.0
 
 
-def _pdf_engine():
-    """The flow-engine classes bundle (all from Planloom's own minipdf).
-
-    Kept as a namespace so the ledger builders receive one explicit handle
-    rather than reaching for module globals.
-    """
-    from types import SimpleNamespace
-    return SimpleNamespace(
-        colors=colors, letter=letter, landscape=landscape,
-        ParagraphStyle=ParagraphStyle, Paragraph=Paragraph, HRFlowable=HRFlowable,
-        Spacer=Spacer, Table=Table, TableStyle=TableStyle,
-        SimpleDocTemplate=SimpleDocTemplate)
-
-
-def _ledger_styles(E):
-    ParagraphStyle = E.ParagraphStyle
-    colors = E.colors
+def _ledger_styles():
     title = ParagraphStyle(
         "LedgerTitle", fontName="Helvetica-Bold", fontSize=20, leading=23,
         textColor=transmittal.ACCENT, spaceAfter=2)
@@ -1018,9 +988,7 @@ def _ledger_styles(E):
     return title, meta, session, header, body, foot
 
 
-def _ledger_table(rows, header_style, body_style, usable, E):
-    Paragraph, Table, TableStyle, colors = (E.Paragraph, E.Table, E.TableStyle,
-                                            E.colors)
+def _ledger_table(rows, header_style, body_style, usable):
     total_w = sum(_LEDGER_WEIGHTS)
     widths = [usable * w / total_w for w in _LEDGER_WEIGHTS]
     data = [[Paragraph(transmittal._cell_text(h), header_style)
@@ -1035,12 +1003,11 @@ def _ledger_table(rows, header_style, body_style, usable, E):
         ("RIGHTPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, -1), 2.5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-        ("GRID", (0, 1), (-1, -1), 0.35, colors.Color(0.80, 0.80, 0.82)),
-        ("BOX", (0, 0), (-1, -1), 0.7, colors.Color(0.70, 0.70, 0.72)),
+        ("GRID", (0, 1), (-1, -1), 0.35, transmittal._GRIDLINE),
+        ("BOX", (0, 0), (-1, -1), 0.7, transmittal._BOXLINE),
     ])
     for i in range(2, len(data), 2):
-        style.add("BACKGROUND", (0, i), (-1, i),
-                  colors.Color(0.960, 0.960, 0.962))
+        style.add("BACKGROUND", (0, i), (-1, i), transmittal._ZEBRA)
     return Table(data, colWidths=widths, repeatRows=1, style=style)
 
 
@@ -1061,13 +1028,8 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
     dated signature blocks and the compare-then-round footnote.
 
     Returns ``{"out_path", "rows", "pages", "summary"}``."""
-    E = _pdf_engine()
-    Paragraph, HRFlowable, Spacer = E.Paragraph, E.HRFlowable, E.Spacer
-    Table, TableStyle = E.Table, E.TableStyle
-    SimpleDocTemplate = E.SimpleDocTemplate
-    landscape, letter = E.landscape, E.letter
     (title_style, meta_style, session_style, header_style, body_style,
-     foot_style) = _ledger_styles(E)
+     foot_style) = _ledger_styles()
     usable = landscape(letter)[0] - 2 * _MARGIN
 
     all_recs = qa.all_records()
@@ -1122,7 +1084,7 @@ def ledger_pdf(job: LayoutJob, qa: QAStore, out_path: str, *,
                 r.measured_at[:4], r.ts,
             ])
         total_rows += len(rows)
-        story.append(_ledger_table(rows, header_style, body_style, usable, E))
+        story.append(_ledger_table(rows, header_style, body_style, usable))
 
     # ---- check-shot / bracket ledger ------------------------------------
     brs = brackets(qa.checks, qa.governing())
@@ -1763,11 +1725,6 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
     clipboard-and-tape crew, doubling as the morning briefing."""
     from .minipdf import canvas as rl_canvas
 
-    # The from-scratch writer embeds no raster images (a deliberate scope cut,
-    # MINIPDF_PLAN §6), so the plan-thumbnail block below is skipped and the
-    # sheet honestly says so — the pins live in the DXF either way.
-    ImageReader = None
-
     W, H = letter
     m = 40.0
     buf = io.BytesIO()
@@ -1801,58 +1758,18 @@ def _package_sheet_pdf(job: LayoutJob, out_path: str,
     c.line(m, y, W - m, y)
     y -= 10
 
-    # ---- plan thumbnail (fitz render) + pins -----------------------------
-    thumb_h = 170.0
+    # ---- plan-thumbnail band -----------------------------------------------
     thumb_w = W - 2 * m
-    page_no = 1
-    if pts:
-        counts: dict[int, int] = {}
-        for p in pts:
-            counts[p.page] = counts.get(p.page, 0) + 1
-        page_no = max(counts, key=counts.get)
-    drew = False
-    if ImageReader is not None and job.pdf_path and os.path.exists(job.pdf_path):
-        try:
-            import fitz
-            doc = fitz.open(job.pdf_path)
-            try:
-                page = doc[page_no - 1]
-                zoom = 0.75
-                pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-                img = ImageReader(io.BytesIO(pix.tobytes("png")))
-                pw, ph = page.rect.width, page.rect.height
-                s = min(thumb_w / pw, thumb_h / ph)
-                iw, ih = pw * s, ph * s
-                ix, iy = m, y - ih
-                c.drawImage(img, ix, iy, width=iw, height=ih)
-                c.setStrokeColorRGB(0.6, 0.6, 0.62)
-                c.setLineWidth(0.6)
-                c.rect(ix, iy, iw, ih)
-                for p in pts:
-                    if p.page != page_no:
-                        continue
-                    px, py = ix + p.x * s, iy + ih - p.y * s
-                    ly = job.layer(p.layer)
-                    try:
-                        c.setFillColor(colors.HexColor(
-                            ly.color if ly else "#d84c3f"))
-                    except ValueError:
-                        c.setFillColorRGB(0.85, 0.3, 0.25)
-                    c.circle(px, py, 1.6, stroke=0, fill=1)
-                y = iy - 12
-                drew = True
-            finally:
-                doc.close()
-        except Exception:
-            drew = False
-    if not drew:
-        c.setStrokeColorRGB(0.6, 0.6, 0.62)
-        c.setLineWidth(0.6)
-        c.rect(m, y - 60, thumb_w, 60)
-        c.setFont("Helvetica-Oblique", 8)
-        c.drawString(m + 8, y - 34, "(no plan thumbnail — raster/absent "
-                                    "plan; pins live in the DXF)")
-        y -= 72
+    # The from-scratch writer embeds no raster images (a deliberate scope
+    # cut, MINIPDF_PLAN §6), so the sheet always says so honestly — the pin
+    # coordinates live in the DXF tier either way.
+    c.setStrokeColorRGB(0.6, 0.6, 0.62)
+    c.setLineWidth(0.6)
+    c.rect(m, y - 60, thumb_w, 60)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(m + 8, y - 34, "(no plan thumbnail — raster/absent "
+                                "plan; pins live in the DXF)")
+    y -= 72
     c.setFillColorRGB(0.24, 0.24, 0.24)
 
     # ---- control table ----------------------------------------------------

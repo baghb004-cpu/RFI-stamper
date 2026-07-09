@@ -18,6 +18,8 @@ from . import encoding
 
 def fmt_num(x: float) -> str:
     """Deterministic PDF numeric: fixed precision, no exponent, no '-0'."""
+    if isinstance(x, bool):                # bool IS an int: True would emit
+        x = int(x)                         # the token "True" — coerce to 1/0
     if isinstance(x, int):
         return str(x)
     if x != x or x in (float("inf"), float("-inf")):
@@ -120,9 +122,6 @@ class Content:
         return self.raw(encoding.pdf_name(key) + b" "
                         + fmt_num(size).encode("ascii") + b" Tf")
 
-    def leading(self, l) -> "Content":
-        return self.raw(_nums(l) + b" TL")
-
     def text(self, x, y, s: str, font: str = None, size: float = None) -> "Content":
         """Draw a single-line string with its baseline at (x, y)."""
         self.raw(b"BT")
@@ -130,19 +129,6 @@ class Content:
             self.set_font(font, size)
         self.raw(_nums(x, y) + b" Td")
         self.raw(encoding.pdf_string(s) + b" Tj")
-        self.raw(b"ET")
-        return self
-
-    def text_lines(self, x, y, lines, font: str, size: float, leading: float) -> "Content":
-        """Draw stacked lines from a top baseline (x, y), descending by leading."""
-        self.raw(b"BT")
-        self.set_font(font, size)
-        self.leading(leading)
-        self.raw(_nums(x, y) + b" Td")
-        for i, ln in enumerate(lines):
-            if i:
-                self.raw(b"T*")
-            self.raw(encoding.pdf_string(ln) + b" Tj")
         self.raw(b"ET")
         return self
 

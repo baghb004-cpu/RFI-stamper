@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 from . import fx
 from .theme import SECTIONS, mix

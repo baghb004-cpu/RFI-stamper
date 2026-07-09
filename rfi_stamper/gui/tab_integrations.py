@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from .. import integrations
 from . import fx
 from .theme import mix, section_color
-from .widgets import open_path, run_bg, toast
+from .widgets import run_bg, toast
 
 
 class IntegrationsSection(ttk.Frame):

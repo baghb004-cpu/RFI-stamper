@@ -253,6 +253,77 @@ def test_external_conformance():
         os.unlink(path)
 
 
+# --------------------------------------------------------------------------- #
+#  6. flow-engine pagination hardening (audit round)                           #
+# --------------------------------------------------------------------------- #
+
+def test_flow_pagination():
+    import io
+    import fitz
+    from rfi_stamper.minipdf.colors import black
+    from rfi_stamper.minipdf.flow import (Paragraph, ParagraphStyle,
+                                          SimpleDocTemplate, Spacer, Table,
+                                          TableStyle)
+    body = ParagraphStyle("b", fontName="Helvetica", fontSize=10, leading=12,
+                          textColor=black)
+
+    # (a) a table whose header+first row can't fit the page remainder is
+    # DEFERRED to a fresh page — never forced into the bottom margin
+    tall_cell = Paragraph("<br/>".join(f"line {i}" for i in range(12)), body)
+    table = Table([[Paragraph("HDR", body)], [tall_cell]],
+                  colWidths=[300.0], repeatRows=1,
+                  style=TableStyle([("TOPPADDING", (0, 0), (-1, -1), 2),
+                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=(400, 300), leftMargin=40,
+                            rightMargin=40, topMargin=40, bottomMargin=60)
+    total = doc.build([Spacer(0, 150), table])   # slot left: ~50pt, row ~150pt
+    A(total == 2, f"tall first row defers the table to page 2, got {total}")
+    d = fitz.open(stream=buf.getvalue(), filetype="pdf")
+    A("HDR" not in d[0].get_text("text"), "nothing of the table on page 1")
+    p2 = d[1].get_text("text")
+    A("HDR" in p2 and "line 11" in p2, "header + full row on page 2")
+    # nothing rendered below the bottom margin on page 2 (y > page_h - margin)
+    max_y = max(w[3] for w in d[1].get_text("words"))
+    A(max_y <= 300 - 60 + 12, f"no text into the bottom margin (max y {max_y:.0f})")
+    d.close()
+
+    # (b) a paragraph taller than a whole page SPLITS across pages
+    long_para = Paragraph("<br/>".join(f"row {i}" for i in range(40)), body)
+    buf2 = io.BytesIO()
+    doc2 = SimpleDocTemplate(buf2, pagesize=(400, 300), leftMargin=40,
+                             rightMargin=40, topMargin=40, bottomMargin=60)
+    total2 = doc2.build([long_para])             # 40*12=480pt > 200pt frame
+    A(total2 >= 2, f"page-taller paragraph paginates, got {total2}")
+    d2 = fitz.open(stream=buf2.getvalue(), filetype="pdf")
+    alltext = "".join(d2[i].get_text("text") for i in range(d2.page_count))
+    missing = [i for i in range(40) if f"row {i}" not in alltext]
+    A(not missing, f"no paragraph line lost across the split (missing {missing[:4]})")
+    A("row 0" in d2[0].get_text("text") and "row 39" not in d2[0].get_text("text"),
+      "the split really spans pages")
+    d2.close()
+
+
+def test_canvas_guards():
+    import io
+    from rfi_stamper.minipdf import Canvas, fmt_num
+    A(fmt_num(True) == "1" and fmt_num(False) == "0",
+      "bool coerces to a PDF numeric, never the token 'True'")
+    c = Canvas(io.BytesIO(), pagesize=(200, 200))
+    c.saveState()
+    try:
+        c.showPage()
+        A(False, "showPage with an open saveState must raise")
+    except ValueError:
+        pass
+    c.restoreState()
+    try:
+        c.restoreState()
+        A(False, "restoreState underflow must raise")
+    except ValueError:
+        pass
+
+
 def main():
     for fn, label in [
         (test_metric_parity, "text-metric parity with the reportlab oracle"),
@@ -263,6 +334,8 @@ def main():
         (test_deterministic, "deterministic byte-reproducible output"),
         (test_xref_offsets, "byte-exact cross-reference offsets"),
         (test_external_conformance, "qpdf --check conformance (advisory)"),
+        (test_flow_pagination, "flow pagination: table defer + paragraph split"),
+        (test_canvas_guards, "canvas state guards + bool numeric coercion"),
     ]:
         fn()
         print(f"PASS {label}")

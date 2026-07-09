@@ -135,9 +135,11 @@ def test_appendix_text_identity():
 
 
 def test_pipeline_minipdf_verifies():
-    """The whole stamp+verify pipeline is clean with the from-scratch engine."""
-    if not _have_reportlab():
-        return
+    """The whole stamp+verify pipeline is clean with the from-scratch engine.
+
+    Needs NO oracle (fixtures build with minipdf) — runs on the shipped,
+    reportlab-free config too; this is the delivered-metadata-clean guard.
+    """
     import smoke_test
     from rfi_stamper import pipeline
 
@@ -295,10 +297,9 @@ def test_fieldpro_engine():
     The ledger is a landscape platypus report through the from-scratch flow
     engine; the stake sheet is direct-canvas with the raster plan thumbnail
     intentionally degraded to its "no thumbnail" fallback (minipdf embeds no
-    images).  Structural bar (reports aren't verify.py-gated).
+    images).  Structural bar (reports aren't verify.py-gated); needs NO
+    oracle, so it runs on the shipped reportlab-free config too.
     """
-    if not _have_reportlab():
-        return
     import glob
     import fitz
     import test_fieldstitch_pro as TF
