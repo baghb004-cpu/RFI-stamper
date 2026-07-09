@@ -205,7 +205,56 @@ still fully usable.
 - red-team test suite: prompt-injection-style content in uploaded PDFs
   must never alter behavior (knowledge is data; the verb set is fixed).
 
-## Sequencing
+## Phase G — the Backcheck: the instant peer checker (owner brief, added
+## after A-F shipped)
+
+The senior's red-pen pass, automated: analyze the open plan set or Loft
+draft, catch design issues before they slip through, and write the
+findings as real markups and comments directly on the design. Six finding
+categories (the owner's list, translated honestly to what an offline
+from-scratch engine can PROVE — every rule deterministic, every finding
+citing its rule):
+
+1. **Inconsistencies in technical data** — title-block discrepancies
+   across sheets (sheet-number duplicates/mismatches vs the detected
+   index, date/scale drift), duplicate or CONTRADICTORY dimensions (exact
+   on Loft drafts: two dims measuring the same points with different
+   text), material keyword conflicts on a sheet.
+2. **Ambiguous or incomplete drawings** — dangling detail/section
+   references (callout points at a sheet that doesn't exist — the
+   hyperlink engine already finds references), vague-note lexicon ("as
+   required", "by others", "verify in field", "match existing", bare
+   "typ."), unlabeled rooms/grids, views without scales, undimensioned
+   rooms.
+3. **Design flaws in geometry** — sharp inside corners (acute wall
+   junctions), unclosed wall runs (near-miss endpoints), fixture/wall
+   overlaps, slender unbraced wall runs, degenerate/floating 3D geometry
+   (open edges, zero-length segments, orphan islands), unsupported pipe
+   spans vs the per-trade stride rules.
+4. **Non-conformance to standards** — text below the 3/32" minimum,
+   missing tolerance classes on layout points, sloped runs without
+   invert callouts, fixtures without traps, penetrations without
+   sleeves, missing title-block fields, slope minimums (already in
+   Pipewright, surfaced here).
+5. **Conflicts with lessons learned** — the Heartwood lessons lane:
+   findings the owner marks recurring become lesson notes (human-gated,
+   like everything); the checker matches new sheets/drafts against
+   trusted lessons and flags repeats, with the lesson cited.
+6. **DFX / constructability** — thin wall segments, corridor pinch
+   points, doors swinging into fixtures (clear-width math), rooms
+   without doors, cleanout access spacing, dead-end mains.
+
+Inputs: vector plan PDFs (primary), Loft drafts + Pipewright networks
+(structured = strongest checks), DXF and OBJ (geometry checks). Native
+proprietary CAD/BIM containers are closed formats — export to PDF/DXF as
+usual; say so honestly in the UI.
+
+Output: a findings panel (severity blocker/major/minor/info, category
+filters, jump-to-location) and **Write markups** — findings land as real
+PDF markup annotations (clouds + comments, severity-colored) via the
+existing markups engine, or on a dedicated QA ply in the Loft, removable
+in one command. Every finding: code, message, suggestion, and the rule
+that produced it (the Ground Truth insight-feed promise, kept here too).
 
 A (Fieldstitch Pro) → B (Pipewright) → C (Weaver v1 + Squawk Box) →
 D (3D uplift) → E (Weaver v2) → F (Corral hardening). B before C because
