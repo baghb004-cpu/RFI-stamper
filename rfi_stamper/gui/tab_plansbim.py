@@ -7,6 +7,7 @@ from tkinter import ttk
 
 from . import fx
 from .bim3d import Bim3DViewer
+from .tab_backcheck import BackcheckTab
 from .tab_compare import CompareTab
 from .tab_draft import LoftTab
 from .tab_fieldstitch import FieldstitchTab
@@ -57,6 +58,7 @@ class PlansSection(ttk.Frame):
         self.loft = LoftTab(nb, theme, status, root,
                             on_bim=self._loft_to_3d,
                             get_fieldstitch=lambda: self.fieldstitch)
+        self.loft.on_backcheck = self._loft_backcheck
         nb.add(self.loft, text="  The Loft  ")
 
         self.fieldstitch = FieldstitchTab(nb, theme, status, root,
@@ -67,6 +69,15 @@ class PlansSection(ttk.Frame):
         self.asbuilt = AsBuiltPanel(nb, theme, status,
                                     lambda: nb.select(self.markup))
         nb.add(self.asbuilt, text="  As-Built Drawings  ")
+
+        self.backcheck = BackcheckTab(
+            nb, theme, status,
+            get_loft=lambda: self.loft,
+            get_plan=lambda: (self.markup.viewer.path or None,
+                              self.markup.viewer),
+            goto_loft=lambda: nb.select(self.loft),
+            goto_plan=lambda: nb.select(self.markup))
+        nb.add(self.backcheck, text="  Backcheck  ")
 
         self.bim = Bim3DViewer(nb, theme, on_open_sheet=self._open_sheet)
         nb.add(self.bim, text="  BIM Viewer  ")
@@ -148,6 +159,11 @@ class PlansSection(ttk.Frame):
         self.bim.set_model(model)
         self.nb.select(self.bim)
 
+    def _loft_backcheck(self):
+        """The Loft's Backcheck button: switch to the panel and run it."""
+        self.nb.select(self.backcheck)
+        self.backcheck.check_loft()
+
     def _pins_to_3d(self, pins):
         """Fieldstitch points arrive as world-coordinate 3D pins."""
         import rfi_stamper.bim as bim
@@ -188,4 +204,5 @@ class PlansSection(ttk.Frame):
                   lambda: self.nb.select(self.bim)),
                  ("Place plan sheets in 3D", "Plans", self._place_sheets)]
                 + self.loft.commands() + self.fieldstitch.commands()
+                + self.backcheck.commands()
                 + self.markup.commands() + self.asbuilt.compare.commands())

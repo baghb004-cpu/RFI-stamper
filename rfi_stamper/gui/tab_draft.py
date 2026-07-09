@@ -134,7 +134,8 @@ class LoftTab(ttk.Frame):
         self.file_lbl = ttk.Label(top, style="Muted.TLabel",
                                   text="  new draft — unsaved")
         self.file_lbl.pack(side="left")
-        for label, cmd in (("Tally CSV", self.export_tally),
+        for label, cmd in (("Backcheck ✓", self.backcheck_draft),
+                           ("Tally CSV", self.export_tally),
                            ("→ Fieldstitch", self.grids_to_fieldstitch),
                            ("→ 3D model", self.send_to_bim),
                            ("PNG", self.export_png),
@@ -1678,6 +1679,15 @@ class LoftTab(ttk.Frame):
                   + (" — pipes ride at their inverts"
                      if any(e.kind == "pipe" for e in self.model.ents)
                      else ""))
+
+    on_backcheck = None                 # app hook: run the Backcheck panel
+
+    def backcheck_draft(self):
+        if not self.model.ents:
+            toast(self.root, self.theme, "Draft something first", "info")
+            return
+        if self.on_backcheck:
+            self.on_backcheck()
 
     def grids_to_fieldstitch(self):
         pts = draft.grid_points(self.model)

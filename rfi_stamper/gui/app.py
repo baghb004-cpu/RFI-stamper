@@ -147,6 +147,8 @@ class App:
         self.plans.loft.hw_path_provider = lambda: self.oldhand._path()
         # Ground Truth's Heartwood card reads the same store as the drawer
         self.truth.hw_path_provider = lambda: self.oldhand._path()
+        # the Backcheck logs recurring findings as Heartwood lessons
+        self.plans.backcheck.hw_path_provider = lambda: self.oldhand._path()
         st = self.projsec.stamp
         prev = st.on_scanned
         def scanned(plan, _prev=prev):

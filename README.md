@@ -234,6 +234,33 @@ instructions ingests as quoted data only — the test suite proves the
 drawing agent behaves *bit-identically* with and without poisoned
 knowledge, because knowledge is data and the verb table is fixed.
 
+## The Backcheck — your instant peer checker
+
+The senior reviewer's red-pen pass, automated. Point the **Backcheck**
+(Plans & BIM) at the open plan or your Loft draft and in seconds it catches
+what slips through the cracks — across six categories: **technical-data
+inconsistencies** (duplicate sheet numbers, contradictory dimensions, blank
+title blocks), **ambiguous or incomplete drawings** (dangling detail
+references, vague "by others"/"verify in field" notes, missing scales,
+unlabeled rooms), **geometry flaws** (sharp corners, unclosed walls,
+overlaps, degenerate 3D, unsupported pipe spans), **non-conformance**
+(sub-minimum lettering, missing invert callouts, untrapped fixtures,
+slope minimums), **conflicts with lessons learned** (repeat issues matched
+against your own trusted Heartwood lessons), and **DFX / constructability**
+(thin walls, corridor pinch points, doors swinging into fixtures, rooms
+with no door, dead-end mains).
+
+Every finding names the rule that produced it and suggests the fix — no AI
+guesswork, all deterministic. Then it writes them **directly onto the
+design**: severity-colored revision clouds and comment callouts as real PDF
+annotations, or text marks on a dedicated Q-BACK layer in the Loft (cleared
+in one command). And it's honest about its limits — checks that need a
+mechanical solid part (GD&T, hole callouts, injection-molding draft angles)
+are listed under "Not checked, and why" rather than faked. Native
+proprietary CAD/BIM files are closed formats; export to PDF or DXF and the
+Backcheck reads them — your structured Loft and Pipewright drafts get the
+deepest checks of all.
+
 ## Daybook, Reckoner, Crewpass
 
 * **Daybook** (Field Management) — the foreman's daily journal: crew,

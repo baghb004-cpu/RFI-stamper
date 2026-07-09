@@ -45,6 +45,11 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Heartwood** | the knowledge core: SQLite KB + from-scratch meaning search | the dense center wood of a tree — the heart, engine and soul |
 | **The Old Hand** | global Q&A drawer persona over Heartwood (Ctrl+/) | the worker who's seen it all and cites where he read it |
 | **Journeyman** | the SAME semantic layer in the owner's other repo (JS) | between apprentice and master; knows the words of the trade |
+| **The Backcheck** | the instant peer checker (deterministic design-review rules) | the senior's red-pen back-check before a drawing is issued |
+| **Holler** | hands-free voice control for any external app (Phase H, in flight) | job-site "give a holler"; command your tools without touching them |
+| **The Caller** | Holler's spoken-measurement → text grammar | the crew member who calls the cuts |
+| **Trips / Placards / Fetches / Runs** | Holler command kinds (shortcut / text insert / open target / macro) | a trip fires a tool; a placard is exact posted text; a fetch retrieves; a run is a keystroke sequence |
+| **The Songbook / The Ticker** | Holler's command dictionary / live counter tape | the book of what it knows; the running tally |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -373,6 +378,31 @@ Brief sections 2, 3.2-3.6, 4, 5.5, 6.4; engine only, GUI next.
   unverified and macro replay refuses until trusted; miner proposals
   never affect search until approved; caps/dedupe/round-trip all hold.
 - 44 suites green. ROADMAP phases A-F: ALL SHIPPED (v3.4.0 → v4.1.0).
+
+## Round 15 (SHIPPED, v4.2.0): the Backcheck — instant peer checker (Phase G)
+
+- **backcheck.py**: 25 deterministic rules in 6 categories (data /
+  ambiguity / geometry / standards / lessons / dfx) over PDF / Loft /
+  Pipewright / DXF / OBJ; every Finding carries code + severity + detail +
+  suggestion + the RULE that produced it; Report.sort/by_category/
+  by_severity; markup bridge findings_to_markups (severity-colored cloud +
+  comment callout) + write_markup_pdf (real annotations via
+  markups.apply_to_pdf) + loft_finding_points; Heartwood lessons lane
+  (record_lesson unverified/human-gated, lessons_from_heartwood trusted →
+  LES-REPEAT). Honest SKIP list surfaced in stats.skipped: STD-HOLE-GDT,
+  STD-SLEEVE, DFX-DRAFT-ANGLE (need a mechanical solid part model — a 2D
+  plan/BIM app has none). tests/test_backcheck.py: 123 asserts, incl. a
+  tidy room with ZERO findings (no false positives).
+- **GUI gui/tab_backcheck.py** (Plans & BIM → Backcheck tab): run on the
+  Loft / open plan / a file; severity + category filters; findings tree;
+  jump-to-location (PDF → Plan Viewing page; Loft → select + center +
+  flourish); "Write markups on the plan…" (real cloud+callout PDF);
+  "Mark on the Loft" (Q-BACK ply text marks, delete-ply to clear); "Log
+  as lesson"; "Not checked…" shows the honest skip list. Loft toolbar
+  "Backcheck ✓" button; palette commands; app wires the Heartwood path.
+- 45 suites green. HONEST BOUNDARY (docs + UI): native proprietary CAD/BIM
+  containers are closed — export to PDF/DXF; structured Loft/pipe drafts
+  give the strongest checks.
 
 ## Roadmap (still open)
 

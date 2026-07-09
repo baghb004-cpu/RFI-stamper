@@ -112,6 +112,12 @@ run; the `*_report.txt` must end in PASS).
                               slope/invert solver, cap/replace/resize command
                               APIs (Weaver-shaped report dicts), code-minimum
                               checks, takeoff, sloped-3D bridge
+    rfi_stamper/backcheck.py  the Backcheck: deterministic peer-check rules
+                              (25) over PDF/Loft/pipe/DXF/OBJ in 6 categories,
+                              each finding cites its rule; markup bridge
+                              (findings -> cloud+callout annotations), Heartwood
+                              lessons lane, honest SKIP list (GD&T/molding/
+                              sleeve need a solid part model)
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/reckoner.py   markup quantity takeoff + price book -> estimate
     rfi_stamper/crewpass.py   offline seat ledger + report (local JSON only)
@@ -137,7 +143,8 @@ run; the `*_report.txt` must end in PASS).
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,
                               tab_truth, tab_stamp, tab_merge, tab_markup,
-                              tab_compare, tab_pdftools
+                              tab_compare, tab_pdftools, tab_backcheck
+                              (the Backcheck peer-check panel)
     rfi_stamper/__main__.py   CLI (stamp/merge/split/compare/gui); no args -> GUI
     tests/                    plain-python test scripts; tests/run_all.py runs all
     skill/rfi-overlay/        Claude skill wrapping the stamping engine

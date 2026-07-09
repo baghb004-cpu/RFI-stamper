@@ -837,6 +837,54 @@ def main():
     assert newest.provenance and newest.provenance.get("gen") == "gridiron"
     assert not fsth._ghosts, "commit clears the ghost tray"
 
+    # ---- The Backcheck: run peer check on the Loft, filter, jump, mark
+    bcheck = app.plans.backcheck
+    app.plans.nb.select(loft)
+    root.update()
+    # seed a deliberate defect: two dims over the same span
+    loft.model.add("dim", [(0.0, 0.0), (20.0, 0.0), (10.0, -3.0)])
+    loft.model.add("dim", [(0.0, 0.0), (20.0, 0.0), (10.0, -4.0)])
+    loft.backcheck_draft()               # Loft button -> panel runs check
+    root.update()
+    import time as _tb
+    for _ in range(200):
+        root.update()
+        if bcheck.report is not None:
+            break
+        _tb.sleep(0.05)
+    assert bcheck.report is not None, "Backcheck should produce a report"
+    codes = {f.code for f in bcheck.report.findings}
+    assert "DATA-DUPDIM" in codes, codes
+    assert bcheck.tree.get_children(), "findings should populate the tree"
+    # the honesty feature: out-of-scope checks are surfaced, not faked
+    skipped = {s["code"] for s in bcheck.report.stats["skipped"]}
+    assert "STD-HOLE-GDT" in skipped and "DFX-DRAFT-ANGLE" in skipped
+    # severity filter hides rows
+    shown_all = len(bcheck.tree.get_children())
+    for v in bcheck.sev_vars.values():
+        v.set(False)
+    bcheck._fill()
+    root.update()
+    assert len(bcheck.tree.get_children()) == 0
+    for v in bcheck.sev_vars.values():
+        v.set(True)
+    bcheck._fill()
+    root.update()
+    assert len(bcheck.tree.get_children()) == shown_all
+    # jump to a finding selects it without error; mark drops a Q-BACK ply
+    dup = next(f for f in bcheck.report.findings if f.code == "DATA-DUPDIM")
+    bcheck.tree.selection_set(dup.id)
+    bcheck.jump()
+    root.update()
+    n_ents = len(loft.model.ents)
+    bcheck.mark_loft()
+    root.update()
+    assert loft.model.ply("Q-BACK") is not None
+    assert len(loft.model.ents) > n_ents, "mark should add Q-BACK text ents"
+    # clean up the defect dims so later assertions see a tidy model
+    loft.model.remove([e.id for e in loft.model.ents
+                       if e.kind == "dim" or e.ply == "Q-BACK"])
+
     # ---- The Old Hand + Heartwood: drawer plumbing, cited ask, refusal
     hwdb = os.path.join(tmp, "hw.db")
     app.oldhand.db_path = hwdb            # keep the test KB out of ~/
