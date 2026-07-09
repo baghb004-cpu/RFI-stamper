@@ -379,6 +379,40 @@ class Ensemble:
         r = None if rel_y is None else [rel_y]
         return self.classify_batch(cell[None, ...], a, r)[0]
 
+    # -- P3 self-learning: append a verified exemplar to the kNN memory ------ #
+    def add_exemplar(self, cell_or_feat, char, provenance: str = "auto",
+                     cap: int = 20000) -> bool:
+        """Grow the kNN store by one verified glyph (OCR_PLAN §3 auto lane).
+
+        ``cell_or_feat`` is either a normalized ``(28, 28)`` cell (featurized
+        here) or an already-computed feature row.  ``char`` is the CHARSET
+        label.  Provenance is tracked ("synthetic"/"auto"/"human") and the store
+        is capped so the memory cannot grow without bound.  Returns True if the
+        exemplar was added.  This mutates ONLY the kNN memory — the shipped MLP
+        and NCC bank are never touched by the auto lane (drift-safe).
+        """
+        if char not in self.charset:
+            return False
+        arr = np.asarray(cell_or_feat, np.float32)
+        if arr.ndim == 2:                       # a 28×28 cell → featurize
+            feat = self.f.transform(arr[None, ...], None, None)[0]
+        else:
+            feat = arr.reshape(-1)
+        if (self.knn.X is not None and self.knn.X.shape[0] >= cap):
+            return False
+        self.knn.add(feat, self.charset.index(char))
+        if not hasattr(self, "provenance"):
+            self.provenance = []
+        # backfill provenance for the seeded exemplars the first time
+        if self.knn.y is not None and len(self.provenance) < self.knn.y.shape[0] - 1:
+            self.provenance = ["synthetic"] * (self.knn.y.shape[0] - 1)
+        self.provenance.append(provenance)
+        return True
+
+    def exemplar_count(self) -> int:
+        """Number of exemplars currently in the kNN memory."""
+        return 0 if self.knn.X is None else int(self.knn.X.shape[0])
+
 
 # --------------------------------------------------------------------------- #
 #  Trained-model persistence (train once → model.npz → lazy load)             #

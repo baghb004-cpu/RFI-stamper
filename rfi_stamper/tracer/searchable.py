@@ -78,12 +78,13 @@ def _verify_only_text(src_page, out_page, dpi: int) -> dict:
 
 
 def write_searchable(in_pdf: str, out_pdf: str, dpi: int = 300,
-                     skip_text_pages: bool = True, log=print) -> dict:
+                     skip_text_pages: bool = True, log=print, ctx=None) -> dict:
     """Write a searchable copy of ``in_pdf`` to ``out_pdf`` (see module docstring).
 
     Returns ``{"pages_ocred", "pages_total", "out_path"}``.  Delegates the
     per-page reading to the package pipeline (``read_image``); imported late to
-    avoid an import cycle with the package facade.
+    avoid an import cycle with the package facade.  The optional ``ctx`` is the
+    P3 post-correction Context (``None`` → identical to P2).
     """
     from . import read_image                    # late: breaks the import cycle
 
@@ -105,7 +106,7 @@ def write_searchable(in_pdf: str, out_pdf: str, dpi: int = 300,
                 pw, ph = pix.width / zoom, pix.height / zoom
                 new = out.new_page(width=pw, height=ph)          # /Rotate 0
                 new.insert_image(new.rect, pixmap=pix)
-                words = read_image(gray, dpi=dpi)
+                words = read_image(gray, dpi=dpi, ctx=ctx)
                 for (x0, y0, x1, y1, text, _score) in words:
                     if not text:
                         continue
