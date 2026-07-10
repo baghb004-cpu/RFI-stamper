@@ -141,7 +141,9 @@ class StampTab(ttk.Frame):
 
     # --------------------------------------------------------------- inputs
     def pick_plan(self):
-        p = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
+        from .tiein import initialdir
+        p = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")],
+                                       initialdir=initialdir("plans_dir"))
         if p:
             self.plan_var.set(p)
 
@@ -150,8 +152,10 @@ class StampTab(ttk.Frame):
             self.rfi_list.insert("end", p)
 
     def add_files(self):
+        from .tiein import initialdir
         self.add_paths(filedialog.askopenfilenames(
-            filetypes=[("RFI files", "*.pdf *.zip *.txt"), ("All", "*.*")]))
+            filetypes=[("RFI files", "*.pdf *.zip *.txt"), ("All", "*.*")],
+            initialdir=initialdir("rfi_dir")))
 
     def add_folder(self):
         p = filedialog.askdirectory()

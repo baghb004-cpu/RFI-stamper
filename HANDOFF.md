@@ -66,6 +66,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Reed Count** | fixture-symbol recognition + auto-count (reedcount.py) | the reed count is the loom's dents-per-inch — THE density count of the trade, now counting fixtures per sheet |
 | **The Ropes** | hands-on training mode: spotlight tours + Training Center (gui/ropes.py) | "show you the ropes" — the oldest way a new hand learns the job |
 | **The memory palette** | the evened per-section anchor-hue system (gui/theme.py SECTIONS) | color placed for recall, not decoration — one calm anchor per room of the workspace |
+| **The Tie-In** | connect-once settings: folders + tablet kit -> one-tap everything (gui/tiein.py) | where new plumbing meets the existing system — one fitting, done right, and everything flows |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1647,13 +1648,47 @@ to…"), hands-on "You try it!" checkpoints, a per-step "Show me".
   the watcher; Show me performs + advances; end saves resumable
   progress; Training Center lists courses and offers Resume.
 
+## Round 42 (SHIPPED, v5.8.0): the staged field board + the Tie-In
+
+Owner-confirmed campaign item 4, closing the campaign — the field-
+tablet methodology the owner works with daily, applied to Fieldstitch.
+
+- **The staged workflow bar** (tab_fieldstitch): five BIG touch tiles in
+  the order the crew actually works — 1·Job, 2·Set Up, 3·Points,
+  4·Stake/QA, 5·Export ("Stage.TButton": gloved fingers and sunlight,
+  not mouse pointers).  The current stage lights up from honest state
+  (no job → Job; default basepoint+world+no scale → Set Up; no points →
+  Points; QA records present → Stake; else Export) with a one-line hint
+  under the bar.  Tiles drive the REAL actions (tools, dialogs, menus) —
+  the guided layer over the full toolbars, which stay untouched.
+- **The setup advisor** (fieldpro.station_geometry + dialog on the Set
+  Up tile): the training-manual rules, convention-only — a control pair
+  should subtend 45°–135° at the instrument (good vs bad triangle,
+  too-flat/too-sharp NAMED), controls should sit at least as far as the
+  farthest layout point (error never extrapolates past the control),
+  the five standing backsight reminders ride every report, and fewer
+  than two controls is INSUFFICIENT — never guessed around.  Dialog
+  defaults the instrument to the layout centroid; CONTROL-kind points
+  are the control list.
+- **PNEZD XLSX in the Bowline kit** (owner ask: the RTS side reads
+  spreadsheets too): export_xlsx grew a "pnezd" dialect
+  (Point/Northing/Easting/Elevation/Description/Layer — N before E,
+  order registered in selvage.WRITER_ORDER, never inlined); the grid-
+  tablet dialect is untouched.  bowline = PNEZD CSV + PNEZD XLSX + DXF.
+- **The Tie-In** (gui/tiein.py; Tools menu + palette): connect
+  everything once — plans folder, RFI drop folder, export folder,
+  field-tablet kit — saved to ~/.planloom.  Consumers treat it as a
+  DEFAULT, never a lock: the Export stage becomes ONE TAP (your kit,
+  your folder, date-stamped, zero dialogs), and the open dialogs in
+  markup / Fieldstitch / stamping start in your folders
+  (tiein.initialdir).
+- **Tests**: tests/test_stagedfield.py (20 checks — PNEZD XLSX order via
+  the writer table, kit contents, advisor rules incl. named failures and
+  INSUFFICIENT honesty, determinism) + construct blocks (stage tiles +
+  honest stage light, advisor dialog verdict, Tie-In one-tap export
+  writing the dated Bowline folder with redirected prefs).
+
 ## Roadmap (still open)
-- **Owner-confirmed campaign, item 4 (next round)**: the Fieldstitch
-  staged workflow board (Job → Set Up → Points → Stake/QA → Export as
-  big touch-friendly stage tiles) + station-setup geometry advisor
-  (good/bad triangle check, re-check-backsight reminders) + XLSX
-  coordinates in the robotic-total-station export kit; plus the
-  dead-simple first-run connect wizard (folders, formats, kits).
 - **Owner smoke on real Windows**: the Ropes punch renderer (alpha +
   transparentcolor + click-through) joins the standing drag-drop and
   mic smoke items.

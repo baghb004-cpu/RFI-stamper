@@ -30,7 +30,8 @@ SCALES = (
 )
 
 KIT_LABELS = [
-    ("bowline", "Bowline Kit — PNEZD CSV + DXF (robotic-total-station tablets)"),
+    ("bowline", "Bowline Kit — PNEZD CSV + XLSX + DXF (robotic-total-"
+                "station tablets)"),
     ("clovehitch", "Clovehitch Kit — XLSX + DXF (grid layout tablets)"),
     ("sheetbend", "Sheetbend Kit — LandXML + CSV (office suites + modern "
                   "controllers)"),
@@ -57,6 +58,25 @@ class FieldstitchTab(ttk.Frame):
         self.selection: str | None = None
         self._drag_id = None
         self.accent = section_color("plans")
+
+        # ----------------------------------------------------- stage bar
+        # the staged field workflow (owner-confirmed): five big
+        # touch-friendly tiles in the order the crew actually works —
+        # the guided layer over the full toolbars below
+        sb = ttk.Frame(self, padding=(6, 6, 6, 2))
+        sb.pack(fill="x")
+        self.stage_btns = {}
+        for key, label, cmd in (
+                ("job", "1 · Job", self._stage_job),
+                ("setup", "2 · Set Up", self._stage_setup),
+                ("points", "3 · Points", self._stage_points),
+                ("stake", "4 · Stake / QA", self._stage_stake),
+                ("export", "5 · Export", self._stage_export)):
+            b = ttk.Button(sb, text=label, style="Stage.TButton", command=cmd)
+            b.pack(side="left", fill="x", expand=True, padx=2)
+            self.stage_btns[key] = b
+        self.stage_hint = ttk.Label(self, style="Muted.TLabel", text="")
+        self.stage_hint.pack(fill="x", padx=8)
 
         # ------------------------------------------------------- toolbar
         tb = ttk.Frame(self, padding=(6, 4))
@@ -250,8 +270,10 @@ class FieldstitchTab(ttk.Frame):
 
     # ------------------------------------------------------------- setup
     def open_pdf(self, path=None):
+        from .tiein import initialdir
         path = path or filedialog.askopenfilename(
-            filetypes=[("PDF", "*.pdf")])
+            filetypes=[("PDF", "*.pdf")],
+            initialdir=initialdir("plans_dir"))
         if not path:
             return
         self.viewer.open(path)
@@ -345,6 +367,174 @@ class FieldstitchTab(ttk.Frame):
         self.viewer.canvas.configure(
             cursor={"place": "crosshair", "basepoint": "target"}.get(
                 name, "arrow"))
+
+    # ------------------------------------------------------ staged workflow
+    def _stage_menu(self, key, items):
+        m = tk.Menu(self, tearoff=0)
+        for label, cmd in items:
+            m.add_command(label=label, command=cmd)
+        b = self.stage_btns[key]
+        m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def _stage_job(self):
+        if self.job is None:
+            self.open_pdf()
+            return
+        self._stage_menu("job", [("Open a plan PDF…", self.open_pdf),
+                                 ("Blank grid sheet", self.blank_sheet)])
+
+    def _stage_setup(self):
+        self._stage_menu("setup", [
+            ("Basepoint — click the page point you know",
+             lambda: self.set_tool("basepoint")),
+            ("Rotation…", self.set_rotation),
+            ("Scale — pick from the scale menu",
+             lambda: self.status.set(
+                 "Use the scale ▾ menu (top right) to pick the sheet "
+                 "scale", "info")),
+            ("Setup advisor — check the geometry…", self.setup_advisor)])
+
+    def _stage_points(self):
+        self.set_tool("place")
+        self.status.set("Points: click the plan to drop numbered points — "
+                        "Stitch code + kind sit on the QA bar", "info")
+
+    def _stage_stake(self):
+        self._stage_menu("stake", [
+            ("Stake package… (the day's bundle)", self.stake_package),
+            ("Import as-staked shots…", self.asstaked_dialog),
+            ("As-Staked Ledger PDF", self.ledger_pdf),
+            ("QA CSV companion", self.qa_csv)])
+
+    def _stage_export(self):
+        from . import prefs as _prefs
+        tie = _prefs.load().get("tiein", {})
+        kit, out_dir = tie.get("kit"), tie.get("export_dir")
+        if kit in fs.KITS and out_dir and os.path.isdir(out_dir):
+            # the Tie-In one-tap: YOUR tablet's kit into YOUR folder
+            self.export_kit(kit, out_dir=os.path.join(
+                out_dir, datetime.now().strftime("layout_%Y%m%d")))
+            return
+        items = [(label, lambda k=key2: self.export_kit(k))
+                 for key2, label in KIT_LABELS]
+        items.append(("Set up one-tap export — the Tie-In…",
+                      self._open_tiein))
+        self._stage_menu("export", items)
+
+    def _open_tiein(self):
+        from .tiein import TieInDialog
+        TieInDialog(self.winfo_toplevel(), self.theme, self.status)
+
+    def _stage_refresh(self):
+        if not self.stage_btns:
+            return
+        if self.job is None:
+            cur = "job"
+        elif (tuple(self.job.base_page_xy) == (0.0, 0.0)
+                and tuple(self.job.base_world) == (1000.0, 1000.0)
+                and not self.job.scale):
+            cur = "setup"
+        elif not self.job.points:
+            cur = "points"
+        elif self.qa is not None and (self.qa.records or self.qa.checks):
+            cur = "stake"
+        else:
+            cur = "export"
+        for k, b in self.stage_btns.items():
+            b.configure(style="StageOn.TButton" if k == cur
+                        else "Stage.TButton")
+        self.stage_hint.configure(text={
+            "job": "Start here: open the plan (or a blank grid) the crew "
+                   "will work from.",
+            "setup": "Tie the sheet to the world: basepoint, rotation, "
+                     "scale — then run the setup advisor.",
+            "points": "Drop the layout points where they belong; layers "
+                      "and numbering are automatic.",
+            "stake": "The shots are back: import as-staked, judge against "
+                     "tolerance, print the ledger.",
+            "export": "Hand it to the tablet: pick a kit — or set the "
+                      "Tie-In once and export in one tap.",
+        }[cur])
+        self._stage_cur = cur
+
+    def setup_advisor(self):
+        """The station-setup geometry check (fieldpro.station_geometry) —
+        good/bad triangle, distance rule, backsight reminders."""
+        if not self.job:
+            messagebox.showinfo("Setup advisor", "Open a job first.")
+            return
+        try:
+            controls = [(self.job.composed(p), *self.job.to_world(p)[:2])
+                        for p in self.job.points if p.kind == "CONTROL"]
+            design = [self.job.to_world(p)[:2] for p in self.job.points
+                      if p.kind != "CONTROL"]
+        except Exception:   # noqa: BLE001 -- no scale yet
+            messagebox.showwarning(
+                "Setup advisor", "Set the scale and basepoint first so "
+                "points have real N/E coordinates.")
+            return
+        dlg = tk.Toplevel(self)
+        dlg.title("Setup advisor — station geometry")
+        dlg.transient(self.winfo_toplevel())
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+        row = ttk.Frame(frm)
+        row.pack(fill="x")
+        ttk.Label(row, text="Instrument at  N").pack(side="left")
+        cn = (sum(p[0] for p in design) / len(design)) if design else 0.0
+        ce = (sum(p[1] for p in design) / len(design)) if design else 0.0
+        n_var = tk.StringVar(value=f"{cn:.2f}")
+        e_var = tk.StringVar(value=f"{ce:.2f}")
+        ttk.Entry(row, textvariable=n_var, width=11).pack(side="left",
+                                                          padx=(2, 8))
+        ttk.Label(row, text="E").pack(side="left")
+        ttk.Entry(row, textvariable=e_var, width=11).pack(side="left",
+                                                          padx=2)
+        out = tk.Text(frm, height=18, width=74, wrap="word",
+                      state="disabled")
+        out.pack(fill="both", expand=True, pady=(8, 0))
+
+        def run():
+            try:
+                inst = (float(n_var.get()), float(e_var.get()))
+            except ValueError:
+                messagebox.showwarning("Setup advisor",
+                                       "Instrument N/E must be numbers.",
+                                       parent=dlg)
+                return
+            g = fieldpro.station_geometry(inst, controls, layout=design)
+            lines = [f"VERDICT: {g['verdict']}", ""]
+            lines += [f"• {n}" for n in g["notes"]]
+            if g["pairs"]:
+                lines.append("")
+                lines.append("Control pairs at the instrument:")
+                lines += [f"   {p['a']} – {p['b']}: {p['angle_deg']}°  "
+                          f"{'✓ good triangle' if p['ok'] else '✗'}"
+                          for p in g["pairs"]]
+            if g["controls"]:
+                lines.append("")
+                lines.append(f"Distances (farthest layout point "
+                             f"{g['longest_layout']}):")
+                lines += [f"   {c['name']}: {c['dist']}  "
+                          f"{'✓' if c['ok'] else '✗ closer than the work'}"
+                          for c in g["controls"]]
+            lines.append("")
+            lines.append("Backsight discipline:")
+            lines += [f"   • {r}" for r in g["reminders"]]
+            out.configure(state="normal")
+            out.delete("1.0", "end")
+            out.insert("1.0", "\n".join(lines))
+            out.configure(state="disabled")
+            self._advisor_last = g
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(8, 0))
+        ttk.Button(btns, text="Check geometry", style="Accent.TButton",
+                   command=run).pack(side="left")
+        ttk.Button(btns, text="Close",
+                   command=dlg.destroy).pack(side="right")
+        run()
+        self._advisor_dlg = dlg
 
     def set_scale(self, label, rpp, unit):
         if not self.job:
@@ -636,6 +826,7 @@ class FieldstitchTab(ttk.Frame):
                 "REJECTED": "✗"}
 
     def fill_table(self):
+        self._stage_refresh()
         self.ptree.delete(*self.ptree.get_children())
         if not self.job:
             return
@@ -705,7 +896,7 @@ class FieldstitchTab(ttk.Frame):
             self.redraw_points()
 
     # ------------------------------------------------------------ exports
-    def export_kit(self, kit):
+    def export_kit(self, kit, out_dir=None):
         if not self.job or not self.job.points:
             messagebox.showinfo("Fieldstitch", "Place some points first.")
             return
@@ -716,7 +907,9 @@ class FieldstitchTab(ttk.Frame):
                 "Fieldstitch", "Set the scale (and basepoint) first so the "
                                "points get real N/E coordinates.")
             return
-        out_dir = filedialog.askdirectory(title="Folder for the export kit")
+        if out_dir is None:
+            out_dir = filedialog.askdirectory(
+                title="Folder for the export kit")
         if not out_dir:
             return
         job = self.job

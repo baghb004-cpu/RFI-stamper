@@ -286,7 +286,9 @@ class MarkupTab(ttk.Frame):
 
     # ========================================================== document IO
     def open_pdf(self, path=None):
-        path = path or filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
+        from .tiein import initialdir
+        path = path or filedialog.askopenfilename(
+            filetypes=[("PDF", "*.pdf")], initialdir=initialdir("plans_dir"))
         if not path:
             return
         path = self._maybe_unlock(path)

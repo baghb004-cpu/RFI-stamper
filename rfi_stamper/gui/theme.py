@@ -177,6 +177,11 @@ class ThemeManager:
         s.configure("Tool.TButton", padding=(5, 2), font=(FAMILY, 9))
         s.configure("ToolOn.TButton", padding=(5, 2), font=(FAMILY, 9),
                     background=c["sel_bg"])
+        # field-tablet ergonomics: the staged-workflow tiles are BIG —
+        # gloved fingers and sunlight, not mouse pointers
+        s.configure("Stage.TButton", padding=(18, 10), font=(FAMILY, 11))
+        s.configure("StageOn.TButton", padding=(18, 10),
+                    font=(FAMILY, 11, "bold"), background=c["sel_bg"])
         s.configure("TEntry", fieldbackground=c["entry_bg"], foreground=c["fg"],
                     insertcolor=c["fg"], padding=3)
         s.configure("TCombobox", fieldbackground=c["entry_bg"], foreground=c["fg"],

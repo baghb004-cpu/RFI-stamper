@@ -54,6 +54,9 @@ WRITER_ORDER = {
     "gsi": ("e", "n", "z"),
     "sp": ("n", "e", "z"),
     "dxf": ("e", "n", "z"),
+    # the PNEZD-order spreadsheet the robotic-total-station office
+    # suites import directly (the grid-tablet XLSX stays E-first)
+    "xlsx_pnezd": ("n", "e", "z"),
 }
 
 

@@ -223,6 +223,10 @@ class App:
         from . import ropes
         ropes.TrainingCenter(self)
 
+    def open_tiein(self):
+        from .tiein import TieInDialog
+        TieInDialog(self.root, self.theme, self.status)
+
     # -------------------------------------------------------- celebration
     def celebrate_verified(self):
         """A rubber-stamp slam: 'VERIFIED' drops onto the screen at an angle,
@@ -487,6 +491,8 @@ class App:
         toolsm = tk.Menu(m, tearoff=0)
         toolsm.add_command(label="Command palette\tCtrl+K",
                            command=self.palette.open)
+        toolsm.add_command(label="The Tie-In — connect your stuff…",
+                           command=self.open_tiein)
         toolsm.add_command(label="Crewpass seat ledger…",
                            command=self.crewpass_dialog)
         toolsm.add_command(label="Holler — hands-free voice control…",
@@ -522,6 +528,8 @@ class App:
                    self.set_author)
         p.register("Toggle offline guard", "Preferences", self.toggle_guard)
         p.register("Crewpass seat ledger", "Tools", self.crewpass_dialog)
+        p.register("The Tie-In — connect your stuff", "Tools",
+                   self.open_tiein)
         p.register("Holler — hands-free voice control", "Tools",
                    self.open_holler)
         p.register_many(self.oldhand.commands())

@@ -169,15 +169,21 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/fieldstitch.py layout points: layers, numbering (spools +
                               tombstones), statuses, witness points, world
                               coords, PNEZD/PENZD CSV (+.tag.txt, frame hash) /
-                              XLSX (hand-rolled OOXML) / DXF R12 exporters,
-                              kits (bowline/clovehitch/fullspool/sheetbend/
-                              marlinspike), advisory import validators
+                              XLSX (hand-rolled OOXML; grid + pnezd dialects —
+                              the PNEZD spreadsheet rides the bowline kit) /
+                              DXF R12 exporters, kits (bowline/clovehitch/
+                              fullspool/sheetbend/marlinspike), advisory
+                              import validators
     rfi_stamper/fieldpro.py   layout QA: tolerance classes, Stitch Codes,
                               delta math, as-staked pairing/commit, check-shot
                               brackets, As-Staked Ledger PDF + _qa.csv,
                               walking-route sort; two-feet/CSF/Helmert-fit
                               coordinate math, error-budget preflight,
-                              station log, stake packages (day bundles)
+                              station log, stake packages (day bundles),
+                              station_geometry (setup advisor: 45-135°
+                              triangle rule, distance rule, backsight
+                              reminders — honest INSUFFICIENT under 2
+                              controls)
     rfi_stamper/selvage.py    the Selvage — the wire formats (the loom's
                               self-finished edge, where the weave meets the
                               field instruments): LandXML 1.2 CgPoints,
@@ -253,7 +259,13 @@ run; the `*_report.txt` must end in PASS).
                               dnd_win32 (ctypes OLE IDropTarget backend,
                               HAS_NATIVE honest off-Windows), widgets, palette,
                               overlay, viewer, prefs (~/.planloom), pano (offline 360° site-photo viewer), tab_fieldstitch
-                              (layout-points board), oldhand
+                              (layout-points board + the staged workflow
+                              bar: Job→Set Up→Points→Stake/QA→Export big
+                              tiles, stage light, setup-advisor dialog,
+                              Tie-In one-tap export), tiein (the Tie-In:
+                              connect-once dialog — folders + tablet kit
+                              in prefs; initialdir() feeds file dialogs),
+                              oldhand
                               (the Old Hand: global Heartwood Q&A drawer,
                               Ctrl+/ from any section), review_deck (the OCR
                               correction-review deck: mid-band + machine-

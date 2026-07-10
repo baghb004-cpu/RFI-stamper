@@ -1954,3 +1954,95 @@ def export_package(job: LayoutJob, qa: QAStore, out_dir: str, name: str,
     log(f"  stake package {name!r}: {len(pts)} point(s), "
         f"{len(files)} file(s) in {out_dir}")
     return {"files": files, "points": len(pts), "name": name}
+
+
+# --------------------------------------------------------------------------- #
+#  Station-setup geometry advisor (field-training rules, convention-only)     #
+# --------------------------------------------------------------------------- #
+
+#: The standing backsight reminders every field manual teaches — surfaced
+#: verbatim with each advisory so the discipline travels with the numbers.
+BACKSIGHT_REMINDERS = (
+    "Re-check the backsight at least every hour",
+    "Re-check anytime the instrument may have been disturbed",
+    "Re-check after significant temperature changes",
+    "Re-check the moment layout errors appear",
+    "A backsight that has moved beyond tolerance means a NEW setup, "
+    "not a nudge",
+)
+
+
+def station_geometry(instrument, controls, layout=(),
+                     min_angle: float = 45.0,
+                     max_angle: float = 135.0) -> dict:
+    """Check a station setup's geometry before the crew trusts it.
+
+    ``instrument``: (n, e).  ``controls``: [(name, n, e)].  ``layout``:
+    [(n, e)] (the points to be staked from this setup).  The rules of
+    thumb the trade trains on:
+
+    1. **The triangle rule** — the angle subtended at the instrument by
+       a control pair should sit between ``min_angle`` and ``max_angle``
+       (default 45°–135°): flatter or sharper makes a weak triangle and
+       an unstable resection.
+    2. **The distance rule** — the distance to each control should be at
+       least as far as the longest layout distance worked from this
+       setup; controls closer than the work extrapolates error outward.
+
+    Returns ``{"pairs": [{a, b, angle_deg, ok}], "controls": [{name,
+    dist, ok}], "longest_layout", "verdict", "notes", "reminders"}``.
+    Verdict: GOOD (a passing pair exists and every control passes
+    distance), WEAK (something fails — each failure named), or
+    INSUFFICIENT (fewer than two controls; never guessed around)."""
+    ni, ei = float(instrument[0]), float(instrument[1])
+    notes: list = []
+    out = {"pairs": [], "controls": [], "longest_layout": 0.0,
+           "verdict": "INSUFFICIENT", "notes": notes,
+           "reminders": list(BACKSIGHT_REMINDERS)}
+    longest = 0.0
+    for pn, pe in layout:
+        longest = max(longest, math.hypot(float(pn) - ni, float(pe) - ei))
+    out["longest_layout"] = round(longest, 3)
+    if len(controls) < 2:
+        notes.append(f"only {len(controls)} control point(s) visible — a "
+                     "resection needs two, a strong one three")
+        return out
+    dist_ok = True
+    for name, cn, ce in controls:
+        d = math.hypot(float(cn) - ni, float(ce) - ei)
+        ok = longest <= 0 or d + 1e-9 >= longest
+        if not ok:
+            dist_ok = False
+            notes.append(f"{name} is {d:.1f} from the instrument but the "
+                         f"farthest layout point is {longest:.1f} — error "
+                         "extrapolates beyond the control")
+        out["controls"].append({"name": str(name), "dist": round(d, 3),
+                                "ok": ok})
+    any_pair_ok = False
+    for i in range(len(controls)):
+        for j in range(i + 1, len(controls)):
+            an, a_n, a_e = controls[i]
+            bn, b_n, b_e = controls[j]
+            va = (float(a_n) - ni, float(a_e) - ei)
+            vb = (float(b_n) - ni, float(b_e) - ei)
+            la, lb = math.hypot(*va), math.hypot(*vb)
+            if la <= 0 or lb <= 0:
+                continue
+            cosang = max(-1.0, min(1.0, (va[0] * vb[0] + va[1] * vb[1])
+                                   / (la * lb)))
+            ang = math.degrees(math.acos(cosang))
+            ok = min_angle <= ang <= max_angle
+            any_pair_ok = any_pair_ok or ok
+            if not ok:
+                notes.append(f"{an}–{bn} subtends {ang:.0f}° at the "
+                             f"instrument ({'too flat' if ang > max_angle else 'too sharp'} — want "
+                             f"{min_angle:.0f}°–{max_angle:.0f}°)")
+            out["pairs"].append({"a": str(an), "b": str(bn),
+                                 "angle_deg": round(ang, 1), "ok": ok})
+    if any_pair_ok and dist_ok:
+        out["verdict"] = "GOOD"
+        notes.insert(0, "geometry checks pass — good triangle, controls "
+                        "beyond the work")
+    else:
+        out["verdict"] = "WEAK"
+    return out

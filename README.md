@@ -95,16 +95,25 @@ it. Motion is everywhere but honest about hardware:
 
 ## Fieldstitch — layout points for the field crew
 
-Draw it in the office, stake it in the field, **without CAD**. Open a plan
-PDF (or a blank grid), drop numbered layout points exactly where they belong
+Draw it in the office, stake it in the field, **without CAD** — organized
+the way a field-layout crew actually works, as five big touch-friendly
+stages across the top: **Job → Set Up → Points → Stake/QA → Export**, with
+the current stage lit and a one-line hint under the bar. Set Up includes a
+**station-setup advisor** that checks the geometry before you trust it:
+control pairs must make a good triangle at the instrument (45°–135°, too
+flat or too sharp called out by name), controls should sit at least as far
+as the work, and the backsight discipline reminders ride every report.
+Open a plan PDF (or a blank grid), drop numbered layout points exactly
+where they belong
 — prefix/suffix/auto-increment numbering, descriptions, categories, per-point
 elevations — organized in **Strata** layers (visibility, color override,
 lock, filter — conventions any CAD/BIM user already knows). Set a basepoint,
 rotation, and scale, and every point gets real-world N/E/Z coordinates. Then
 hand it to whichever tablet the crew carries:
 
-* **Bowline Kit** — PNEZD CSV + DXF, the import pair for
-  robotic-total-station field tablets
+* **Bowline Kit** — PNEZD CSV + a PNEZD-column XLSX + DXF: everything
+  the robotic-total-station field tablets and their office software
+  import, spreadsheet included
 * **Clovehitch Kit** — XLSX (X/Y/Z, point number, prefix/suffix,
   description, category, layer) + DXF, the import pair for grid-layout
   tablets
@@ -115,6 +124,12 @@ hand it to whichever tablet the crew carries:
   unit digits handled exactly; big state-plane coordinates auto-switch
   the whole file to the wide format)
 * **Full Spool** — everything at once, plus the re-loadable job JSON
+
+Set **the Tie-In** once (Tools → The Tie-In): your plans folder, your RFI
+drop folder, your export folder, your crew's tablet kit — and the Export
+stage becomes literally one tap: the right files, in your folder,
+date-stamped, no dialogs. Open dialogs across the app start in your
+folders too. All of it local; a "connection" is a folder on your disk.
 
 Every wire file is ASCII/CRLF/no-BOM with the frame hash embedded, every
 export declares *which foot* (international vs US survey — exact
@@ -384,7 +399,7 @@ Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (65 scripts)
+    python tests/run_all.py          # full test suite (66 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,

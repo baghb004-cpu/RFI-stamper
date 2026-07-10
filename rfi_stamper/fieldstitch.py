@@ -1217,23 +1217,39 @@ def _xlsx_cell(col: int, row: int, value, numeric: bool) -> str:
             f"{escape(str(value))}</t></is></c>")
 
 
-def export_xlsx(job: LayoutJob, out_path: str, points=None) -> int:
+def export_xlsx(job: LayoutJob, out_path: str, points=None,
+                dialect: str = "grid") -> int:
     """Minimal real XLSX workbook (one sheet, inline strings, numeric
-    coordinate cells).  Returns the data-row count."""
+    coordinate cells).  Returns the data-row count.
+
+    Dialects: ``grid`` (the grid-layout tablet columns, X=Easting first)
+    and ``pnezd`` (Point/Northing/Easting/Elevation/Description — the
+    column order robotic-total-station office suites import directly;
+    order pulled through selvage.WRITER_ORDER, never inlined)."""
+    from .selvage import ordered
     pts = _export_points(job, points)
+    header = (_XLSX_HEADER if dialect == "grid" else
+              ["Point", "Northing", "Easting", "Elevation", "Description",
+               "Layer"])
     rows_xml = ["<row r=\"1\">" + "".join(
-        _xlsx_cell(c, 1, h, False) for c, h in enumerate(_XLSX_HEADER))
+        _xlsx_cell(c, 1, h, False) for c, h in enumerate(header))
         + "</row>"]
     for i, p in enumerate(pts, start=2):
         n, e, z = job.to_world(p)
-        cells = [
-            (job.composed(p), False), (p.prefix, False), (p.num, True),
-            (p.suffix, False), (f"{e:.3f}", True), (f"{n:.3f}", True),
-            # None elevation -> empty text cell, never a fake 0
-            (f"{z:.3f}", True) if z is not None else ("", False),
-            (p.desc, False), (p.category, False),
-            (p.layer, False),
-        ]
+        zc = (f"{z:.3f}", True) if z is not None else ("", False)
+        if dialect == "grid":
+            cells = [
+                (job.composed(p), False), (p.prefix, False), (p.num, True),
+                (p.suffix, False), (f"{e:.3f}", True), (f"{n:.3f}", True),
+                # None elevation -> empty text cell, never a fake 0
+                zc, (p.desc, False), (p.category, False),
+                (p.layer, False),
+            ]
+        else:
+            c1, c2, _ = ordered("xlsx_pnezd", (f"{n:.3f}", True),
+                                (f"{e:.3f}", True), zc)
+            cells = [(job.composed(p), False), c1, c2, zc,
+                     (p.desc, False), (p.layer, False)]
         rows_xml.append("<row r=\"%d\">%s</row>" % (
             i, "".join(_xlsx_cell(c, i, v, num)
                        for c, (v, num) in enumerate(cells))))
@@ -1671,7 +1687,9 @@ def validate_import_csv(job: LayoutJob, path: str,
 #: and ``marlinspike`` (the rigger's fieldbook spike: GSI + SP-record
 #: fieldbook for the classic fixed-width/record collectors).
 KITS = {
-    "bowline": ("csv", "dxf"),
+    # PNEZD-order XLSX rides the robotic-total-station kit (owner ask:
+    # the RTS office software reads spreadsheets with coordinates too)
+    "bowline": ("csv", "xlsx_pnezd", "dxf"),
     "clovehitch": ("xlsx", "dxf"),
     "fullspool": ("csv", "xlsx", "dxf", "json"),
     "sheetbend": ("landxml", "csv"),
@@ -1679,7 +1697,7 @@ KITS = {
 }
 
 #: Kit format tag -> file extension where they differ.
-_KIT_EXT = {"landxml": "xml", "sp": "rw5"}
+_KIT_EXT = {"landxml": "xml", "sp": "rw5", "xlsx_pnezd": "xlsx"}
 
 
 def export_kit(job: LayoutJob, out_dir: str, kit: str,
@@ -1698,6 +1716,8 @@ def export_kit(job: LayoutJob, out_dir: str, kit: str,
             export_csv_pnezd(job, out, points=pts)
         elif fmt == "xlsx":
             export_xlsx(job, out, points=pts)
+        elif fmt == "xlsx_pnezd":
+            export_xlsx(job, out, points=pts, dialect="pnezd")
         elif fmt == "dxf":
             export_dxf(job, out, points=pts)
         elif fmt in ("landxml", "gsi", "sp"):

@@ -411,6 +411,70 @@ def main():
     exts = sorted(os.path.splitext(f)[1] for f in res["files"])
     assert exts == [".csv", ".dxf", ".json", ".xlsx"], exts
 
+    # ---- the staged workflow board: five big tiles, honest stage light
+    assert list(fst.stage_btns) == ["job", "setup", "points", "stake",
+                                    "export"], "stage tiles present"
+    fst._stage_refresh()
+    assert fst._stage_cur == "export", \
+        f"job+scale+points -> Export lights: {fst._stage_cur}"
+    assert "one tap" in fst.stage_hint.cget("text"), \
+        fst.stage_hint.cget("text")
+    # the setup advisor: control points + instrument -> geometry verdict
+    import tkinter as _tkfs
+    _cp1 = fst.job.add_point(1, p0.x + 100.0, p0.y, kind="CONTROL",
+                             num=901, elev=None)
+    _cp2 = fst.job.add_point(1, p0.x, p0.y - 100.0, kind="CONTROL",
+                             num=902, elev=None)
+    fst.setup_advisor()
+    root.update()
+    _adv = fst._advisor_dlg
+    assert _adv.winfo_exists(), "advisor dialog opened"
+    _atxt = [w for w in _adv.winfo_children()[0].winfo_children()
+             if isinstance(w, _tkfs.Text)][0].get("1.0", "end")
+    assert "VERDICT:" in _atxt and "Backsight discipline" in _atxt, _atxt
+    assert fst._advisor_last["verdict"] in ("GOOD", "WEAK")
+    assert any(abs(pr["angle_deg"] - 90.0) < 0.5
+               for pr in fst._advisor_last["pairs"]), \
+        fst._advisor_last["pairs"]
+    _adv.destroy()
+    root.update()
+    # the Tie-In one-tap export: kit + folder from prefs -> no dialogs
+    import time as _ttie
+    from rfi_stamper.gui import prefs as _pf, tiein as _ti
+    _tp0 = (_pf.PREFS_DIR, _pf.PREFS_PATH)
+    _pf.PREFS_DIR = os.path.join(tmp, "tieinprefs")
+    _pf.PREFS_PATH = os.path.join(_pf.PREFS_DIR, "prefs.json")
+    os.makedirs(_pf.PREFS_DIR, exist_ok=True)
+    try:
+        _exdir = os.path.join(tmp, "tie_exports")
+        os.makedirs(_exdir, exist_ok=True)
+        _tprefs = _pf.load()
+        _tprefs["tiein"] = {"kit": "bowline", "export_dir": _exdir,
+                            "plans_dir": tmp, "rfi_dir": tmp}
+        _pf.save(_tprefs)
+        assert _ti.initialdir("plans_dir") == tmp, "Tie-In dirs readable"
+        fst._stage_export()
+        for _ in range(200):
+            root.update()
+            _made = [d for d in os.listdir(_exdir)
+                     if d.startswith("layout_")]
+            if _made and sorted(os.listdir(
+                    os.path.join(_exdir, _made[0]))) == [
+                    "layout.csv", "layout.dxf", "layout.xlsx"]:
+                break
+            _ttie.sleep(0.05)
+        _made = [d for d in os.listdir(_exdir) if d.startswith("layout_")]
+        assert _made, "one-tap export wrote the dated kit folder"
+        assert sorted(os.listdir(os.path.join(_exdir, _made[0]))) == \
+            ["layout.csv", "layout.dxf", "layout.xlsx"], \
+            "the Bowline kit carries the RTS spreadsheet"
+    finally:
+        _pf.PREFS_DIR, _pf.PREFS_PATH = _tp0
+    # restore the single-point job the next blocks assert on
+    fst.job.remove(_cp1.id)
+    fst.job.remove(_cp2.id)
+    assert len(fst.job.points) == 1
+
     # ---- Fieldstitch Pro (A1): status glyphs, witness, walk order, QA loop
     import rfi_stamper.fieldpro as fp
     # a bad prefix must land in the status bar, never a traceback
