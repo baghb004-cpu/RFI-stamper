@@ -16,7 +16,12 @@ from .widgets import Tooltip, make_tree, open_path, run_bg, toast
 
 class ScheduleView(ttk.Frame):
     """Canvas Gantt: month grid, colored bars with % complete fill, today
-    line.  Bars sweep in with an eased animation on refresh."""
+    line.  Bars sweep in with an eased animation on refresh.  The
+    Tautline (rfi_stamper.cpm) runs ONCE per refresh — never per
+    animation frame (the zero-idle house rule) — and paints the critical
+    path in the theme error red with hollow total-float tails; a
+    dependency cycle or dirty data shows as one muted line, never a
+    modal."""
 
     ROW_H = 30
     LEFT_W = 190
@@ -33,8 +38,14 @@ class ScheduleView(ttk.Frame):
         theme.register(lambda c: self.refresh(animate=False))
         self.canvas.bind("<Configure>", lambda e: self.refresh(animate=False))
         self._anim_t = 1.0
+        self._cpm = None            # CpmResult, computed in refresh() only
 
     def refresh(self, animate=True):
+        from .. import cpm
+        proj = self.get_project()
+        items = [it for it in (proj.items("schedule") if proj else [])
+                 if it.start and it.end]
+        self._cpm = cpm.analyze(items) if items else None
         if animate and fx.quality() != "off":
             fx.animate(self.canvas, "gantt", 0.0, 1.0, 550,
                        self._draw_at, easing="ease_out_quad")
@@ -67,12 +78,23 @@ class ScheduleView(ttk.Frame):
                            text="A schedule item has a bad date "
                                 "(use YYYY-MM-DD).")
             return
+        res = self._cpm
+        if res is not None and res.project_finish is not None:
+            d1 = max(d1, res.project_finish)    # float tails need room
         d0 -= _dt.timedelta(days=2)
         d1 += _dt.timedelta(days=3)
         span = max((d1 - d0).days, 1)
         px_day = (w - self.LEFT_W - 16) / span
         top = 28
-        h = top + len(items) * self.ROW_H + 10
+        note = ""
+        if res is not None and res.cycle:
+            note = ("schedule logic loops: " + " → ".join(res.cycle)
+                    + " — floats not computed")
+        elif res is not None and res.warnings:
+            note = res.warnings[0] + (
+                f"  (+{len(res.warnings) - 1} more)"
+                if len(res.warnings) > 1 else "")
+        h = top + len(items) * self.ROW_H + 10 + (16 if note else 0)
         cv.configure(scrollregion=(0, 0, w, h))
 
         def x_of(date):
@@ -115,15 +137,26 @@ class ScheduleView(ttk.Frame):
             except ValueError:
                 continue
             x0, x1 = x_of(s), x_of(e + _dt.timedelta(days=1))
+            xe_full = x1                        # un-animated end
             x1 = x0 + (x1 - x0) * self._anim_t          # sweep-in
-            color = it.color or base
+            info = res.by_id.get(it.id) if res is not None else None
+            crit = bool(info and info["critical"])
+            color = c["err"] if crit else (it.color or base)
             cv.create_rectangle(x0, y + 6, x1, y + self.ROW_H - 6,
                                 fill=mix(color, c["panel"], 0.55),
-                                outline=color, width=1.2)
+                                outline=color, width=2.0 if crit else 1.2,
+                                tags=("critbar",) if crit else ())
             if it.pct:
                 cv.create_rectangle(
                     x0, y + 6, x0 + (x1 - x0) * min(it.pct, 100) / 100.0,
                     y + self.ROW_H - 6, fill=color, outline="")
+            if info and info["tf"] > 0:         # total float: hollow tail
+                fx1 = x_of(info["lf_date"] + _dt.timedelta(days=1))
+                if fx1 > xe_full + 1:
+                    cv.create_rectangle(xe_full, y + 10, fx1,
+                                        y + self.ROW_H - 10,
+                                        outline=c["muted"], fill="",
+                                        dash=(3, 2), tags="floatbar")
             if it.crew:
                 cv.create_text(min(x1 + 6, w - 8), y + self.ROW_H / 2,
                                anchor="w", fill=c["muted"],
@@ -135,6 +168,14 @@ class ScheduleView(ttk.Frame):
                            dash=(5, 3))
             cv.create_text(x + 4, top - 12, anchor="w", fill=c["accent"],
                            font=("Segoe UI", 8, "bold"), text="TODAY")
+        if res is not None and res.critical_ids and not res.cycle:
+            cv.create_text(w - 8, 12, anchor="e", fill=c["muted"],
+                           font=("Segoe UI", 8),
+                           text="critical path red · dashed tail = "
+                                "total float")
+        if note:
+            cv.create_text(8, h - 8, anchor="w", fill=c["muted"],
+                           font=("Segoe UI", 8), text=note, tags="cpmnote")
 
 
 class DaybookPanel(ttk.Frame):

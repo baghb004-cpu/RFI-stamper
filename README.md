@@ -31,7 +31,7 @@ the **resolution lifecycle**:
 | Section | What lives there |
 |---|---|
 | **⌂ Home** | Animated blueprint hero, project bar, section cards, recents, smart drop zone |
-| **⛑ Field Management** | Task management, scheduling (animated Gantt), punch list, inspections |
+| **⛑ Field Management** | Task management, scheduling (animated Gantt with **critical-path analysis** — real CPM: forward/backward pass, total & free float, the critical chain painted red with float tails, dependency loops named instead of hung), punch list, inspections |
 | **▤ Project Management** | RFIs (stamping), Resolution Board, submittals, change orders, budget, document management (register + combine + PDF tools), specifications (CSI-parsed spec book) |
 | **⬒ Plans & BIM** | Plan viewing & markup (measure, multiply, tool chest…), **The Loft** (draft a real plan from a blank sheet — walls, doors, fixtures, grids, dims), as-built drawings (auto-align compare + red-line flow + **the Slipsheet** — a vector revision diff that clusters what actually changed into numbered regions and writes a redline PDF: removed linework dashed red, added solid blue, changed text caught too), 3D BIM viewer with your 2D sheets placed at floor elevations — click a sheet in the model to open it |
 | **◫ Reporting** | Project snapshot, RFI log, pickup sheet, submittal log; printable field forms (daily report, safety inspection, QC punch walk, RFI follow-up) — blank or filled |

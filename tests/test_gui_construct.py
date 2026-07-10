@@ -181,6 +181,27 @@ def main():
     root.update()
     assert len(app.field.tasks.tree.get_children()) == 1
     assert len(app.field.punch.tree.get_children()) == 1
+
+    # the Tautline: CPM runs once per refresh and paints the critical
+    # chain red with hollow float tails on the Gantt
+    from rfi_stamper.project import ScheduleItem
+    app.project.add("schedule", ScheduleItem.new(
+        id="mob", title="mobilize", start="2026-01-05", end="2026-01-08"))
+    app.project.add("schedule", ScheduleItem.new(
+        id="ri", title="rough-in", start="2026-01-05", end="2026-01-09",
+        depends=["mob"]))
+    app.project.add("schedule", ScheduleItem.new(
+        id="pw", title="punch walk", start="2026-01-05", end="2026-01-06"))
+    app.field.gantt.refresh(animate=False)
+    root.update()
+    cpm_res = app.field.gantt._cpm
+    assert cpm_res is not None and not cpm_res.cycle
+    assert cpm_res.by_id["mob"]["critical"] and cpm_res.by_id["ri"]["critical"]
+    assert cpm_res.by_id["pw"]["tf"] > 0
+    gcv = app.field.gantt.canvas
+    assert gcv.find_withtag("critbar"), "critical bars missing"
+    assert gcv.find_withtag("floatbar"), "float tail missing"
+
     app.truth.refresh()
     root.update()
 

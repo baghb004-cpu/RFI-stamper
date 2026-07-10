@@ -162,6 +162,12 @@ run; the `*_report.txt` must end in PASS).
                               (findings -> cloud+callout annotations), Heartwood
                               lessons lane, honest SKIP list (GD&T/molding
                               need a solid part model; sleeve on PDF sources)
+    rfi_stamper/cpm.py        the Tautline: precedence-diagram CPM over
+                              project.ScheduleItem (workday math, FS + lag
+                              via "<id>+N" depends suffix, entered start =
+                              start-no-earlier-than, TF/FF, named cycle
+                              refusal) — read-only; drives the Gantt's
+                              critical-red bars + hollow float tails
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/squawk.py     Squawk Box speech engine: winmm capture, MFCC+DTW
                               speaker-trained recognizer (pure numpy, offline)

@@ -6,13 +6,13 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.14.0, offline construction workspace; Python package
+- Product: **Planloom** v4.15.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
   stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB,
-  3D raster, clash and vector-diff engines are all Planloom's own.
-- 55 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  3D raster, clash, vector-diff and CPM engines are all Planloom's own.
+- 56 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -54,6 +54,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Songbook / The Ticker** | Holler's command dictionary / live counter tape | the book of what it knows; the running tally |
 | **The Selvage** | the wire-format dialects module (LandXML / GSI / SP-record fieldbook / DXF attribute tier + the ONE coordinate-order writer table) | the loom's self-finished edge — the woven boundary where Planloom's weave meets the field instruments without fraying |
 | **The Slipsheet** | vector drawing-revision diff + redline PDF (drawdiff.py) | slip-sheeting two vellums on a light table — the reviewer's oldest compare |
+| **The Tautline** | CPM scheduler over the project store (cpm.py) | the taut-line hitch; the critical path is the one chain with no slack |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1022,6 +1023,55 @@ deterministic redline PDF.
   no hatch suppression — a re-hatched area IS a change, the pt-length
   totals let the reviewer recognize restyling).  55 suites green
   twice.  NEXT: Phase F — the CPM scheduler.
+
+## Round 30 (SHIPPED, v4.15.0): BUILDOUT Phase F — the Tautline (CPM)
+
+Textbook precedence-diagram critical-path scheduling over the EXISTING
+project store — zero schema migration.
+
+- **cpm.py (new, stdlib-only, read-only)**: `ScheduleItem.depends`
+  already carried prerequisite ids; an optional `+N`/`-N` suffix is an
+  FS lag in workdays (bare id = lag 0 — backward compatible).  Workday
+  calendar (weekend mask, holidays SKIPPED as per-project data entry):
+  `to_index` = workdays strictly before d from the anchor (works for a
+  weekend anchor), `from_index` its inverse; durations = inclusive
+  workday count of [start, end], clamped to 1 with a warning for
+  weekend-only rows.  THE convention, stated once: ES/EF are MORNING
+  indices — an activity occupies s..s+dur-1, EF = ES+dur, finish DATE =
+  from_index(EF-1) (the classic CPM off-by-one lives here).  Forward
+  pass takes max(pred EF+lag, entered-start-as-SNET, 0) — without the
+  SNET term the computed schedule contradicts the user's own bars;
+  backward pass, TF = LS-ES, FF = min(succ ES - lag) - EF.  Kahn topo
+  sort; a dependency CYCLE refuses the whole analysis and NAMES the
+  loop by title — never a hang, never silent link-dropping.  Dirty
+  data (hand-edited JSON): junk dates and dangling preds skip with
+  per-row warnings.  Deterministic: stored order breaks all ties.
+- **Gantt (gui/tab_field.ScheduleView)**: analyze() runs ONCE in
+  refresh(), stashed; `_draw_at` only reads it (the fx scheduler calls
+  _draw_at per animation frame — per-frame CPM would violate the
+  zero-idle rule).  Critical bars: theme error red, heavier outline
+  (sweep-in untouched).  Total float: hollow dashed tail from the bar
+  end to the late-finish date (omitted at TF 0); the chart window
+  extends to the computed project finish so tails never clip.  One
+  muted caption ("critical path red · dashed tail = total float") and
+  one muted note line for cycles/warnings — never a modal.  The
+  existing TODAY line stays the data-date line.
+- **Tests** (tests/test_cpm.py): the hand-computed textbook network —
+  A(3), B(4), C(2)<-A, D(5)<-A,B, E(4)<-C+1, F(3)<-D, G(2)<-E,F —
+  asserted CELL BY CELL (the C->E lag splits TF from FF: C has TF 2
+  FF 0, E has FF 2), critical path B-D-F-G, project finish across
+  weekends; calendar round-trips; 2- and 3-node cycles named; dirty
+  rows warned and skipped without sinking the rest; SNET recompute
+  (C moved to workday 5 goes critical); lag parsing (ids keep their
+  hyphens); negative-lag clamp; determinism.  Construct test: Gantt
+  with a real project draws critbar + floatbar items, no CPM call
+  from inside _draw_at.
+- SKIP list held (no SS/FF link types — FS is ~90% of construction
+  logic; no holiday calendars; no resource leveling; no write-back —
+  an explicit "reschedule" action is the only thing that should ever
+  write dates, and it does not exist yet; no logic-arrow overlay).
+  56 suites green twice.  NEXT: Phase G — the OCR correction-review
+  GUI.
 
 ## Roadmap (still open)
 
