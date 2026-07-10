@@ -1,0 +1,293 @@
+{
+  "project": "REFERENCE PROJECT (school; concession, restroom & shade structure)",
+  "plan_set": "Reference plumbing 50% CD set, fixture schedule sheet P0-1",
+  "packets": [
+    {
+      "filename": "01-WC-1.pdf",
+      "tag": "WC-1",
+      "prefix": 1,
+      "category": "Water closets",
+      "components": [
+        "as_3351",
+        "sloan_royal111",
+        "zurn_z1201-n_4",
+        "zurn_z1202-n4"
+      ],
+      "missing": [
+        "Olsonite 95SSCT seat - insert AFTER flush valve, BEFORE carriers"
+      ],
+      "flags": []
+    },
+    {
+      "filename": "01-WC-2.pdf",
+      "tag": "WC-2",
+      "prefix": 1,
+      "category": "Water closets",
+      "components": [
+        "as_3351",
+        "sloan_royal111",
+        "zurn_z1201-n_4",
+        "zurn_z1202-n4"
+      ],
+      "missing": [
+        "Olsonite 95SSCT seat - insert AFTER flush valve, BEFORE carriers"
+      ],
+      "flags": [
+        "Identical product to WC-1; ADA mounting height only"
+      ]
+    },
+    {
+      "filename": "02-UR-1.pdf",
+      "tag": "UR-1",
+      "prefix": 2,
+      "category": "Urinals",
+      "components": [
+        "as_6002_pintbrook",
+        "sloan_royal186",
+        "zurn_z1222"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "02-UR-2.pdf",
+      "tag": "UR-2",
+      "prefix": 2,
+      "category": "Urinals",
+      "components": [
+        "as_6002_pintbrook",
+        "sloan_royal186",
+        "zurn_z1222"
+      ],
+      "missing": [],
+      "flags": [
+        "Identical product to UR-1; ADA mounting height only"
+      ]
+    },
+    {
+      "filename": "03-L-1.pdf",
+      "tag": "L-1",
+      "prefix": 3,
+      "category": "Lavatories",
+      "components": [
+        "as_0355_lucerne",
+        "chicago_3400",
+        "mcguire_155a",
+        "chicago_1017",
+        "zurn_z1231-ezr"
+      ],
+      "missing": [
+        "McGuire PW8090NCO P-trap - insert AFTER 155A, BEFORE 1017-ABCP"
+      ],
+      "flags": []
+    },
+    {
+      "filename": "04-SS-1.pdf",
+      "tag": "SS-1",
+      "prefix": 4,
+      "category": "Sinks",
+      "components": [
+        "chicago_445"
+      ],
+      "missing": [
+        "CECO 871 corner service sink (FIRST in packet)",
+        "CECO B71-3 drain (after faucet)",
+        "CECO B-872 rim guard (last)"
+      ],
+      "flags": [
+        "CECO publishes no public spec PDFs - request from rep, then manual import"
+      ]
+    },
+    {
+      "filename": "06-TP-1.pdf",
+      "tag": "TP-1",
+      "prefix": 6,
+      "category": "Trap primers",
+      "components": [
+        "mifab_m500",
+        "mifab_midu"
+      ],
+      "missing": [],
+      "flags": [
+        "MIFAB folded MR-500 into M-500 series sheet; sheet covers MR-500-NPB"
+      ]
+    },
+    {
+      "filename": "07-WHA-1.pdf",
+      "tag": "WHA-1",
+      "prefix": 7,
+      "category": "Water hammer arrestor",
+      "components": [
+        "zurn_z1700"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "08-FD-1.pdf",
+      "tag": "FD-1",
+      "prefix": 8,
+      "category": "Floor drains",
+      "components": [
+        "zurn_z415b"
+      ],
+      "missing": [],
+      "flags": [
+        "Schedule reads ZN-415-BZ1-P; current Zurn sheet is Z415B, options checkable"
+      ]
+    },
+    {
+      "filename": "10-RD-1.pdf",
+      "tag": "RD-1",
+      "prefix": 10,
+      "category": "Roof overflow drains",
+      "components": [
+        "zurn_z100"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "10-OD-1.pdf",
+      "tag": "OD-1",
+      "prefix": 10,
+      "category": "Roof overflow drains",
+      "components": [
+        "zurn_z100"
+      ],
+      "missing": [],
+      "flags": [
+        "Same Z100 sheet as RD-1; built as separate tagged file per one-PDF-per-tag rule"
+      ]
+    },
+    {
+      "filename": "12-FS-1.pdf",
+      "tag": "FS-1",
+      "prefix": 12,
+      "category": "Floor sinks",
+      "components": [
+        "zurn_z1901"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "14-DF-1.pdf",
+      "tag": "DF-1",
+      "prefix": 14,
+      "category": "Drinking fountains",
+      "components": [
+        "haws_1119_14",
+        "haws_1920",
+        "haws_6800",
+        "haws_6700_4",
+        "haws_bp32",
+        "chicago_45lk",
+        "haws_6469"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "19-DN-1.pdf",
+      "tag": "DN-1",
+      "prefix": 19,
+      "category": "Downspout nozzle",
+      "components": [
+        "zurn_z199",
+        "zurn_z1040"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "20-ET-1.pdf",
+      "tag": "ET-1",
+      "prefix": 20,
+      "category": "Expansion tank",
+      "components": [
+        "wilkins_xt"
+      ],
+      "missing": [
+        "MAPA MXC-11 expansion tank cage"
+      ],
+      "flags": []
+    },
+    {
+      "filename": "21-HB-1.pdf",
+      "tag": "HB-1",
+      "prefix": 21,
+      "category": "Hose bibbs",
+      "components": [
+        "acorn_8120lf"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "22-RHB-1.pdf",
+      "tag": "RHB-1",
+      "prefix": 22,
+      "category": "Recessed hose bibbs",
+      "components": [
+        "acorn_8140"
+      ],
+      "missing": [],
+      "flags": [
+        "SUBSTITUTION: schedule calls Acorn 8104 (discontinued); 8140 matches description. Confirm with engineer before submitting."
+      ]
+    },
+    {
+      "filename": "34-MV-1.pdf",
+      "tag": "MV-1",
+      "prefix": 34,
+      "category": "Mixing valve",
+      "components": [
+        "bradley_s59_4200"
+      ],
+      "missing": [],
+      "flags": []
+    },
+    {
+      "filename": "38-WH-1.pdf",
+      "tag": "WH-1",
+      "prefix": 38,
+      "category": "Water heaters",
+      "components": [
+        "aosmith_dre"
+      ],
+      "missing": [],
+      "flags": []
+    }
+  ],
+  "not_built": [
+    {
+      "tag": "CP-1",
+      "prefix": 41,
+      "category": "Circ pump",
+      "reason": "Schedule says only Grundfos 'UP' series, no model suffix; Grundfos has no stable spec-sheet URL. Need exact model (e.g. UP15-42F) then pull from Grundfos Product Center or manual import.",
+      "update": "Library now carries grundfos_up_series (full 98pg data booklet). Confirm scheduled model, then build with a page-range selection."
+    }
+  ],
+  "gap_fillers": [
+    {
+      "packet": "01-WC-1.pdf",
+      "component": "olsonite_95ct_ssct",
+      "insert_after": "sloan_royal111",
+      "fills": "Olsonite 95SSCT seat"
+    },
+    {
+      "packet": "01-WC-2.pdf",
+      "component": "olsonite_95ct_ssct",
+      "insert_after": "sloan_royal111",
+      "fills": "Olsonite 95SSCT seat"
+    },
+    {
+      "packet": "03-L-1.pdf",
+      "component": "mcguire_pw8090",
+      "insert_after": "mcguire_155a",
+      "fills": "McGuire PW8090NCO P-trap"
+    }
+  ],
+  "note": "Baseline packets/page counts are FROZEN as the acceptance target (see golden/). Production builds apply gap_fillers on top; page counts will then exceed golden by the inserted sheets - expected."
+}

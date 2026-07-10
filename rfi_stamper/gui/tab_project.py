@@ -4,10 +4,11 @@ and Specifications."""
 from __future__ import annotations
 
 import os
+import re
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import resolution, submittal
+from .. import resolution, submittal, swatchbook
 from ..project import BudgetLine, ChangeOrder, DocEntry
 from . import dnd, fx
 from .crud import CrudPanel, Field
@@ -295,6 +296,312 @@ class SubmittalPanel(ttk.Frame):
         run_bg(self, work, done)
 
 
+class SwatchbookPanel(ttk.Frame):
+    """The Swatchbook: plumbing cut-sheet submittal packets — one stamped
+    PDF per fixture tag, components merged in spec-paragraph order, gaps
+    documented in the build log (a partial package must never look like a
+    full one).  Callouts resolve live against the offline component
+    library; unresolved rows are loud red GAPs, never silent skips."""
+
+    def __init__(self, parent, theme, status, root, library_root=None):
+        super().__init__(parent, padding=8)
+        self.theme = theme
+        self.status = status
+        self.root = root
+        self._lib_root = library_root
+        self._lib = None
+        self.fixtures: list = []        # recipe packet dicts, form-built
+        self._rows: list = []           # (callout, component_id | None)
+
+        bar = ttk.Frame(self)
+        bar.pack(fill="x")
+        ttk.Label(bar, text="▍The Swatchbook",
+                  font=("Segoe UI", 14, "bold"),
+                  foreground=section_color("project")).pack(side="left")
+        ttk.Label(bar, style="Muted.TLabel",
+                  text="  cut-sheet submittal packets — one stamped PDF "
+                       "per fixture tag").pack(side="left")
+        ttk.Button(bar, text="Build All…", style="Accent.TButton",
+                   command=self.build_all).pack(side="right", padx=2)
+        ttk.Button(bar, text="Load reference project",
+                   command=self.load_reference).pack(side="right", padx=2)
+        ttk.Button(bar, text="Import sheet…",
+                   command=self.import_sheet).pack(side="right", padx=2)
+
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, pady=(8, 0))
+        left, self.tree = make_tree(
+            body, theme,
+            [("file", "PACKET"), ("tag", "TAG"), ("cat", "CATEGORY"),
+             ("comps", "COMPONENTS"), ("gaps", "GAPS")],
+            (110, 70, 170, 90, 200), height=14)
+        left.pack(side="left", fill="both", expand=True)
+
+        form = ttk.Frame(body, padding=(10, 0, 0, 0))
+        form.pack(side="left", fill="y")
+        r1 = ttk.Frame(form)
+        r1.pack(fill="x")
+        ttk.Label(r1, text="Tag").pack(side="left")
+        self.tag_var = tk.StringVar()
+        ttk.Entry(r1, textvariable=self.tag_var, width=9).pack(
+            side="left", padx=(4, 10))
+        ttk.Label(r1, text="Category").pack(side="left")
+        self.cat_var = tk.StringVar()
+        cats = [f"{k:02d}  {v}" for k, v in sorted(
+            swatchbook.CATEGORIES.items())]
+        ttk.Combobox(r1, textvariable=self.cat_var, values=cats, width=26,
+                     state="readonly").pack(side="left", padx=4)
+        r2 = ttk.Frame(form)
+        r2.pack(fill="x", pady=(6, 0))
+        ttk.Label(r2, text="Component callout").pack(side="left")
+        self.callout_var = tk.StringVar()
+        ent = ttk.Entry(r2, textvariable=self.callout_var, width=24)
+        ent.pack(side="left", padx=4)
+        ent.bind("<KeyRelease>", lambda e: self._resolve_live())
+        ent.bind("<Return>", lambda e: self.add_row())
+        ttk.Button(r2, text="Add", command=self.add_row).pack(side="left")
+        ttk.Label(form, style="Muted.TLabel",
+                  text="append '@ 4-6' to a callout for a booklet page "
+                       "range").pack(fill="x")
+        self.match = ttk.Label(form, text="", style="Muted.TLabel")
+        self.match.pack(fill="x", pady=(2, 4))
+        self.rows_box = tk.Listbox(form, height=9, width=44,
+                                   activestyle="none",
+                                   highlightthickness=0, relief="flat",
+                                   exportselection=False)
+        self.rows_box.pack(fill="x")
+
+        def _restyle(_c=None):
+            c = self.theme.colors
+            self.rows_box.configure(
+                bg=c["panel"], fg=c["fg"], selectbackground=c["sel_bg"],
+                selectforeground=c["sel_fg"])
+        theme.register(_restyle)
+        _restyle()
+        rb = ttk.Frame(form)
+        rb.pack(fill="x", pady=(4, 8))
+        for txt, cmd in (("Remove", self.remove_row),
+                         ("Move up", lambda: self.move_row(-1)),
+                         ("Move down", lambda: self.move_row(1))):
+            ttk.Button(rb, text=txt, command=cmd).pack(side="left", padx=2)
+        ttk.Button(form, text="Add fixture  →", style="Accent.TButton",
+                   command=self.add_fixture_from_form).pack(fill="x")
+        self.health = ttk.Label(self, text="", style="Muted.TLabel")
+        self.health.pack(fill="x", pady=(6, 0))
+
+    # ------------------------------------------------------------- library
+    def library(self):
+        if self._lib is None:
+            root = self._lib_root or swatchbook.ensure_user_library()
+            self._lib = swatchbook.Library(root)
+            n_ok = sum(1 for c in self._lib.components
+                       if self._lib.usable(c))
+            note = (f"library: {n_ok}/{len(self._lib.components)} sheets "
+                    f"installed · {len(self._lib.wanted)} on the wanted "
+                    "list (request from rep / import manually)")
+            if len(self._lib.issues) and n_ok == 0:
+                note += " — seed kit not installed yet"
+            self.health.configure(text=note)
+        return self._lib
+
+    # ------------------------------------------------------------- form
+    @staticmethod
+    def _split_range(text: str):
+        """``'callout @ 4-6'`` -> ``('callout', (4, 6))``; no suffix -> None."""
+        m = re.match(r"(.*?)\s*@\s*(\d+)\s*-\s*(\d+)\s*$", text)
+        if m:
+            return m.group(1).strip(), (int(m.group(2)), int(m.group(3)))
+        return text, None
+
+    def _resolve_live(self):
+        callout, _rng = self._split_range(self.callout_var.get())
+        c, note = self.library().resolve_ex(callout)
+        if c is not None and note:
+            self.match.configure(text=f"⚠ {note}", foreground="#d99c20")
+        elif c is not None:
+            self.match.configure(
+                text=f"→ {c.manufacturer} {c.id} ({c.pages} pg)",
+                foreground=self.theme.colors.get("ok", "#2f9e62"))
+        elif callout.strip():
+            self.match.configure(text="GAP — no library match",
+                                 foreground="#d64545")
+        else:
+            self.match.configure(text="")
+
+    def add_row(self, callout: str | None = None):
+        text = (callout if callout is not None
+                else self.callout_var.get()).strip()
+        if not text:
+            return
+        base, _rng = self._split_range(text)
+        c, note = self.library().resolve_ex(base)
+        self._rows.append((text, c.id if c else None))
+        mark = "SUBSTITUTION " if (c and note) else ""
+        self.rows_box.insert(
+            "end", f"{text}   →  {mark}{c.id if c else 'GAP'}")
+        self.callout_var.set("")
+        self._resolve_live()
+
+    def remove_row(self):
+        sel = self.rows_box.curselection()
+        if sel:
+            self._rows.pop(sel[0])
+            self.rows_box.delete(sel[0])
+
+    def move_row(self, dy: int):
+        sel = self.rows_box.curselection()
+        if not sel:
+            return
+        i, j = sel[0], sel[0] + dy
+        if 0 <= j < len(self._rows):     # row order IS the merge order
+            self._rows[i], self._rows[j] = self._rows[j], self._rows[i]
+            txt = self.rows_box.get(i)
+            self.rows_box.delete(i)
+            self.rows_box.insert(j, txt)
+            self.rows_box.selection_set(j)
+
+    def add_fixture_from_form(self):
+        tag = self.tag_var.get()
+        if not tag.strip() or not self.cat_var.get():
+            messagebox.showinfo("Swatchbook",
+                                "Enter a tag and pick a category.")
+            return
+        if not self._rows:
+            messagebox.showinfo("Swatchbook", "Add at least one component.")
+            return
+        prefix = int(self.cat_var.get().split()[0])
+        self.add_fixture(tag, prefix,
+                         [c for c, _ in self._rows])
+        self._rows = []
+        self.rows_box.delete(0, "end")
+        self.tag_var.set("")
+
+    def add_fixture(self, tag: str, prefix: int, callouts: list):
+        """Form-independent entry (the construct test drives this).
+
+        The original callouts are KEPT on the packet — the build re-resolves
+        them against the live library, so a sheet imported after the fixture
+        was entered fills its gap on the next build with no re-typing."""
+        tag = swatchbook.canonical_tag(tag)      # WC1 -> WC-1, the standard
+        pk = {"filename": swatchbook.packet_filename(prefix, tag),
+              "tag": tag, "prefix": prefix,
+              "category": swatchbook.CATEGORIES.get(prefix, ""),
+              "callouts": list(callouts),
+              "components": [], "missing": [], "flags": []}
+        self._resolve_packet(pk)
+        self.fixtures = [p for p in self.fixtures if p["tag"] != tag] + [pk]
+        self._refresh_tree()
+
+    def _resolve_packet(self, pk: dict):
+        """(Re-)resolve a form packet's callouts against the live library."""
+        lib = self.library()
+        comps, gaps, flags = [], [], []
+        for i, text in enumerate(pk.get("callouts", [])):
+            base, rng = self._split_range(text)
+            c, note = lib.resolve_ex(base)
+            if c is None:
+                gaps.append(f"{text} - insert at position {i + 1}")
+                continue
+            comps.append({"id": c.id, "page_range": list(rng)} if rng
+                         else c.id)
+            if note:
+                flags.append(f"{note} ({text})")
+        pk["components"], pk["missing"], pk["flags"] = comps, gaps, flags
+
+    def _refresh_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        for p in sorted(self.fixtures,
+                        key=lambda p: (p["prefix"], p["tag"])):
+            self.tree.insert("", "end", values=(
+                p["filename"], p["tag"], p["category"],
+                len(p["components"]), "; ".join(p["missing"]) or "—"))
+
+    # ------------------------------------------------------------- actions
+    def load_reference(self):
+        recipes = swatchbook.load_recipes()
+        self.fixtures = list(recipes["packets"])
+        self._reference = recipes
+        self._refresh_tree()
+        self.status.set(f"{len(self.fixtures)} reference packet(s) loaded",
+                        "ok")
+
+    def import_sheet(self):
+        path = filedialog.askopenfilename(
+            title="Import a clean manufacturer sheet",
+            filetypes=[("PDF", "*.pdf"), ("All files", "*.*")])
+        if not path:
+            return
+        cid = os.path.splitext(os.path.basename(path))[0].lower()
+        cid = "".join(ch if ch.isalnum() else "_" for ch in cid)
+        try:
+            c = self.library().import_pdf(path, cid)
+        except (ValueError, OSError) as e:
+            messagebox.showerror("Import sheet", str(e))
+            return
+        self._lib = None                # reload + refresh the health line
+        self.library()
+        for pk in self.fixtures:        # gaps close in the tree right away;
+            if pk.get("callouts"):      # the next build picks them up too
+                self._resolve_packet(pk)
+        self._refresh_tree()
+        toast(self.root, self.theme,
+              f"{c.id} imported ({c.pages} pg) — packets with this gap "
+              "rebuild with it now")
+
+    def build_all(self):
+        if not self.fixtures:
+            messagebox.showinfo(
+                "Swatchbook", "Add fixtures (or load the reference "
+                "project) first.")
+            return
+        out = filedialog.askdirectory(title="Output folder for the packets")
+        if not out:
+            return
+        self.status.set("Building packets…")
+        # resolve the library (and any first-run kit copy + fixture
+        # re-resolution) HERE, on the tk thread — run_bg's work() must
+        # never touch tk, and library() updates the health label
+        recipes = self._recipes()
+        lib = self.library()
+
+        def work():
+            return swatchbook.build_all(recipes, lib, out,
+                                        gap_fillers=True,
+                                        log=lambda *a, **k: None)
+
+        def done(res, err):
+            if err:
+                self.status.set(f"Build failed: {err}", "err")
+                return
+            n = len(res["built"])
+            g = len(res["gapped"])
+            toast(self.root, self.theme,
+                  f"{n} packet(s) built" + (f", {g} with gaps" if g else ""))
+            self._refresh_tree()
+            open_path(res["log_path"])
+
+        run_bg(self, work, done)
+
+    def _recipes(self) -> dict:
+        """The recipe dict for a build: form fixtures re-resolved against
+        the LIVE library (an imported sheet fills its gap on rebuild)."""
+        for pk in self.fixtures:
+            if pk.get("callouts"):
+                self._resolve_packet(pk)
+        return {"project": "Cut sheet submittal",
+                "packets": self.fixtures,
+                "gap_fillers": getattr(self, "_reference",
+                                       {}).get("gap_fillers", []),
+                "not_built": getattr(self, "_reference",
+                                     {}).get("not_built", [])}
+
+    def build_to(self, out_dir: str) -> dict:
+        """Synchronous build (tk-thread callers and the construct test)."""
+        return swatchbook.build_all(self._recipes(), self.library(),
+                                    out_dir, gap_fillers=True,
+                                    log=lambda *a, **k: None)
+
+
 class SpecsPanel(ttk.Frame):
     def __init__(self, parent, theme, status, get_project, on_change):
         super().__init__(parent, padding=8)
@@ -577,6 +884,9 @@ class ProjectSection(ttk.Frame):
 
         self.submittals = SubmittalPanel(nb, theme, status, root)
         nb.add(self.submittals, text="  Submittals  ")
+
+        self.swatchbook = SwatchbookPanel(nb, theme, status, root)
+        nb.add(self.swatchbook, text="  Swatchbook  ")
 
         self.change_orders = CrudPanel(
             nb, theme, status, get_project, "change_orders", "Change Orders",

@@ -332,8 +332,12 @@ revision compare with FFT auto-align · calibrated measurements with per-sheet
 scale memory · auto-numbered punch dots · batch stamping · a submittal-log
 parser · **IFC import** (the Draw-In — walls, slabs and columns from an open
 building-model exchange file straight into the 3D viewer, with an honest
-coverage report of anything skipped) · a command palette (Ctrl+K) that
-searches every feature.
+coverage report of anything skipped) · **cut-sheet submittals** (the
+Swatchbook — one stamped, submittal-ready PDF per fixture tag from an
+offline manufacturer-sheet library: approved corner stamp on every page,
+0-49 submittal numbering, components merged in schedule order, and a build
+log that documents every gap and substitution instead of hiding them) · a
+command palette (Ctrl+K) that searches every feature.
 
 ## Install & run
 

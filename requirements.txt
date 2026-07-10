@@ -1,4 +1,7 @@
-pymupdf>=1.24
+# pymupdf pinned to the 1.28 line: the Swatchbook's approved stamp/merge
+# behavior (visual-rect handling of rotated manufacturer sheets) was
+# verified against an accepted reference package on 1.28.0.
+pymupdf>=1.28,<1.29
 numpy>=1.24
 # PDF *generation* (stamp overlays, plates, tables, forms, reports) is
 # Planloom's own built-in engine (minipdf): pure Python + stdlib, no

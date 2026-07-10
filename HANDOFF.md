@@ -6,15 +6,15 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v5.0.0, offline construction workspace; Python package
+- Product: **Planloom** v5.1.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: **pymupdf + numpy + stdlib**
   (pypdf retired at v5.0.0) — the OCR (Tracer, with a human review deck and
   a touching-glyph lattice), PDF writer AND reader/merger (minipdf + the
-  Shuttle), drag-drop, voice, KB, 3D raster, clash, vector-diff, CPM and
-  IFC-import engines are all Planloom's own.
-- 59 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  Shuttle), drag-drop, voice, KB, 3D raster, clash, vector-diff, CPM,
+  IFC-import and cut-sheet-submittal engines are all Planloom's own.
+- 60 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -59,6 +59,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Tautline** | CPM scheduler over the project store (cpm.py) | the taut-line hitch; the critical path is the one chain with no slack |
 | **The Draw-In** | IFC/STEP building-model import (ifclite.py) | drawing-in: threading prepared warp — someone else's work — into your own loom |
 | **The Shuttle** | from-scratch PDF reader/merger (minipdf parse/graph/pagemerge/io) | the loom piece that carries the thread back and forth — as this carries pages between documents |
+| **The Swatchbook** | plumbing cut-sheet submittal builder (swatchbook.py) | a tailor's swatchbook is the bound book of cloth samples handed over for approval — a submittal packet is exactly that: product samples bound for the architect's sign-off |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1307,6 +1308,89 @@ demoted to a dev-box parity oracle behind `PLOOM_PDF_IO=pypdf`).
   of plan pages; no linearization; no incremental/xref-stream writing;
   flat /Kids; PDF 2.0 beyond BOM handling refused.  59 suites green
   twice.  The feature campaign is complete — next work is owner-directed.
+
+## Round 35 (SHIPPED, v5.1.0): the Swatchbook — cut-sheet submittal builder
+
+Owner-supplied feature kit (SPEC + manifest + golden acceptance set +
+reference recipes): the plumbing cut-sheet submittal builder.  One stamped
+PDF per fixture tag — clean manufacturer sheets merged in spec-paragraph
+order, the tag stamped top-right on EVERY page, named per the office 0-49
+numbering standard, gaps documented in a build log.  The standards are an
+APPROVED deliverable format verified against an accepted reference
+package — never improvise on them.
+
+- **swatchbook.py**: the exact approved stamp (10 pt corner margins,
+  16 pt tall, `max(text_width+12, 40)` wide, 0.9 pt outline in
+  RGB(0.80, 0.05, 0.05), white fill — never solid red — Helvetica-Bold
+  10.5 centered; kin to but DISTINCT from the RFI note-box law);
+  `build_packet` re-renders each source page onto a fresh unrotated page
+  (`show_pdf_page` — rotated manufacturer sheets stamp in the VISUAL
+  top-right with zero rotation math; mixed page sizes preserved, never
+  normalized), then re-serializes through the Shuttle (drops the
+  renderer's /Producer + random /ID → metadata-clean deterministic
+  bytes); never-restamp guard (tag-shaped text in page 1's top-right
+  150×40 pt → refuse: double-stamping is a rejection); the manifest-
+  indexed `Library` (sha256 verified on load, mismatches refused loudly;
+  alias resolution case/punct-blind with unique-series-prefix tolerance —
+  ambiguity is a GAP, never a silent substitute); manual `import_pdf`
+  (the rep-request path, clean-check + manifest append); `build_all`
+  (gaps never block a packet, insertion positions recorded, engineer
+  flags carried, `00-BUILD-LOG.md` in the approved format, gap fillers
+  insert at their recorded positions); first-run kit copy into
+  ~/.planloom/cutsheet_library so imports can append.
+- **Deliberate scope decisions**: the spec's optional online fetch
+  module is NOT built as code — offline invariant #1 outranks a
+  default-off module; `source_url` fields stay as provenance DATA and
+  wanted products surface as "request from rep / import manually".
+  Reference-project identifying names were neutralized when staging the
+  kit (invariant #7); building-product manufacturer names live in DATA
+  files only (the feature's subject matter), never in code identifiers.
+  pymupdf pinned to the 1.28 line per the kit's verified behavior.
+- **Data staged**: `rfi_stamper/data/cutsheet_library/` (manifest with 43
+  components + 4 wanted, neutralized reference recipes: 19 packets, 3 gap
+  fillers) — bundled into both frozen exes via the .spec datas list;
+  `tests/golden_cutsheets/` (the 19 approved packets + frozen page counts
+  + neutralized build log).  The ~35 MB `seed_library/` of clean
+  manufacturer PDFs arrives as a separate kit zip → drop into
+  `rfi_stamper/data/cutsheet_library/seed_library/`; T1/T4/T7 light up
+  automatically (they currently SKIP with a note).
+- **GUI**: the Swatchbook panel in Project Management (beside
+  Submittals): fixture form (tag + 0-49 category + component callouts
+  with live library resolution, loud red GAP labels, reorder = merge
+  order), reference-project loader, clean-sheet-checked import, Build
+  All → packets + build log via run_bg.
+- **tests/test_swatchbook.py** (209 checks): T5 exact stamp geometry incl.
+  the tag TEXT color, T6 never-restamp (incl. a golden packet as input
+  AND a foreign media-coords stamp on a /Rotate page — text extraction
+  reports unrotated coordinates, so the guard checks the derotated visual
+  corner too), T2 every page of every golden packet, T3 visual top-right
+  on rotated pages (synthetic + golden), library
+  resolve/sha/import/install/sync, gap handling + log format + filler
+  positions + byte determinism + metadata-clean output; T1/T4/T7 run
+  against the real kit when the seed library is installed (the
+  reportlab-oracle gate pattern) and then also assert filler POSITION
+  (filled build == unfilled build with one page inserted at the recorded
+  index) and per-page stamps.  Construct test drives the panel end to
+  end on a synthetic library.
+- **Adversarially reviewed before shipping** (three-lens agent fan-out,
+  every finding refute-verified; 20 confirmed, all fixed): discontinued-
+  model callouts now resolve as LOUD substitutions (`resolve_ex` note →
+  amber form label + engineer flag; substitution aliases excluded from
+  prefix matching — never a silent substitute), `ensure_user_library`
+  SYNCS instead of first-run-only (the seed kit landing after a user dir
+  exists installs instead of being stranded; manual imports untouched),
+  gap fillers handle dict-shaped components and clear the gap note they
+  fill (announced as a flag; bad insert_after appends LOUDLY), one
+  booklet twice with two ranges keeps both (per-occurrence spans), the
+  fixture form keeps original callouts and re-resolves at build (an
+  imported sheet fills its gap with no re-typing) plus a "@ 4-6"
+  page-range syntax, `import_pdf` refuses over an unreadable manifest
+  (no clobber), JSON nulls in manifest entries can't poison resolution,
+  multi-brand manufacturer strings resolve per word, the build no longer
+  touches tk from the run_bg worker, the rows list is themed, and the
+  staged manifest dropped its dead fetch-module browser-UA keys.  Known
+  accepted cost: the first library touch lazily copies/hashes the kit on
+  the tk thread once (~0.2 s).
 
 ## Roadmap (still open)
 

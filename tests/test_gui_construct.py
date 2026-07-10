@@ -717,6 +717,50 @@ def main():
         return False
     assert _has_ifc_btn(bv), "Open IFC… button missing from the viewer bar"
 
+    # the Swatchbook: cut-sheet submittal packets from the project section.
+    # A synthetic library (real hashes) drives resolve -> gap -> build -> log
+    # without the shipped seed kit.
+    import json as _json
+
+    import rfi_stamper.swatchbook as _sb
+    swroot = os.path.join(tmp, "swlib")
+    os.makedirs(os.path.join(swroot, "seed_library"), exist_ok=True)
+    _swd = fitz.open()
+    _swd.new_page(width=612, height=792).insert_text((60, 90), "SW SHEET")
+    swpdf = os.path.join(swroot, "seed_library", "sw_alpha.pdf")
+    _swd.save(swpdf)
+    _swd.close()
+    with open(os.path.join(swroot, "manifest.json"), "w") as _fh:
+        _json.dump({"components": [{
+            "id": "sw_alpha", "manufacturer": "MakerX",
+            "aliases": ["SWX-1"], "file": "seed_library/sw_alpha.pdf",
+            "pages": 1, "sha256": _sb._sha256(swpdf), "source_url": "",
+            "fetched": "", "notes": "", "source": "seed"}]}, _fh)
+    swp = app.projsec.swatchbook
+    app.projsec.nb.select(swp)
+    root.update()
+    swp._lib_root = swroot
+    swp.callout_var.set("swx1")
+    swp._resolve_live()
+    assert "sw_alpha" in str(swp.match.cget("text")), "live resolve label"
+    swp.callout_var.set("nope-99")
+    swp._resolve_live()
+    assert "GAP" in str(swp.match.cget("text")), "gap shows loud"
+    swp.add_fixture("HB-1", 21, ["SWX-1", "ghost part"])
+    root.update()
+    assert len(swp.tree.get_children()) == 1, "fixture listed"
+    swout = os.path.join(tmp, "swout")
+    res = swp.build_to(swout)
+    assert dict(res["built"]) == {"21-HB-1.pdf": 1}, res["built"]
+    assert res["gapped"]["21-HB-1.pdf"], "gap recorded in the build"
+    assert os.path.exists(res["log_path"]), "00-BUILD-LOG.md written"
+    _chk = fitz.open(os.path.join(swout, "21-HB-1.pdf"))
+    assert "HB-1" in _chk[0].get_text(), "packet page stamped"
+    _chk.close()
+    swp.load_reference()
+    root.update()
+    assert len(swp.tree.get_children()) == 19, "reference project loads"
+
     # pano: alpha images and PDF "photos" load; unreadable files never
     # orphan a Toplevel; a 2:1 image opens as a live panorama
     from rfi_stamper.gui import pano

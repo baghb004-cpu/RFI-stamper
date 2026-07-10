@@ -1,0 +1,642 @@
+{
+  "generated": "2026-07-10",
+  "components": [
+    {
+      "id": "as_3351",
+      "manufacturer": "American Standard",
+      "aliases": [
+        "3351.101",
+        "3352.101",
+        "3353.101",
+        "3354.101",
+        "Afwall Millennium FloWise"
+      ],
+      "file": "seed_library/as_3351.pdf",
+      "pages": 2,
+      "sha256": "4222f0b20fd38d90b47819b0f49841a7cb906217e9de5859b6d48ec1fffbc21c",
+      "source_url": "https://lixil.cdn.celum.cloud/172371_as_us_bath_spec__3351__3353__3354%20(6965)_original.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "as_6002_pintbrook",
+      "manufacturer": "American Standard",
+      "aliases": [
+        "6002.001",
+        "Pintbrook Urinal"
+      ],
+      "file": "seed_library/as_6002_pintbrook.pdf",
+      "pages": 2,
+      "sha256": "382161e336911b9861624744a814f8188f8f18a40f68339e2084845bc01aea7a",
+      "source_url": "https://lixil.cdn.celum.cloud/136463_Pintbrook_SpecPage_6002001_00001_July2024_2_original.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "as_0355_lucerne",
+      "manufacturer": "American Standard",
+      "aliases": [
+        "0355.012",
+        "0356 series",
+        "Lucerne Wall-Hung Lavatory"
+      ],
+      "file": "seed_library/as_0355_lucerne.pdf",
+      "pages": 3,
+      "sha256": "a33e3a441ac18d68acc7c070f36a5b3178f42cab1592a4a2103deb2ed24e9ff4",
+      "source_url": "https://pdf.lowes.com/productdocuments/c355c8b7-5716-47ee-9050-662f8b651829/15343547.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "sloan_royal111",
+      "manufacturer": "Sloan",
+      "aliases": [
+        "Royal 111-1.28",
+        "111-1.28-CP"
+      ],
+      "file": "seed_library/sloan_royal111.pdf",
+      "pages": 3,
+      "sha256": "52b6261767ff2f995fd120eafedf443a10f54f423cdd9ef8d934d394209a69a0",
+      "source_url": "https://www.sloan.com/spec-sheet/3910168",
+      "fetched": "2026-07-10",
+      "notes": "sloan.com/spec-sheet/{code} returns PDF directly"
+    },
+    {
+      "id": "sloan_royal186",
+      "manufacturer": "Sloan",
+      "aliases": [
+        "Royal 186-0.125",
+        "186-0.125-CP"
+      ],
+      "file": "seed_library/sloan_royal186.pdf",
+      "pages": 3,
+      "sha256": "ce8f247e419c10367042dcbe4a7f9c9640c1ae049aa5fc890bf903923b320a8f",
+      "source_url": "https://www.sloan.com/spec-sheet/3912633",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1201-n_4",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z1201",
+        "Z1201-NL4",
+        "Z1201-NR4",
+        "EZCarry horizontal WC carrier"
+      ],
+      "file": "seed_library/zurn_z1201-n_4.pdf",
+      "pages": 1,
+      "sha256": "9036858e374ad8397eb5d0593921662c84d8bff0cd581c6be4fe728d835652c1",
+      "source_url": "https://files.zurn.com/spec-sheets/z1201-n_4.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1202-n4",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z1202",
+        "Z1202-N4",
+        "EZCarry vertical WC carrier"
+      ],
+      "file": "seed_library/zurn_z1202-n4.pdf",
+      "pages": 1,
+      "sha256": "6e2f4e13afdd606908b33fa1063b115bfce8cc8596e58cb500ea07424e5b8aed",
+      "source_url": "https://files.zurn.com/spec-sheets/z1202-n4.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1222",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z-1222",
+        "Z1222 urinal wall hanger"
+      ],
+      "file": "seed_library/zurn_z1222.pdf",
+      "pages": 1,
+      "sha256": "bfd8baeedb958ef144b949096b0856a46b8d225ec7117a1e4ec9fd80a7b9e36a",
+      "source_url": "https://files.zurn.com/spec-sheets/z1222.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1231-ezr",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z-1231-EZR-WL",
+        "Z1231 lavatory concealed arm carrier"
+      ],
+      "file": "seed_library/zurn_z1231-ezr.pdf",
+      "pages": 1,
+      "sha256": "c4ec934d055f28d94937c0753ebddafe824f3922b15caf8d95054397ddb82a9f",
+      "source_url": "https://files.zurn.com/spec-sheets/z1231-ezr.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z415b",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "ZN-415-BZ1-P",
+        "Z415B",
+        "ZN415B floor drain"
+      ],
+      "file": "seed_library/zurn_z415b.pdf",
+      "pages": 1,
+      "sha256": "75a160c2f8b5db63f4fcf42b1dfbfdf0bc25a246e9ba37765504a2710eb4d942",
+      "source_url": "https://files.zurn.com/spec-sheets/z415b.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Schedule callout ZN-415-BZ1-P maps to current Z415B sheet; ZN prefix + -P are checkable options"
+    },
+    {
+      "id": "zurn_z100",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "ZC100-DP-84",
+        "ZC100-DP-84-89",
+        "Z100 roof drain",
+        "Z100 overflow drain"
+      ],
+      "file": "seed_library/zurn_z100.pdf",
+      "pages": 1,
+      "sha256": "1446b46f650c73f9359025b0f55bfb69f9aa642c46a1021b36bc9c95e5827958",
+      "source_url": "https://files.zurn.com/spec-sheets/z100.pdf",
+      "fetched": "2026-07-10",
+      "notes": "One sheet covers both RD and OD; -89 water dam is a checkable option"
+    },
+    {
+      "id": "zurn_z1901",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "ZN1901-KC-P-2",
+        "Z1901 floor sink"
+      ],
+      "file": "seed_library/zurn_z1901.pdf",
+      "pages": 1,
+      "sha256": "6dc8552ca4bbb7fcd1b8fbc6878211e685c39186ecee0847dab2826088ba6cd4",
+      "source_url": "https://files.zurn.com/spec-sheets/z1901.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z199",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "ZANB199-SS",
+        "Z199 downspout nozzle"
+      ],
+      "file": "seed_library/zurn_z199.pdf",
+      "pages": 1,
+      "sha256": "c080f96e70711c63dc83eaf4a144eb6f9545a89ffbb8e0c5a2bbb6c66a4edf02",
+      "source_url": "https://files.zurn.com/spec-sheets/z199.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1040",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z-1040 no-hub adapter"
+      ],
+      "file": "seed_library/zurn_z1040.pdf",
+      "pages": 1,
+      "sha256": "c7bae34606570bce7f2ec490d09ad119e0ba294c651d4f2e081fcd3e761b1a26",
+      "source_url": "https://files.zurn.com/spec-sheets/z1040.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1700",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z-1700",
+        "Z1700 Shoktrol water hammer arrestor"
+      ],
+      "file": "seed_library/zurn_z1700.pdf",
+      "pages": 1,
+      "sha256": "62197bd8c1a9c93137fee334daaded97ceb334eee177c58483a3785f10e0341c",
+      "source_url": "https://files.zurn.com/spec-sheets/z1700.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "wilkins_xt",
+      "manufacturer": "Zurn Wilkins",
+      "aliases": [
+        "WXT-18",
+        "XT-8",
+        "XT-18",
+        "XT-35",
+        "Model XT thermal expansion tank"
+      ],
+      "file": "seed_library/wilkins_xt.pdf",
+      "pages": 2,
+      "sha256": "4c23513ebd715e5deb8c941ae5b1bd60487fad0ea11094258a70523ef35094d3",
+      "source_url": "https://files.zurn.com/spec-sheets/wxt-xt.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "chicago_3400",
+      "manufacturer": "Chicago Faucets",
+      "aliases": [
+        "3400-E39VPABCP metering faucet"
+      ],
+      "file": "seed_library/chicago_3400.pdf",
+      "pages": 2,
+      "sha256": "ca7afa12dd4dba10fa3d381dd64558fc26d27f38b023f82c9859a2b41fe560c4",
+      "source_url": "https://www.chicagofaucets.com/sites/default/files/spec-sheets/faucets/3400-E39VPABCP.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "chicago_1017",
+      "manufacturer": "Chicago Faucets",
+      "aliases": [
+        "1017-ABCP loose key angle stop"
+      ],
+      "file": "seed_library/chicago_1017.pdf",
+      "pages": 2,
+      "sha256": "d4865c070f365608b73e11f11982be9864d28cc131d77a4f50c47fe3a5752117",
+      "source_url": "https://www.chicagofaucets.com/sites/default/files/spec-sheets/faucets/1017-ABCP.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "chicago_45lk",
+      "manufacturer": "Chicago Faucets",
+      "aliases": [
+        "45-LKABCP",
+        "45LKABCP angle stop"
+      ],
+      "file": "seed_library/chicago_45lk.pdf",
+      "pages": 2,
+      "sha256": "d129149eaeefcbb304af4adf5304f6c883696b08976bc46efd28b6b9055fc69c",
+      "source_url": "https://www.chicagofaucets.com/sites/default/files/spec-sheets/faucets/45-LKABCP.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "chicago_445",
+      "manufacturer": "Chicago Faucets",
+      "aliases": [
+        "445-PVB-CP",
+        "445-PVBCP service sink faucet"
+      ],
+      "file": "seed_library/chicago_445.pdf",
+      "pages": 2,
+      "sha256": "e793e2d1cd6291bcb9b6cc2e3cba736515097d193c9333b2aff4602bb4a5c6d7",
+      "source_url": "https://www.chicagofaucets.com/sites/default/files/spec-sheets/faucets/445-PVBCP.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "mcguire_155a",
+      "manufacturer": "McGuire",
+      "aliases": [
+        "155A open grid P.O. plug"
+      ],
+      "file": "seed_library/mcguire_155a.pdf",
+      "pages": 1,
+      "sha256": "ebfcd9aa13aba841cbb1e8eb8add08edcd3c8b81143e3306eca5aedee72ee47a",
+      "source_url": "https://assets.unilogcorp.com/267/ITEM/DOC/McGUIRE_155A_Specification_Sheet.pdf",
+      "fetched": "2026-07-10",
+      "notes": "unilog path is CASE SENSITIVE: McGUIRE_155A"
+    },
+    {
+      "id": "mifab_m500",
+      "manufacturer": "MIFAB",
+      "aliases": [
+        "MR-500",
+        "MR-500-NPB",
+        "M-500 series trap seal primer"
+      ],
+      "file": "seed_library/mifab_m500.pdf",
+      "pages": 2,
+      "sha256": "51e792d7ab7f79774af2690621b1e3fa02163c7a4ce8fbe4fce09eab25fb4721",
+      "source_url": "https://mifab.com/Catalog/Library/M-500_Specification-Sheet.pdf",
+      "fetched": "2026-07-10",
+      "notes": "MR-500 folded into M-500 series sheet; covers MR-500-NPB"
+    },
+    {
+      "id": "mifab_midu",
+      "manufacturer": "MIFAB",
+      "aliases": [
+        "MI-DU distribution unit"
+      ],
+      "file": "seed_library/mifab_midu.pdf",
+      "pages": 1,
+      "sha256": "8d33ca2fbd62575b87b38ae1ddcb15ed65ad29083b8611583451c8702c6687b7",
+      "source_url": "https://mifab.com/Catalog/Library/MI-DU_Specification-Sheet.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "haws_1119_14",
+      "manufacturer": "Haws",
+      "aliases": [
+        "1119.14",
+        "1119.14B fountain"
+      ],
+      "file": "seed_library/haws_1119_14.pdf",
+      "pages": 3,
+      "sha256": "4d4d28c40c2fab9f59c8259b81b1cc91669930df7216de13e6d803e0c9ffbbf6",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2025/05/1119.14B_specsheet.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "haws_1920",
+      "manufacturer": "Haws",
+      "aliases": [
+        "1920 bottle filler"
+      ],
+      "file": "seed_library/haws_1920.pdf",
+      "pages": 10,
+      "sha256": "4b0131f677bdab9163ecfdfc4223b0bbf65a2505fde0ef7ae0100529622fcd68",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2022/05/1920_specsheet.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "haws_6800",
+      "manufacturer": "Haws",
+      "aliases": [
+        "6800 support carrier"
+      ],
+      "file": "seed_library/haws_6800.pdf",
+      "pages": 4,
+      "sha256": "3c85b379d8d17f8641ba8ff7d4eb27c7782574b17fd1bef1bca4d0420d034c22",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2020/07/haws_model_6800_specsheet_pdf.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "haws_6700_4",
+      "manufacturer": "Haws",
+      "aliases": [
+        "6700.4 mounting plate"
+      ],
+      "file": "seed_library/haws_6700_4.pdf",
+      "pages": 2,
+      "sha256": "f9b0a577b28720b44e799c115c5e64525c6f59c289758abc25df24bf1e8a0b74",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2020/07/haws_model_6700_4_specsheet_pdf.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "haws_bp32",
+      "manufacturer": "Haws",
+      "aliases": [
+        "B32",
+        "BP32 back panel"
+      ],
+      "file": "seed_library/haws_bp32.pdf",
+      "pages": 4,
+      "sha256": "0a13c7ccc4fc4a91aea2c8a66a5305989eb56733bc4c63344848eb49c1b7e995",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2020/07/haws_model_bp32_specsheet_pdf.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Schedule 'B32 back panel' = Haws BP32"
+    },
+    {
+      "id": "haws_6469",
+      "manufacturer": "Haws",
+      "aliases": [
+        "6469 drip tray"
+      ],
+      "file": "seed_library/haws_6469.pdf",
+      "pages": 2,
+      "sha256": "8e0b743c9f040a0d812b1626bd0ecb709f8c06565b4c8a4ad8dbb11b6ffed5d1",
+      "source_url": "https://www.hawsco.com/wp-content/uploads/2020/07/haws_model_6469_specsheet_pdf.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "acorn_8120lf",
+      "manufacturer": "Acorn",
+      "aliases": [
+        "8121-CP",
+        "8121CP-LF",
+        "8120-LF series hose valves"
+      ],
+      "file": "seed_library/acorn_8120lf.pdf",
+      "pages": 2,
+      "sha256": "aa2b61fb53cbf35cd152d9413f5f361b99c8a717cfe14333f68999725190b49b",
+      "source_url": "https://www.acorneng.com/uploads/fileLibrary/8120-LF.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Series sheet; 8121CP-LF is a checkable base model"
+    },
+    {
+      "id": "acorn_8140",
+      "manufacturer": "Acorn",
+      "aliases": [
+        "8104 (DISCONTINUED - substitution)",
+        "8140 SS recessed hose box"
+      ],
+      "file": "seed_library/acorn_8140.pdf",
+      "pages": 2,
+      "sha256": "38c85dea16ba1b27abcd2329c16cca2dd5aed886738ed49a0510041f77b1344a",
+      "source_url": "https://www.acorneng.com/uploads/fileLibrary/8140.pdf",
+      "fetched": "2026-07-10",
+      "notes": "SUBSTITUTION: schedule calls 8104 which Acorn no longer lists; 8140 matches description. Engineer must confirm."
+    },
+    {
+      "id": "bradley_s59_4200",
+      "manufacturer": "Bradley",
+      "aliases": [
+        "S59-4200T3-P-TS-RS",
+        "S59-4200 Series Navigator TMV"
+      ],
+      "file": "seed_library/bradley_s59_4200.pdf",
+      "pages": 2,
+      "sha256": "23b3ce3690ee942cb6ce14c46e2ddf9957287a486e549a9d17c336519d83cc79",
+      "source_url": "https://media.bradleycorp.com/view/31922/Bradley_TMV_PointOfUse_S59-4200_Series.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "aosmith_dre",
+      "manufacturer": "A.O. Smith",
+      "aliases": [
+        "DRE-120",
+        "DRE-52",
+        "DRE-80",
+        "Gold Series DRE"
+      ],
+      "file": "seed_library/aosmith_dre.pdf",
+      "pages": 4,
+      "sha256": "a401dee61bdfd02422bc45655cf20461e1935c7d9875e33c660f656873c5da65",
+      "source_url": "https://assets.hotwater.com/damroot/Original/10001/AOSCE15300.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Doc AOSCE15300"
+    },
+    {
+      "id": "olsonite_95ct_ssct",
+      "manufacturer": "Bemis / Olsonite",
+      "aliases": [
+        "95SSCT",
+        "95CT",
+        "Olsonite 95 seat"
+      ],
+      "file": "seed_library/olsonite_95ct_ssct.pdf",
+      "pages": 1,
+      "sha256": "c5a1dc61516a9ccbb3004c84cc51e0bc18bf7fcc992c9090b46e22c8fdea7997",
+      "source_url": "https://www.toiletseats.com/assets/0B7012434_95CT_SSCT-Olsonite-Spec.pdf",
+      "fetched": "2026-07-10",
+      "notes": "FILLS the WC seat gap; covers 95CT and 95SSCT self-sustaining check hinge"
+    },
+    {
+      "id": "mcguire_pw8090",
+      "manufacturer": "McGuire",
+      "aliases": [
+        "PW8090NCO",
+        "PW8089NCO",
+        "PW8090 ProWrap P-trap kit"
+      ],
+      "file": "seed_library/mcguire_pw8090.pdf",
+      "pages": 1,
+      "sha256": "d34f6eeab8a9a2e46293624a63f0f566d9614dc0634b4214340ccb35457616a8",
+      "source_url": "https://www.mcguiremfg.com/assets/site/docs/PROWRAP-2019-WEB.pdf",
+      "fetched": "2026-07-10",
+      "notes": "FILLS the L-1 P-trap gap; page extracted from manufacturer ProWrap binder (p14)"
+    },
+    {
+      "id": "elkay_lzstl8wssk",
+      "manufacturer": "Elkay",
+      "aliases": [
+        "LZSTL8WSSK",
+        "EZH2O bi-level bottle filling station"
+      ],
+      "file": "seed_library/elkay_lzstl8wssk.pdf",
+      "pages": 4,
+      "sha256": "cf42043a04977b523f559a6c8d3fcd41a3e6ef91ff27b29d5066c0c5496e26a6",
+      "source_url": "https://www.elkayfiles.com/spec-sheets/lzstl8wssk_spec.pdf",
+      "fetched": "2026-07-10",
+      "notes": "elkayfiles.com/spec-sheets/{model}_spec.pdf pattern"
+    },
+    {
+      "id": "elkay_eluhad211555",
+      "manufacturer": "Elkay",
+      "aliases": [
+        "ELUHAD211555",
+        "Lustertone undermount ADA sink"
+      ],
+      "file": "seed_library/elkay_eluhad211555.pdf",
+      "pages": 2,
+      "sha256": "c8f94416660211f41bbefff2033f4705a713ee3c9cbdb9c6f55e009457feb3d8",
+      "source_url": "https://www.elkayfiles.com/spec-sheets/eluhad211555_spec.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "chicago_350",
+      "manufacturer": "Chicago Faucets",
+      "aliases": [
+        "350-E35VP317XKABCP student sink faucet"
+      ],
+      "file": "seed_library/chicago_350.pdf",
+      "pages": 2,
+      "sha256": "38e7ff115a628a1afe195e1dbc662c1b907b0d2f005a4740545b4a64d06e6e5b",
+      "source_url": "https://www.chicagofaucets.com/sites/default/files/spec-sheets/faucets/350-E35VP317XKABCP.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z125",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z125-DP-E-90",
+        "Z125 lateral roof drain"
+      ],
+      "file": "seed_library/zurn_z125.pdf",
+      "pages": 1,
+      "sha256": "0e49d709b5f8892566e0b58174812a2fe4df850261b8373adac0db0ed5652570",
+      "source_url": "https://files.zurn.com/spec-sheets/z125.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "zurn_z1300",
+      "manufacturer": "Zurn",
+      "aliases": [
+        "Z1300 recessed box hydrant/hose bibb"
+      ],
+      "file": "seed_library/zurn_z1300.pdf",
+      "pages": 1,
+      "sha256": "043626ab5aa224f3236fb02016f87af046c243b27b8b77559f042b240b0a3ae3",
+      "source_url": "https://files.zurn.com/spec-sheets/z1300.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Alternate RHB basis of design"
+    },
+    {
+      "id": "bradley_s59_4000",
+      "manufacturer": "Bradley",
+      "aliases": [
+        "S59-4000",
+        "S59-4000A",
+        "S59-4000BY Navigator TMV"
+      ],
+      "file": "seed_library/bradley_s59_4000.pdf",
+      "pages": 2,
+      "sha256": "ed9f4e5b90ee784d34a71958c880a73cff7b9cad609a1604a7d363e1ce36ec0a",
+      "source_url": "https://media.bradleycorp.com/view/10045/S59-4000.pdf",
+      "fetched": "2026-07-10",
+      "notes": ""
+    },
+    {
+      "id": "aosmith_den",
+      "manufacturer": "A.O. Smith",
+      "aliases": [
+        "DEN-40",
+        "DEN-30 thru DEN-120",
+        "DEL series",
+        "Dura-Power"
+      ],
+      "file": "seed_library/aosmith_den.pdf",
+      "pages": 4,
+      "sha256": "33262987a5fa15bd347eacd27b4b7bbd48ee4a0950d449d3f4dde3cd458e1eac",
+      "source_url": "https://assets.hotwater.com/damroot/Original/10001/AOSCE15400.pdf",
+      "fetched": "2026-07-10",
+      "notes": "Doc AOSCE15400 covers DEN + DEL light-duty commercial electric"
+    },
+    {
+      "id": "grundfos_up_series",
+      "manufacturer": "Grundfos",
+      "aliases": [
+        "UP series",
+        "UPS series",
+        "UP15-42F",
+        "circulator pumps"
+      ],
+      "file": "seed_library/grundfos_up_series.pdf",
+      "pages": 98,
+      "sha256": "f10ae1190da5fbf686b0f7bd8b994aa7491b5212fdf6b1b35bcf6d0f21bf0c57",
+      "source_url": "https://api.grundfos.com/literature/Grundfosliterature-5235400.pdf",
+      "fetched": "2026-07-10",
+      "notes": "FULL 98-page data booklet; use page-range selection at build time for the scheduled model"
+    }
+  ],
+  "wanted": [
+    {
+      "product": "Guy Gray (IPS Corp) white powder-coated ice maker outlet box w/ qtr-turn hammer arrester valve (MIB-HAAB series, codes 88531+)",
+      "category_prefix": 40,
+      "retry_url": "https://ipsplumbingproducts.com/wp-content/uploads/ (site bot-shielded at fetch time; retry or rep request)"
+    },
+    {
+      "product": "CECO 871 corner service sink, B71-3 drain, B-872 rim guard",
+      "category_prefix": 4,
+      "note": "No public PDFs - rep request, then manual import"
+    },
+    {
+      "product": "MAPA MXC-11 expansion tank cage",
+      "category_prefix": 20,
+      "note": "No public PDF found - rep request"
+    },
+    {
+      "product": "Zurn Wilkins BFP (975XL2) / PRV (NR3XL, 500XL)",
+      "category_prefix": 30,
+      "note": "files.zurn.com slug differs from drainage products; discover via zurn.com product-page scrape"
+    }
+  ]
+}

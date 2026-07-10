@@ -8,10 +8,14 @@
 # no retraining (and no external engine) in the frozen build; the Heartwood
 # trade-thesaurus seed likewise (loaded __file__-relative — without it the
 # frozen exe would silently ship an EMPTY thesaurus and meaning search
-# degrades with no error).
+# degrades with no error).  The Swatchbook's cut-sheet library kit
+# (manifest + reference recipes + seed sheets, all __file__-relative) rides
+# the same way — without it the frozen exe would open with an empty
+# component library and every callout would read as a GAP.
 _tracer_model = [
     ("rfi_stamper/tracer/model.npz", "rfi_stamper/tracer"),
     ("rfi_stamper/heartwood/thesaurus_seed.json", "rfi_stamper/heartwood"),
+    ("rfi_stamper/data/cutsheet_library", "rfi_stamper/data/cutsheet_library"),
 ]
 
 # Drag-and-drop is Planloom's own ctypes OLE backend (gui/dnd_win32.py) and PDF

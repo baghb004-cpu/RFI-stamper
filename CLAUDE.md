@@ -100,6 +100,13 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/transmittal.py  RFI-log / generic table PDF (minipdf flow engine)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile
     rfi_stamper/submittal.py  submittal-register parser + log PDF
+    rfi_stamper/swatchbook.py the Swatchbook: plumbing cut-sheet submittal
+                              builder — offline manufacturer-sheet library
+                              (manifest + sha256 + alias resolution), one
+                              stamped PDF per fixture tag (approved stamp,
+                              0-49 numbering, spec-paragraph merge order),
+                              gap-honest 00-BUILD-LOG.md; kit data in
+                              rfi_stamper/data/cutsheet_library/
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
                               header suffix, Designer Pickup Sheet PDF
     rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
@@ -443,6 +450,19 @@ were proven on real export files. GUI constructs under xvfb.
   held equal to the historical reportlab metrics to ~1e-13 by
   `tests/test_minipdf.py`'s oracle-parity test (kerning OFF). Changing width
   tables re-clips every header and moves every box — don't.
+- The Swatchbook's stamp is its own APPROVED submittal standard —
+  RGB(0.80,0.05,0.05), white fill, Helvetica-Bold 10.5, exact rect math —
+  deliberately close kin to but DISTINCT from the RFI note-box law
+  (invariant #2 governs note boxes; deviating from either gets the
+  deliverable rejected).  Rotated manufacturer sheets are re-rendered via
+  `show_pdf_page` onto fresh unrotated pages so the stamp lands in the
+  VISUAL top-right with zero rotation math — never stamp in-place on a
+  /Rotate page.  The renderer's save stamps a /Producer and a RANDOM /ID:
+  every packet re-serializes through the Shuttle for metadata-clean
+  deterministic bytes.  Double-stamping is a submittal rejection — the
+  never-restamp guard refuses any component carrying tag-shaped text in
+  page 1's top-right corner region; and a gap is NEVER silently
+  substituted (ambiguous alias resolution returns None on purpose).
 - Drag-drop (gui/dnd.py) routes by REGISTRY + GEOMETRY, not widget stacking:
   the smallest viewable registered widget containing the drop point wins, the
   toplevel's own registration is the overlay's window-level enter/leave hook +
