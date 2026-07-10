@@ -38,7 +38,8 @@ class AsBuiltPanel(ttk.Frame):
 
 
 class PlansSection(ttk.Frame):
-    def __init__(self, parent, theme, status, root, author=""):
+    def __init__(self, parent, theme, status, root, author="",
+                 get_project=None):
         super().__init__(parent)
         col = section_color("plans")
         self.header = fx.GradientHeader(
@@ -57,7 +58,8 @@ class PlansSection(ttk.Frame):
 
         self.loft = LoftTab(nb, theme, status, root,
                             on_bim=self._loft_to_3d,
-                            get_fieldstitch=lambda: self.fieldstitch)
+                            get_fieldstitch=lambda: self.fieldstitch,
+                            get_project=get_project)
         self.loft.on_backcheck = self._loft_backcheck
         nb.add(self.loft, text="  The Loft  ")
 

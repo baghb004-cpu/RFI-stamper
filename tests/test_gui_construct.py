@@ -761,6 +761,45 @@ def main():
     root.update()
     assert len(swp.tree.get_children()) == 19, "reference project loads"
 
+    # the Cut Ticket: tag a fixture in the Loft -> save -> the pull list
+    # lands in the project store -> the Swatchbook auto-feeds it as a
+    # proposal -> nothing builds without the explicit action
+    loft = app.plans.loft
+    loft._select_tool("fixture")
+    loft._set_stencil("hb")
+    root.update()
+    assert "ftag" in loft._opt_vars, "fixture tool grew the Tag entry"
+    loft._opt_vars["ftag"].set("hb9")
+    loft._click_fixture(20.0, 10.0, None)
+    root.update()
+    fent = next(e for e in loft.model.ents
+                if e.kind == "fixture" and e.props.get("tag") == "hb9")
+    loft.path = os.path.join(tmp, "ct.loft.json")
+    loft.save()
+    root.update()
+    pull = {it.tag: it for it in app.project.pull_list}
+    assert "HB-9" in pull and pull["HB-9"].count == 1, \
+        f"save synced the Cut Ticket: {sorted(pull)}"
+    assert pull["HB-9"].prefix == 21, "hb stencil guessed prefix 21"
+    app.projsec.nb.select(app.projsec.stamp)   # leave, then re-enter: the
+    root.update()                              # tab-change event auto-feeds
+    app.projsec.nb.select(swp)
+    root.update()
+    rows = [swp.tree.item(i)["values"] for i in swp.tree.get_children()]
+    assert any(r[0] == "21-HB-9.pdf" for r in rows), \
+        f"model-sourced proposal appears: {[r[0] for r in rows][:5]}"
+    assert not any(f == "21-HB-9.pdf"
+                   for _d, _s, fs in os.walk(tmp) for f in fs), \
+        "the Cut Ticket never builds a PDF on its own"
+    # deleting the fixture tombstones the row on the next save — flagged,
+    # never auto-deleted
+    loft.model.remove([fent.id])
+    loft.save()
+    root.update()
+    it = next(i for i in app.project.pull_list if i.tag == "HB-9")
+    assert it.missing_from_model and it.count == 0, \
+        "orphaned tag tombstoned, kept on the list"
+
     # pano: alpha images and PDF "photos" load; unreadable files never
     # orphan a Toplevel; a 2:1 image opens as a live panorama
     from rfi_stamper.gui import pano

@@ -14,7 +14,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
   a touching-glyph lattice), PDF writer AND reader/merger (minipdf + the
   Shuttle), drag-drop, voice, KB, 3D raster, clash, vector-diff, CPM,
   IFC-import and cut-sheet-submittal engines are all Planloom's own.
-- 60 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+- 61 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -60,6 +60,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Draw-In** | IFC/STEP building-model import (ifclite.py) | drawing-in: threading prepared warp — someone else's work — into your own loom |
 | **The Shuttle** | from-scratch PDF reader/merger (minipdf parse/graph/pagemerge/io) | the loom piece that carries the thread back and forth — as this carries pages between documents |
 | **The Swatchbook** | plumbing cut-sheet submittal builder (swatchbook.py) | a tailor's swatchbook is the bound book of cloth samples handed over for approval — a submittal packet is exactly that: product samples bound for the architect's sign-off |
+| **The Cut Ticket** | model-driven pull list feeding the Swatchbook (cutticket.py) | the garment-trade production order that travels with a cut of cloth telling the shop what to make — the order the drawing writes for the cut sheets |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1393,6 +1394,55 @@ package — never improvise on them.
   staged manifest dropped its dead fetch-module browser-UA keys.  Known
   accepted cost: the first library touch lazily copies/hashes the kit on
   the tk thread once (~0.2 s).
+
+## Round 36 (SHIPPED, v5.2.0): the Cut Ticket — the model writes the pull list
+
+Owner request: drop a fixture tag / model piece into the drawing and a
+manifest builds in the background toward the cut sheets, updating on
+save.  Designed off an 8-agent research pass (Loft model, save plumbing,
+Pipewright overlap, Swatchbook contract, project store, industry norms,
+diff semantics, test plan); the owner confirmed all four recommendations
+(save-trigger + live tally · project-store persistence · auto-feed as
+proposals · the name).
+
+- **Tagging**: fixtures carry an optional ``tag`` prop ("WC-1") — a Tag
+  field on the fixture tool bar and in Traits; the tag renders under the
+  symbol on canvas/plate/DXF/PNG via one render_ops op.  EXPLICIT TAGS
+  ONLY: tag-shaped text is never scraped (the pattern collides exactly
+  with sheet refs like 2/P-1 and callout bubbles like A-501 — decoys are
+  pinned in the tests).  Untagged fixtures are counted and surfaced
+  ("N untagged"), never given invented tags.  The Tally gained a live
+  "Tagged" counter.
+- **cutticket.py**: pure ``census(model)`` (keyed by canonical tag,
+  ordered (prefix, tag), deterministic, mutation-free — never dirties the
+  model or pushes undo); stencil→0-49 prefix table that NEVER guesses
+  (cleanout/structure stencils surface "needs category" — a wrong prefix
+  on a submittal is a rejection); same tag on two stencils = loud
+  conflict.  ``sync_project`` reconciles into the project store's new
+  ``pull_list`` records (PullItem) with strict field ownership: machine
+  facts (count, per-drawing sources, stencil, flags) refresh; HUMAN
+  fields (callouts, prefix/category override, notes, status) are never
+  touched; a tag that leaves the model is TOMBSTONED (missing_from_model,
+  kept until a human deletes it; re-placing revives); several drawings
+  merge per-source; write-if-changed (no store churn on a no-op save).
+- **Trigger**: LoftTab.save() syncs after a successful model save (a sync
+  problem never blocks the save — the status line reports it); no timed
+  autosave was added (owner call — explicit save is the trigger).
+- **Auto-feed**: ``to_packets`` turns pull rows into Swatchbook proposal
+  packets (callouts ride along and re-resolve at build; no callouts =
+  loud gap; tombstones carry a MISSING FROM MODEL flag; needs-category
+  rows surface separately, never force-prefixed).  The Swatchbook panel
+  refreshes from the store on project load and on tab entry; hand-entered
+  fixtures win tag collisions; entering callouts on a model-sourced tag
+  writes them BACK to the store row (human-owned) so they survive
+  restarts and re-censuses.  PDFs still build ONLY via Build All.
+- **Tests**: tests/test_cutticket.py (37 checks — census/decoys/purity/
+  category-honesty/conflicts/reconcile/tombstone-revive/two-drawing
+  merge/write-if-changed/packets/render+roundtrip) + a construct block
+  driving tag → place → save → store → auto-fed proposal → tombstone,
+  asserting no PDF ever builds without the explicit action.
+- Gotcha bought here: ``DraftModel.remove()`` takes a LIST of ids — a
+  bare id string iterates its characters and silently removes nothing.
 
 ## Roadmap (still open)
 

@@ -303,11 +303,13 @@ class SwatchbookPanel(ttk.Frame):
     full one).  Callouts resolve live against the offline component
     library; unresolved rows are loud red GAPs, never silent skips."""
 
-    def __init__(self, parent, theme, status, root, library_root=None):
+    def __init__(self, parent, theme, status, root, library_root=None,
+                 get_project=None):
         super().__init__(parent, padding=8)
         self.theme = theme
         self.status = status
         self.root = root
+        self.get_project = get_project
         self._lib_root = library_root
         self._lib = None
         self.fixtures: list = []        # recipe packet dicts, form-built
@@ -489,8 +491,50 @@ class SwatchbookPanel(ttk.Frame):
               "callouts": list(callouts),
               "components": [], "missing": [], "flags": []}
         self._resolve_packet(pk)
+        self._store_writeback(pk)
         self.fixtures = [p for p in self.fixtures if p["tag"] != tag] + [pk]
         self._refresh_tree()
+
+    def _store_writeback(self, pk: dict):
+        """Hand-entered callouts/category for a model-sourced tag persist
+        onto its Cut Ticket row (human-owned fields — a re-census never
+        touches them), so they survive restarts and model changes."""
+        proj = self.get_project() if self.get_project else None
+        if proj is None:
+            return
+        for it in proj.pull_list:
+            if it.tag == pk["tag"]:
+                it.callouts = list(pk["callouts"])
+                it.prefix = pk["prefix"]
+                it.category = pk["category"]
+                it.status = "confirmed"
+                pk.setdefault("flags", []).append(
+                    f"model-sourced: {it.count} placed (the Cut Ticket)")
+                if proj.path:
+                    proj.save()
+                return
+
+    def refresh_pull(self):
+        """Auto-feed: the project's Cut Ticket rows appear as proposal
+        packets (loud gaps where callouts are needed).  Hand-entered
+        fixtures always win a tag collision; PDFs still only build on the
+        explicit Build All."""
+        proj = self.get_project() if self.get_project else None
+        if proj is None:
+            return
+        from .. import cutticket
+        packets, needs = cutticket.to_packets(proj.pull_list)
+        keep = [p for p in self.fixtures if p.get("origin") != "model"]
+        have = {p["tag"] for p in keep}
+        self.fixtures = keep + [p for p in packets if p["tag"] not in have]
+        self._needs_attention = needs
+        self._refresh_tree()
+        if needs:
+            self.status.set(
+                f"Cut Ticket: {len(needs)} tag(s) need a 0-49 category "
+                f"({', '.join(t for t, _ in needs[:4])}…)" if len(needs) > 4
+                else f"Cut Ticket: {len(needs)} tag(s) need a 0-49 "
+                     f"category ({', '.join(t for t, _ in needs)})", "warn")
 
     def _resolve_packet(self, pk: dict):
         """(Re-)resolve a form packet's callouts against the live library."""
@@ -885,8 +929,12 @@ class ProjectSection(ttk.Frame):
         self.submittals = SubmittalPanel(nb, theme, status, root)
         nb.add(self.submittals, text="  Submittals  ")
 
-        self.swatchbook = SwatchbookPanel(nb, theme, status, root)
+        self.swatchbook = SwatchbookPanel(nb, theme, status, root,
+                                          get_project=get_project)
         nb.add(self.swatchbook, text="  Swatchbook  ")
+        # the Cut Ticket auto-feed: entering the Swatchbook tab pulls the
+        # latest model-derived rows (the Loft updates them on every save)
+        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
 
         self.change_orders = CrudPanel(
             nb, theme, status, get_project, "change_orders", "Change Orders",
@@ -966,7 +1014,15 @@ class ProjectSection(ttk.Frame):
         for p in (self.change_orders, self.budget, self.doc_register):
             p.refresh()
         self.specs.refresh()
+        self.swatchbook.refresh_pull()
         self._budget_meter()
+
+    def _on_tab_changed(self, _e):
+        try:
+            if self.nb.select() == str(self.swatchbook):
+                self.swatchbook.refresh_pull()
+        except tk.TclError:
+            pass
 
     def commands(self):
         return ([("Sync resolution board", "RFIs", self.board.sync),

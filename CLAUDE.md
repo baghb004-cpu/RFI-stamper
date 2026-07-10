@@ -100,6 +100,12 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/transmittal.py  RFI-log / generic table PDF (minipdf flow engine)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile
     rfi_stamper/submittal.py  submittal-register parser + log PDF
+    rfi_stamper/cutticket.py  the Cut Ticket: model-driven pull list — tag
+                              census over Loft fixtures (explicit tags only),
+                              harvest-style reconcile into the project store
+                              (machine facts refresh, human callouts/notes
+                              survive, orphans tombstone), Swatchbook
+                              proposal packets; synced on every Loft save
     rfi_stamper/swatchbook.py the Swatchbook: plumbing cut-sheet submittal
                               builder — offline manufacturer-sheet library
                               (manifest + sha256 + alias resolution), one
@@ -450,6 +456,15 @@ were proven on real export files. GUI constructs under xvfb.
   held equal to the historical reportlab metrics to ~1e-13 by
   `tests/test_minipdf.py`'s oracle-parity test (kerning OFF). Changing width
   tables re-clips every header and moves every box — don't.
+- The Cut Ticket census keys on EXPLICIT fixture tags only — never scrape
+  tag-shaped text: `swatchbook.canonical_tag("P1")` -> "P-1" and the tag
+  regex both collide exactly with sheet references ("SEE 2/P-1") and
+  callout bubbles ("A-501"), so scraping fabricates fixtures.  Reconcile
+  field ownership is law: machine facts (counts/sources/stencil/flags)
+  always refresh, human fields (callouts/prefix/notes/status) are never
+  touched, orphans tombstone (missing_from_model) and are never
+  auto-deleted.  `DraftModel.remove()` takes a LIST of ids — a bare id
+  string iterates its characters and silently removes nothing.
 - The Swatchbook's stamp is its own APPROVED submittal standard —
   RGB(0.80,0.05,0.05), white fill, Helvetica-Bold 10.5, exact rect math —
   deliberately close kin to but DISTINCT from the RFI note-box law

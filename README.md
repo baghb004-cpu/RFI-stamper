@@ -336,7 +336,10 @@ coverage report of anything skipped) · **cut-sheet submittals** (the
 Swatchbook — one stamped, submittal-ready PDF per fixture tag from an
 offline manufacturer-sheet library: approved corner stamp on every page,
 0-49 submittal numbering, components merged in schedule order, and a build
-log that documents every gap and substitution instead of hiding them) · a
+log that documents every gap and substitution instead of hiding them —
+fed automatically by **the Cut Ticket**: tag fixtures as you draft in the
+Loft and every save writes the pull list into the project, fixtures
+appearing in the Swatchbook as ready-to-confirm proposals) · a
 command palette (Ctrl+K) that searches every feature.
 
 ## Install & run

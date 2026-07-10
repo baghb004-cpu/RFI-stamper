@@ -87,11 +87,12 @@ class LoftTab(ttk.Frame):
     """The drafting board: Binder | canvas | Traits, tool spool on top."""
 
     def __init__(self, parent, theme, status, root, on_bim=None,
-                 get_fieldstitch=None):
+                 get_fieldstitch=None, get_project=None):
         super().__init__(parent)
         self.theme, self.status, self.root = theme, status, root
         self.on_bim = on_bim
         self.get_fieldstitch = get_fieldstitch
+        self.get_project = get_project
         self.model = draft.DraftModel()
         self.path: str | None = None
         self.tool = "select"
@@ -228,6 +229,12 @@ class LoftTab(ttk.Frame):
                 "rot", tk.StringVar(value="0")).get())
             ttk.Spinbox(self.opts, from_=0, to=315, increment=45, width=5,
                         textvariable=v["rot"]).pack(side="left")
+            lab("Tag")
+            v["ftag"] = tk.StringVar(value=v.get(
+                "ftag", tk.StringVar(value="")).get())
+            ttk.Entry(self.opts, width=8, textvariable=v["ftag"]).pack(
+                side="left")
+            lab("feeds the Cut Ticket on save")
         elif t == "pipe":
             from .. import pipewright as pw
             lab("System")
@@ -832,8 +839,9 @@ class LoftTab(ttk.Frame):
             rot = float(v["rot"].get()) if "rot" in v else 0.0
         except ValueError:
             pass
+        tag = v["ftag"].get().strip() if "ftag" in v else ""
         self.model.add("fixture", [(x, y)], stencil=self._last_stencil,
-                       rot=rot, flip=False)
+                       rot=rot, flip=False, tag=tag)
         self._after_mutate()
         self._flourish_ring(x, y)
 
@@ -1207,6 +1215,7 @@ class LoftTab(ttk.Frame):
             entry("Rotation", "rot", 7, parse=lambda s: (
                 float(s) if s.lstrip("-").replace(".", "", 1).isdigit()
                 else None))
+            entry("Tag", "tag", 8)
         elif ent.kind == "pipe":
             from .. import pipewright as pw
             keys = list(pw.SYSTEMS)
@@ -1297,7 +1306,7 @@ class LoftTab(ttk.Frame):
         self._tally_labels = {}
         for key, cap in (("wall_lf", "Wall LF"), ("doors", "Doors"),
                          ("windows", "Windows"), ("fixt", "Fixtures"),
-                         ("rooms", "Rooms")):
+                         ("tagged", "Tagged"), ("rooms", "Rooms")):
             r = ttk.Frame(f)
             r.pack(fill="x")
             ttk.Label(r, text=cap, style="Muted.TLabel", width=9
@@ -1317,6 +1326,9 @@ class LoftTab(ttk.Frame):
         vals = {"wall_lf": s.get("wall_lf", 0.0),
                 "doors": s.get("doors", 0), "windows": s.get("windows", 0),
                 "fixt": sum(s.get("fixtures", {}).values()),
+                "tagged": sum(
+                    1 for e in self.model.ents if e.kind == "fixture"
+                    and str(e.props.get("tag", "")).strip()),
                 "rooms": s.get("rooms", 0)}
         for key, (lbl, counter) in list(self._tally_labels.items()):
             if not lbl.winfo_exists():
@@ -1529,7 +1541,26 @@ class LoftTab(ttk.Frame):
             messagebox.showerror("The Loft", f"Save failed:\n{e}")
             return
         self._update_title()
-        self.status.set("Draft saved", "ok")
+        self.status.set("Draft saved" + self._cutticket_sync(), "ok")
+
+    def _cutticket_sync(self) -> str:
+        """Reconcile this drawing's fixture tags into the project's Cut
+        Ticket after a successful save; a sync problem NEVER blocks the
+        save (the status line reports it instead)."""
+        proj = self.get_project() if self.get_project else None
+        if proj is None:
+            return ""
+        try:
+            from .. import cutticket
+            r = cutticket.sync_project(proj, self.model, self.path)
+        except Exception as e:      # noqa: BLE001 — never block a save
+            return f" · Cut Ticket sync failed: {e}"
+        note = f" · Cut Ticket: {r['tags']} tag(s)"
+        if r["untagged"]:
+            note += f", {r['untagged']} fixture(s) untagged"
+        if r["orphaned"]:
+            note += f", {r['orphaned']} missing from model"
+        return note
 
     def save_as(self):
         p = filedialog.asksaveasfilename(

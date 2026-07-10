@@ -101,7 +101,8 @@ class App:
         self.projsec = ProjectSection(self.container, self.theme, self.status,
                                       root, get_project, self.data_changed)
         self.plans = PlansSection(self.container, self.theme, self.status,
-                                  root, author=self.prefs.get("author", ""))
+                                  root, author=self.prefs.get("author", ""),
+                                  get_project=get_project)
         self.reporting = ReportingSection(self.container, self.theme,
                                           self.status, root, get_project,
                                           self.projsec)

@@ -591,6 +591,9 @@ class DraftModel:
         elif kind == "fixture":
             props.setdefault("rot", 0.0)
             props.setdefault("flip", False)
+            # optional fixture tag ("WC-1") — the Cut Ticket census keys on
+            # it (explicit tags only; tag-shaped TEXT is never scraped)
+            props.setdefault("tag", "")
         elif kind == "pipe":
             # a run: pts is the flow polyline (first -> last vertex);
             # invert_ft = invert elevation at the FIRST vertex, positive
@@ -1677,6 +1680,12 @@ def render_ops(model: DraftModel, include=("all",), _ratio=None,
                     float(ent.props.get("rot", 0.0)),
                     bool(ent.props.get("flip", False)),
                     ent.ply, weight, ltype)
+                tag = str(ent.props.get("tag", "")).strip()
+                if tag:                 # the tag labels the symbol on the
+                    ops.append((        # canvas, plate, DXF and PNG alike
+                        "text", ent.pts[0][0],
+                        ent.pts[0][1] - STENCILS[key]["d_in"] / 24.0 - 0.5,
+                        tag, "sub", ent.ply, "c", 0.0))
         elif kind == "line":
             ops += [("line", a[0], a[1], b[0], b[1], ent.ply, weight, ltype)
                     for a, b in zip(ent.pts, ent.pts[1:])]

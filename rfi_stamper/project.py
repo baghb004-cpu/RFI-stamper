@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime
 
 KINDS = ("tasks", "schedule", "punch", "inspections", "change_orders",
-         "budget", "documents", "specs")
+         "budget", "documents", "specs", "pull_list")
 
 
 # ------------------------------------------------------------ time hooks ---
@@ -181,6 +181,31 @@ class SpecSection(_Record):
     text: str = ""
 
 
+@dataclass
+class PullItem(_Record):
+    """One Cut Ticket row: a fixture tag the drawing model needs cut sheets
+    for.  Machine facts (count/sources/stencil/label/flags/
+    missing_from_model) are refreshed by every re-census; the fields a
+    human typed (callouts, category/prefix override, notes, status) are
+    never touched by the machine (cutticket.sync_project)."""
+    id: str
+    tag: str = ""               # canonical hyphenated fixture tag ("WC-1")
+    prefix: int = -1            # 0-49 submittal category; -1 = needs one
+    category: str = ""
+    stencil: str = ""           # stencil key the tag was placed on
+    label: str = ""
+    count: int = 0              # total placed, across all source drawings
+    sources: dict = field(default_factory=dict)   # drawing path -> count
+    callouts: list = field(default_factory=list)  # HUMAN: schedule callouts
+    notes: str = ""             # HUMAN
+    status: str = "proposed"    # HUMAN: proposed / confirmed
+    flags: list = field(default_factory=list)     # machine census flags
+    missing_from_model: bool = False   # tombstone — flagged, never deleted
+    origin: str = "model"       # model / hand
+    created: str = ""
+    updated: str = ""
+
+
 _CLS_FOR = {
     "tasks": Task,
     "schedule": ScheduleItem,
@@ -190,6 +215,7 @@ _CLS_FOR = {
     "budget": BudgetLine,
     "documents": DocEntry,
     "specs": SpecSection,
+    "pull_list": PullItem,
 }
 
 
