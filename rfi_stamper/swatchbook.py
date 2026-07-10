@@ -140,7 +140,9 @@ def looks_stamped(path: str) -> str | None:
 
 def build_packet(out_path: str, tag: str, component_paths: list,
                  page_ranges: dict | None = None,
-                 check_clean: bool = True) -> int:
+                 check_clean: bool = True, chalk: str = "off",
+                 chalk_models: list | None = None,
+                 chalk_log: list | None = None) -> int:
     """Merge ``component_paths`` (spec-paragraph order) and stamp every page.
 
     Entries are paths, or ``(path, (start, end))`` tuples for per-
@@ -155,8 +157,14 @@ def build_packet(out_path: str, tag: str, component_paths: list,
     and the page's fitz rect is the VISUAL (rotated) rect — so a plain
     top-right stamp lands in the visual top-right with zero rotation math.
     Never stamp in-place on rotated pages.  Mixed page sizes are normal —
-    each source page keeps its own size, never normalized.  Side effect:
-    links/annotations are flattened — fine for submittals.
+    each source page keeps its own size, never normalized.
+
+    Annotation and form-widget appearances are BAKED into the page content
+    first: ``show_pdf_page`` embeds only the content stream, and many
+    manufacturer sheets are fillable forms whose checkboxes exist ONLY as
+    widget annotations — without the bake those checkboxes silently vanish
+    from the delivered packet.  Interactivity is dropped (correct for a
+    submittal); the visual sheet ships complete.
     """
     spans = []
     for item in component_paths:
@@ -174,14 +182,29 @@ def build_packet(out_path: str, tag: str, component_paths: list,
                     f"({found}) — source a clean manufacturer sheet instead "
                     "(double-stamping is a rejection)")
     out = fitz.open()
+    offsets = []                       # (first_out_page, n_pages) per span
     for path, rng in spans:
         src = fitz.open(path)
+        src.bake(annots=True, widgets=True)
         pages = range(rng[0] - 1, rng[1]) if rng else range(src.page_count)
+        offsets.append((out.page_count, len(pages)))
         for pno in pages:
             sp = src[pno]
             np_ = out.new_page(width=sp.rect.width, height=sp.rect.height)
             np_.show_pdf_page(np_.rect, src, pno)
         src.close()
+    # the Chalk Mark runs on the ASSEMBLED pages (final visual space —
+    # extraction sees through the embedded pages), BEFORE the tag stamps
+    if chalk in ("report", "mark") and chalk_models:
+        for (p0, n), cm in zip(offsets, chalk_models):
+            if not cm:
+                continue
+            comp_id, models = cm
+            for e in _chalk_component(out, p0, p0 + n, comp_id, models,
+                                      mark=(chalk == "mark")):
+                e["packet"] = os.path.basename(out_path)
+                if chalk_log is not None:
+                    chalk_log.append(e)
     for page in out:
         stamp(page, tag)
     n = out.page_count
@@ -204,6 +227,183 @@ def build_packet(out_path: str, tag: str, component_paths: list,
 
 def packet_filename(prefix: int, tag: str) -> str:
     return f"{int(prefix):02d}-{tag}.pdf"
+
+
+# --------------------------------------------------------------------------- #
+#  The Chalk Mark — model-number checkbox marking (SETSCAN Phase 4)           #
+# --------------------------------------------------------------------------- #
+# A tailor's chalk mark tells the shop exactly where to cut.  During a
+# packet build the specified model number is searched on its OWN
+# component's pages and the empty checkbox in that row is marked with a
+# red X.  This marks a LEGAL SUBMITTAL, so the certainty contract is the
+# strictest in the module: mark only when the model matches exactly one
+# checkbox row, that row holds exactly one visual box, and the box is
+# pixel-EMPTY — everything else is skipped into the build log.  Modes:
+# "off" (byte-identical to pre-chalk builds), "report" (detect + log,
+# draw nothing), "mark".
+
+_BOX_MIN, _BOX_MAX = 3.5, 15.0      # visual checkbox side, in points
+_BOX_INSET = 0.18                   # X inset from the box border
+
+
+def _visual_boxes(page) -> list:
+    """Small near-square vector candidates, merged into VISUAL boxes —
+    one drawn checkbox is routinely several overlapping paths."""
+    cands = []
+    for d in page.get_drawings():
+        r = d["rect"]
+        if (_BOX_MIN <= r.width <= _BOX_MAX
+                and _BOX_MIN <= r.height <= _BOX_MAX
+                and abs(r.width - r.height) <= 2.5):
+            cands.append(fitz.Rect(r))
+    merged: list = []
+    for r in sorted(cands, key=lambda r: (r.y0, r.x0)):
+        for m in merged:
+            if m.intersects(r):
+                m.include_rect(r)
+                break
+        else:
+            merged.append(fitz.Rect(r))
+    for _ in range(3):                       # close transitive overlaps
+        out: list = []
+        for r in merged:
+            for m in out:
+                if m.intersects(r):
+                    m.include_rect(r)
+                    break
+            else:
+                out.append(r)
+        if len(out) == len(merged):
+            break
+        merged = out
+    return [m for m in merged
+            if m.width <= _BOX_MAX and m.height <= _BOX_MAX]
+
+
+def _model_spans(page, models: list) -> list:
+    """Word-exact (normalized) matches of any model string -> [rects].
+
+    Joins up to three adjacent words on a line so "CX 300" finds
+    "CX-300"; matching is EXACT on the normalized form — substring
+    matching would let Z100 swallow Z1000 (the search_for gotcha)."""
+    targets = {_norm(str(m)) for m in models if _norm(str(m))}
+    if not targets:
+        return []
+    lines: dict = {}
+    for w in page.get_text("words"):
+        lines.setdefault((w[5], w[6]), []).append(w)
+    spans = []
+    for ws in lines.values():
+        ws.sort(key=lambda w: w[7])
+        for i in range(len(ws)):
+            joined = ""
+            rect = fitz.Rect(ws[i][:4])
+            for k in range(i, min(i + 3, len(ws))):
+                joined += _norm(ws[k][4])
+                rect.include_rect(fitz.Rect(ws[k][:4]))
+                if joined in targets:
+                    spans.append(fitz.Rect(rect))
+                    break
+                if len(joined) > max(len(t) for t in targets):
+                    break
+    return spans
+
+
+def _box_is_empty(page, box, dpi: int = 150) -> bool:
+    """No ink strictly inside the box (border excluded) — a pre-checked
+    box is never marked again (idempotence, and honesty about sheets
+    that arrive with factory-checked options)."""
+    inner = fitz.Rect(box)
+    dx, dy = box.width * 0.28, box.height * 0.28
+    inner.x0 += dx
+    inner.x1 -= dx
+    inner.y0 += dy
+    inner.y1 -= dy
+    if inner.is_empty:
+        return False
+    pix = page.get_pixmap(clip=inner, dpi=dpi, colorspace=fitz.csGRAY,
+                          alpha=False)
+    import numpy as _np
+    a = _np.frombuffer(pix.samples, _np.uint8)
+    return bool(a.size == 0 or a.min() > 200)
+
+
+def _chalk_component(doc, p0: int, p1: int, comp_id: str, models: list,
+                     mark: bool) -> list:
+    """Run the Chalk Mark gates over one component's pages [p0, p1).
+
+    Returns build-log entries; draws the X only when ``mark`` and every
+    gate passes.  Gate order: occurrences WITHOUT a box in their row band
+    (titles, footers) are ignored; among checkbox rows there must be
+    exactly ONE, holding exactly ONE visual box, and it must be empty.
+    """
+    entries: list = []
+    rows = []                           # (pno, span_rect, [boxes])
+    found_text = False
+    for pno in range(p0, p1):
+        page = doc[pno]
+        spans = _model_spans(page, models)
+        if not spans:
+            continue
+        found_text = True
+        boxes = _visual_boxes(page)
+        for sr in spans:
+            # row membership = box vertical CENTER in the text band; mere
+            # rect intersection grazes the next option row's box (checkbox
+            # columns stack ~10 pt apart) and fabricates 2-box refusals
+            inband = [b for b in boxes
+                      if sr.y0 - 2 <= (b.y0 + b.y1) / 2 <= sr.y1 + 2
+                      and not b.intersects(sr)]
+            if inband:
+                rows.append((pno, sr, inband))
+
+    def entry(action, reason, pno=None):
+        entries.append({"component": comp_id, "page": (pno + 1) if
+                        pno is not None else None, "action": action,
+                        "reason": reason})
+
+    if not rows:
+        entry("skip", "model text not found on the sheet" if not found_text
+              else "model found, but no checkbox row — nothing to mark")
+        return entries
+    if len(rows) > 1:
+        entry("skip", f"model sits in {len(rows)} checkbox rows — marked "
+                      "none; check by hand", rows[0][0])
+        return entries
+    pno, sr, inband = rows[0]
+    if len(inband) > 1:
+        entry("skip", f"{len(inband)} boxes in the model's row — marked "
+                      "none; check by hand", pno)
+        return entries
+    box = inband[0]
+    if not _box_is_empty(doc[pno], box):
+        entry("skip", "box already carries a mark — left alone", pno)
+        return entries
+    if mark:
+        page = doc[pno]
+        dx, dy = box.width * _BOX_INSET, box.height * _BOX_INSET
+        a = fitz.Point(box.x0 + dx, box.y0 + dy)
+        b = fitz.Point(box.x1 - dx, box.y1 - dy)
+        c = fitz.Point(box.x0 + dx, box.y1 - dy)
+        d = fitz.Point(box.x1 - dx, box.y0 + dy)
+        page.draw_line(a, b, color=STAMP_RED, width=STAMP_LINE_W)
+        page.draw_line(c, d, color=STAMP_RED, width=STAMP_LINE_W)
+        entry("marked", f"X in the box at ({box.x0:.0f}, {box.y0:.0f})",
+              pno)
+    else:
+        entry("would-mark", f"single empty box at ({box.x0:.0f}, "
+                            f"{box.y0:.0f})", pno)
+    return entries
+
+
+def model_strings(c) -> list:
+    """The searchable model designations for a component: id + alias base
+    forms (a substitution alias contributes only its model part)."""
+    out = [c.id]
+    for a in c.aliases:
+        m = re.match(r"(.+?)\s*\(.*\)", str(a))
+        out.append(m.group(1).strip() if m else str(a))
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -489,7 +689,8 @@ def load_recipes(path: str | None = None) -> dict:
 
 
 def build_all(recipes: dict, library: Library, out_dir: str,
-              gap_fillers: bool = True, log=print) -> dict:
+              gap_fillers: bool = True, log=print,
+              chalk: str = "off") -> dict:
     """Build every packet in the recipe file into ``out_dir``.
 
     Returns ``{"built": [(filename, pages)], "gapped": {...}, "skipped":
@@ -506,6 +707,7 @@ def build_all(recipes: dict, library: Library, out_dir: str,
             fillers.setdefault(gf["packet"], []).append(gf)
 
     built, gapped, skipped, flags = [], {}, [], []
+    chalk_entries: list = []
     packets = sorted(recipes.get("packets", []),
                      key=lambda p: (int(p["prefix"]), p["tag"]))
     for pk in packets:
@@ -539,8 +741,9 @@ def build_all(recipes: dict, library: Library, out_dir: str,
                              "(packet exceeds the originally approved "
                              "page count — expected and correct)")
         spans = []                            # (path, range|None) per
-        for entry in comp_ids:                # OCCURRENCE — a booklet may
-            rng = None                        # appear twice w/ two ranges
+        span_models = []                      # OCCURRENCE — a booklet may
+        for entry in comp_ids:                # appear twice w/ two ranges
+            rng = None
             if isinstance(entry, dict):
                 rng = entry.get("page_range")
                 if rng:
@@ -551,13 +754,15 @@ def build_all(recipes: dict, library: Library, out_dir: str,
                 gaps.append(f"{cid} (library entry unusable or missing)")
                 continue
             spans.append((library.path_of(c), rng))
+            span_models.append((cid, model_strings(c)))
         if not spans:
             skipped.append((pk["filename"],
                             "no usable components — " + "; ".join(gaps)))
             log(f"  !! {pk['filename']}: nothing to build")
             continue
         out_path = os.path.join(out_dir, pk["filename"])
-        n = build_packet(out_path, pk["tag"], spans)
+        n = build_packet(out_path, pk["tag"], spans, chalk=chalk,
+                         chalk_models=span_models, chalk_log=chalk_entries)
         built.append((pk["filename"], n))
         if gaps:
             gapped[pk["filename"]] = gaps
@@ -567,13 +772,15 @@ def build_all(recipes: dict, library: Library, out_dir: str,
             + (f"  [{len(gaps)} gap(s)]" if gaps else ""))
 
     log_path = os.path.join(out_dir, "00-BUILD-LOG.md")
-    atomic_write_bytes(_build_log_md(recipes, built, gapped, skipped,
-                                     flags).encode("utf-8"), log_path)
+    atomic_write_bytes(_build_log_md(
+        recipes, built, gapped, skipped, flags,
+        chalk=(chalk, chalk_entries)).encode("utf-8"), log_path)
     return {"built": built, "gapped": gapped, "skipped": skipped,
-            "flags": flags, "log_path": log_path}
+            "flags": flags, "chalk": chalk_entries, "log_path": log_path}
 
 
-def _build_log_md(recipes, built, gapped, skipped, flags) -> str:
+def _build_log_md(recipes, built, gapped, skipped, flags,
+                  chalk=("off", ())) -> str:
     """00-BUILD-LOG.md — complete packets, gapped packets, not-built tags
     with reasons, engineer flags (the approved log format)."""
     lines = [f"# {recipes.get('project', 'Cut sheet submittal')}",
@@ -607,4 +814,15 @@ def _build_log_md(recipes, built, gapped, skipped, flags) -> str:
             lines.append(f"{i}. {fl}")
     else:
         lines.append("(none)")
+    mode, entries = chalk
+    if mode in ("report", "mark"):
+        lines += ["", f"## Chalk marks ({mode} mode)"]
+        if entries:
+            for e in entries:
+                where = (f"{e['packet']} p{e['page']}" if e.get("page")
+                         else e["packet"])
+                lines.append(f"- {where}: {e['component']} — "
+                             f"{e['action']}: {e['reason']}")
+        else:
+            lines.append("(no model rows found)")
     return "\n".join(lines) + "\n"

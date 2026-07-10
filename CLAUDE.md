@@ -112,7 +112,11 @@ run; the `*_report.txt` must end in PASS).
                               stamped PDF per fixture tag (approved stamp,
                               0-49 numbering, spec-paragraph merge order),
                               gap-honest 00-BUILD-LOG.md; kit data in
-                              rfi_stamper/data/cutsheet_library/
+                              rfi_stamper/data/cutsheet_library/; + the
+                              Chalk Mark: certainty-gated model-number
+                              checkbox marking on packet pages (off/
+                              report/mark — one row, one box, pixel-
+                              empty, else skip with the reason)
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
                               header suffix, Designer Pickup Sheet PDF
     rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
@@ -478,6 +482,19 @@ were proven on real export files. GUI constructs under xvfb.
   never-restamp guard refuses any component carrying tag-shaped text in
   page 1's top-right corner region; and a gap is NEVER silently
   substituted (ambiguous alias resolution returns None on purpose).
+- Chalk Mark laws: many manufacturer sheets are FILLABLE FORMS whose
+  checkboxes exist only as widget annotations — `show_pdf_page` embeds
+  page content only, so `build_packet` BAKES annots+widgets into the
+  content first or those checkboxes silently vanish from the delivered
+  packet (and from `get_drawings`).  Checkbox-row membership is the box's
+  vertical CENTER inside the text band, never rect intersection — stacked
+  option checkboxes sit ~10 pt apart and a ±2 pt band grazes the next
+  row's box by a fraction of a point, fabricating 2-box refusals on clean
+  rows.  Model matching is word-exact on the normalized join (up to 3
+  words) — substring matching lets Z100 swallow Z1000.  The gates ignore
+  boxless occurrences (headers/running text carry the model name on
+  nearly every sheet); marking gates are one row, one box, pixel-empty —
+  a skipped mark ALWAYS logs its reason and count.
 - Drag-drop (gui/dnd.py) routes by REGISTRY + GEOMETRY, not widget stacking:
   the smallest viewable registered widget containing the drop point wins, the
   toplevel's own registration is the overlay's window-level enter/leave hook +

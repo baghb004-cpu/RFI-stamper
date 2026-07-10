@@ -61,6 +61,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Shuttle** | from-scratch PDF reader/merger (minipdf parse/graph/pagemerge/io) | the loom piece that carries the thread back and forth — as this carries pages between documents |
 | **The Swatchbook** | plumbing cut-sheet submittal builder (swatchbook.py) | a tailor's swatchbook is the bound book of cloth samples handed over for approval — a submittal packet is exactly that: product samples bound for the architect's sign-off |
 | **The Cut Ticket** | model-driven pull list feeding the Swatchbook (cutticket.py) | the garment-trade production order that travels with a cut of cloth telling the shop what to make — the order the drawing writes for the cut sheets |
+| **The Chalk Mark** | certainty-gated model-number checkbox marking inside Swatchbook builds (swatchbook.py) | a tailor's chalk mark tells the shop exactly where to cut — one small, deliberate mark, never a guess |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1444,20 +1445,64 @@ proposals · the name).
 - Gotcha bought here: ``DraftModel.remove()`` takes a LIST of ids — a
   bare id string iterates its characters and silently removes nothing.
 
+## Round 37 (SHIPPED, v5.3.0): the Chalk Mark — checkbox marking on cut sheets
+
+SETSCAN Phase 4 (the owner's direct "can it check the box next to the
+model number?" — yes).  During a Swatchbook build the component's model
+designations (id + alias base forms) are searched on its OWN pages and
+the empty checkbox in that row gets a red X.  Marks a LEGAL SUBMITTAL,
+so the certainty contract is the strictest in the module; built with the
+standing defaults (red X · report-only until the owner flips it on ·
+vector-first).
+
+- **Engine** (swatchbook.py): ``_visual_boxes`` (3.5–15 pt near-square
+  vector candidates merged transitively — one drawn checkbox is routinely
+  several overlapping paths), ``_model_spans`` (word-exact NORMALIZED
+  matching, joins up to 3 adjacent words so "CX 300" finds CX-300;
+  substring matching would let Z100 swallow Z1000), ``_box_is_empty``
+  (28 %-inset interior render), ``_chalk_component`` (the gates).
+  Gates: boxless occurrences (titles, running text) are ignored; then
+  exactly ONE checkbox row, holding exactly ONE box, which must be
+  pixel-empty — anything else skips into the build log with the count
+  ("2 boxes in the model's row — marked none; check by hand").  Modes
+  off / report / mark; engine default off, GUI default report; entries
+  ride ``build_all`` results and a "## Chalk marks" log section.
+- **The bake (delivered-fidelity fix beyond chalk)**: many manufacturer
+  sheets are fillable forms whose checkboxes exist ONLY as widget
+  annotations — ``show_pdf_page`` embeds page content only, so packets
+  were shipping with those checkboxes INVISIBLE.  ``build_packet`` now
+  bakes annotation + widget appearances into the content first
+  (interactivity dropped — correct for a submittal; the visual sheet
+  ships complete).  Golden page counts/stamps unchanged.
+- **Row membership** is the box's vertical CENTER inside the text band
+  (±2 pt): plain rect intersection grazed the next option row's box
+  (stacked checkbox columns sit ~10 pt apart) and fabricated 2-box
+  refusals on rows that were actually clean.
+- **Real-kit truth** (report over the 19 reference packets, 41 entries):
+  one clean would-mark (a trap-primer series option row); option grids
+  refuse with counts, pre-inked boxes are left alone, header-only model
+  text is ignored.  Mark mode: pixel diff confined to that one box,
+  every other packet byte-identical.
+- **Tests**: tests/test_chalkmark.py (25 checks — synthetic spec sheets:
+  mark containment at 150 dpi + determinism, report=zero byte changes,
+  refusals for 2-box/2-row/pre-checked/absent/boxless, word-join +
+  no-substring-bleed + idempotence, build_all integration + log section,
+  seed-gated reference report) + test_swatchbook widget-bake regression
+  (353 checks total).
+
 ## Roadmap (still open)
 
-- **SETSCAN_PLAN.md (PLANNED, owner-requested, staged v5.3-v5.6)** —
-  reading the drawing set: the Chalk Mark (model-number checkbox marking
-  inside Swatchbook builds, certainty-gated, report-only first), the
-  Story Pole (dimension-anchored autoscale accepted only when independent
-  witnesses agree — other dimensions, standard door-opening widths, the
-  title-block scale note), the Reed Count (fixture-symbol library +
-  auto-count over vector linework, size-sane via the verified scale,
-  unknown shapes surfaced for human labeling), and the Cut Ticket
-  set-scan (fixture tags + the legend-sheet schedule table harvested into
-  preliminary pull-list rows with pre-filled callouts — proposals only).
-  Owner still to answer the plan's open questions (mark style, raster
-  scope, symbol-learning consent, names) before phases ship.
+- **SETSCAN_PLAN.md (owner-requested, staged; Phase 4 SHIPPED v5.3.0)** —
+  remaining: the Story Pole (dimension-anchored autoscale accepted only
+  when independent witnesses agree — other dimensions, standard
+  door-opening widths, the title-block scale note), the Reed Count
+  (fixture-symbol library + auto-count over vector linework, size-sane
+  via the verified scale, unknown shapes surfaced for human labeling),
+  and the Cut Ticket set-scan (fixture tags + the legend-sheet schedule
+  table harvested into preliminary pull-list rows with pre-filled
+  callouts — proposals only).  Chalk Mark shipped on the standing
+  defaults; owner may still rename / change mark style (plan's open
+  questions).
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
 - **Richer extrusion**: door/window gap detection, per-layer wall heights.

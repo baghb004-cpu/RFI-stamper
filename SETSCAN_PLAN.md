@@ -1,10 +1,11 @@
 # SETSCAN_PLAN.md — reading the drawing set (scale · symbols · tags · marks)
 
-**Status:** PLANNED — owner-requested, staged, not yet built. Same discipline
-that shipped the Tracer (OCR_PLAN), minipdf (MINIPDF_PLAN) and the BUILDOUT
-campaign: research → staged build behind tests → prove → ship, one phase =
-one round = one version. Nothing below exists yet; README documents only
-shipped features and will be updated as each phase lands.
+**Status:** IN FLIGHT — Phase 4 (the Chalk Mark) SHIPPED v5.3.0; Phases
+1–3 planned, not yet built. Same discipline that shipped the Tracer
+(OCR_PLAN), minipdf (MINIPDF_PLAN) and the BUILDOUT campaign: research →
+staged build behind tests → prove → ship, one phase = one round = one
+version. README documents only shipped features and is updated as each
+phase lands.
 
 **The owner's ask (verbatim intent, decomposed):**
 1. Find a dimension on a PDF drawing and use it to auto-scale the set — but
@@ -135,8 +136,12 @@ fixture schedule as Cut Ticket rows the Swatchbook auto-feeds.
   reconcile preserves human edits; count column matches Phase 2.
 
 ## Phase 4 — the Chalk Mark: model-number checkbox marking on cut sheets
-*(extends `swatchbook.py` — a tailor's chalk mark tells the shop exactly
-where to cut; independent of Phases 1–3 and can ship first)*
+**SHIPPED v5.3.0** *(extends `swatchbook.py` — a tailor's chalk mark tells
+the shop exactly where to cut; shipped first, independent of Phases 1–3.
+Built to this plan with the standing defaults: red X, report-only GUI
+default, vector-first. Bonus fidelity fix shipped with it: form-widget
+checkboxes are now BAKED into packet content — `show_pdf_page` was
+silently dropping them from delivered packets. See HANDOFF Round 37.)*
 
 **Goal (the owner's direct question — yes, it is possible):** during a
 packet build, find the specified model number on the manufacturer sheet
@@ -173,7 +178,7 @@ and mark the checkbox beside it.
 
 | Phase | Name | Version | Depends on |
 |---|---|---|---|
-| 4 | the Chalk Mark (checkbox marking) | v5.3.0 | Swatchbook (shipped) |
+| 4 | the Chalk Mark (checkbox marking) — **SHIPPED** | v5.3.0 | Swatchbook (shipped) |
 | 1 | the Story Pole (witnessed autoscale) | v5.4.0 | — |
 | 2 | the Reed Count (symbol counting) | v5.5.0 | 1 (size sanity) |
 | 3 | the Cut Ticket set-scan (tags → schedule) | v5.6.0 | 2 (symbol context), Swatchbook |

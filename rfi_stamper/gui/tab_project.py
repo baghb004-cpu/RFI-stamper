@@ -325,6 +325,14 @@ class SwatchbookPanel(ttk.Frame):
                        "per fixture tag").pack(side="left")
         ttk.Button(bar, text="Build All…", style="Accent.TButton",
                    command=self.build_all).pack(side="right", padx=2)
+        # the Chalk Mark: model-number checkbox marking on the sheets —
+        # report-only by default; flip to "mark" once the report reads right
+        self.chalk_var = tk.StringVar(value="report")
+        ttk.Combobox(bar, width=7, state="readonly", values=["off",
+                     "report", "mark"], textvariable=self.chalk_var
+                     ).pack(side="right", padx=2)
+        ttk.Label(bar, text="Chalk marks", style="Muted.TLabel"
+                  ).pack(side="right")
         ttk.Button(bar, text="Load reference project",
                    command=self.load_reference).pack(side="right", padx=2)
         ttk.Button(bar, text="Import sheet…",
@@ -608,10 +616,13 @@ class SwatchbookPanel(ttk.Frame):
         recipes = self._recipes()
         lib = self.library()
 
+        chalk = self.chalk_var.get()
+
         def work():
             return swatchbook.build_all(recipes, lib, out,
                                         gap_fillers=True,
-                                        log=lambda *a, **k: None)
+                                        log=lambda *a, **k: None,
+                                        chalk=chalk)
 
         def done(res, err):
             if err:
@@ -643,7 +654,8 @@ class SwatchbookPanel(ttk.Frame):
         """Synchronous build (tk-thread callers and the construct test)."""
         return swatchbook.build_all(self._recipes(), self.library(),
                                     out_dir, gap_fillers=True,
-                                    log=lambda *a, **k: None)
+                                    log=lambda *a, **k: None,
+                                    chalk=self.chalk_var.get())
 
 
 class SpecsPanel(ttk.Frame):

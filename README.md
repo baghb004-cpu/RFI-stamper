@@ -339,7 +339,12 @@ offline manufacturer-sheet library: approved corner stamp on every page,
 log that documents every gap and substitution instead of hiding them —
 fed automatically by **the Cut Ticket**: tag fixtures as you draft in the
 Loft and every save writes the pull list into the project, fixtures
-appearing in the Swatchbook as ready-to-confirm proposals) · a
+appearing in the Swatchbook as ready-to-confirm proposals, and finished by
+**the Chalk Mark**: the build finds the specified model number on the
+manufacturer sheet and puts a red X in the checkbox beside it — only when
+exactly one checkbox row matches, it holds exactly one box, and the box is
+empty; anything less certain is skipped into the build log with the reason,
+and a report-only mode shows what would be marked before anything is) · a
 command palette (Ctrl+K) that searches every feature.
 
 ## Install & run
@@ -348,7 +353,7 @@ Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (52 scripts)
+    python tests/run_all.py          # full test suite (62 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,

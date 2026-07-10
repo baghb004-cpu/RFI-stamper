@@ -237,6 +237,40 @@ def test_rotation():
 
 
 # --------------------------------------------------------------------------- #
+#  form-widget bake: fillable-form checkboxes survive into the packet         #
+# --------------------------------------------------------------------------- #
+
+def test_widget_bake():
+    # many manufacturer sheets are fillable forms whose checkboxes exist
+    # ONLY as widget annotations; show_pdf_page embeds page content only,
+    # so without the bake the delivered packet loses them entirely
+    src = os.path.join(TMP, "formsheet.pdf")
+    doc = fitz.open()
+    pg = doc.new_page(width=612, height=792)
+    pg.insert_text((60, 90), "FORM SHEET", fontsize=14)
+    w = fitz.Widget()
+    w.field_name = "opt1"
+    w.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+    w.rect = fitz.Rect(100, 300, 109, 309)
+    w.border_color = (0, 0, 0)
+    w.border_width = 1
+    pg.add_widget(w)
+    doc.save(src)
+    doc.close()
+    out = os.path.join(TMP, "form_packet.pdf")
+    sb.build_packet(out, "FD-1", [src])
+    pd = fitz.open(out)
+    pix = pd[0].get_pixmap(clip=fitz.Rect(99, 299, 110, 310), dpi=150,
+                           colorspace=fitz.csGRAY, alpha=False)
+    a = np.frombuffer(pix.samples, np.uint8)
+    A((a < 200).sum() > 20, "widget checkbox ink survives into the packet")
+    A(any(3.5 <= d["rect"].width <= 15 and 3.5 <= d["rect"].height <= 15
+          for d in pd[0].get_drawings()),
+      "the baked checkbox is visible to vector extraction (the Chalk Mark)")
+    pd.close()
+
+
+# --------------------------------------------------------------------------- #
 #  library: resolution, sha refusal, import, install                          #
 # --------------------------------------------------------------------------- #
 
@@ -561,6 +595,7 @@ def main():
         (test_golden_stamps_and_counts,
          "T2: every golden page stamped; counts frozen"),
         (test_rotation, "T3: visual top-right on rotated pages"),
+        (test_widget_bake, "form-widget checkboxes bake into packets"),
         (test_library, "library: resolve/sha/import/install"),
         (test_build_all_and_gaps,
          "gaps never block; log format; fillers; determinism"),
