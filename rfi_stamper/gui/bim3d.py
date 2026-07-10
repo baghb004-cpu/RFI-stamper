@@ -139,6 +139,8 @@ class Bim3DViewer(ttk.Frame):
                    command=self.load_demo).pack(side="left", padx=(0, 2))
         ttk.Button(bar, text="Open OBJ…", style="Tool.TButton",
                    command=self.open_obj).pack(side="left", padx=2)
+        ttk.Button(bar, text="Open IFC…", style="Tool.TButton",
+                   command=self.open_ifc).pack(side="left", padx=2)
         self.proj_btn = ttk.Button(bar, text="Persp", width=6,
                                    style="Tool.TButton",
                                    command=self.toggle_ortho)
@@ -468,6 +470,39 @@ class Bim3DViewer(ttk.Frame):
             self.set_model(bim.load_obj(path))
         except (ValueError, OSError) as e:
             messagebox.showerror("Open OBJ", str(e), parent=self)
+
+    def open_ifc(self):
+        path = filedialog.askopenfilename(
+            parent=self, title="Open IFC",
+            filetypes=[("IFC model", "*.ifc *.ifczip"), ("All files", "*.*")])
+        if not path:
+            return
+        self.load_ifc(path)
+
+    def load_ifc(self, path: str):
+        """The Draw-In: import walls/slabs/columns and SHOW the coverage —
+        a partial import must never look like a full one."""
+        from .. import ifclite
+        try:
+            model, rep = ifclite.load_ifc(path, log=lambda *a: None)
+        except (ValueError, OSError) as e:
+            messagebox.showerror("Open IFC", str(e), parent=self)
+            return
+        self.set_model(model)
+        imp = rep["imported"]
+        lines = [f"Imported {imp['walls']} wall(s), {imp['slabs']} slab(s), "
+                 f"{imp['columns']} column(s)"
+                 + (f" — schema {rep['schema']}." if rep["schema"] else ".")]
+        if rep["storeys"]:
+            lines.append("Storeys: " + ", ".join(rep["storeys"]))
+        if rep["skipped"]:
+            lines.append(f"Skipped {len(rep['skipped'])} product(s):")
+            lines += [f"  #{i} {t}: {r}" for i, t, r in rep["skipped"][:6]]
+            if len(rep["skipped"]) > 6:
+                lines.append(f"  … and {len(rep['skipped']) - 6} more")
+        lines += [f"Note: {w}" for w in rep["warnings"]]
+        messagebox.showinfo("Open IFC — coverage", "\n".join(lines),
+                            parent=self)
 
     def toggle_ortho(self):
         self.cam.ortho = not self.cam.ortho

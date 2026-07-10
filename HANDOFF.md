@@ -6,14 +6,14 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.17.0, offline construction workspace; Python package
+- Product: **Planloom** v4.18.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
   stdlib — the OCR (Tracer, with a human review deck and a touching-glyph
   lattice), PDF writer (minipdf), drag-drop, voice, KB, 3D raster, clash,
-  vector-diff and CPM engines are all Planloom's own.
-- 57 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  vector-diff, CPM and IFC-import engines are all Planloom's own.
+- 58 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -56,6 +56,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Selvage** | the wire-format dialects module (LandXML / GSI / SP-record fieldbook / DXF attribute tier + the ONE coordinate-order writer table) | the loom's self-finished edge — the woven boundary where Planloom's weave meets the field instruments without fraying |
 | **The Slipsheet** | vector drawing-revision diff + redline PDF (drawdiff.py) | slip-sheeting two vellums on a light table — the reviewer's oldest compare |
 | **The Tautline** | CPM scheduler over the project store (cpm.py) | the taut-line hitch; the critical path is the one chain with no slack |
+| **The Draw-In** | IFC/STEP building-model import (ifclite.py) | drawing-in: threading prepared warp — someone else's work — into your own loom |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1191,6 +1192,62 @@ clean/speckle stay 0.00%; sheets 100%.
   touching-glyph handling in the P1 `split_touching` stub (kept only for
   API compat), gen-3 stays a tracked tier — not a target.  57 suites
   green twice.  NEXT: Phase I — IFC-lite import (bo_E.md).
+
+## Round 33 (SHIPPED, v4.18.0): BUILDOUT Phase I — the Draw-In (IFC import)
+
+IFC building-model exchange files (STEP / ISO 10303-21) import as
+walls/slabs/columns straight into the 3D viewer — `ifclite.py`, one
+module, stdlib + numpy, zero new deps.  The partial-importer contract:
+never crash on unknown entities, coverage stats instead of silence.
+
+- **Parser**: two-phase lazy — pass 1 is one string/comment-aware O(n)
+  scan indexing `{id: (TYPE, args_pos)}` (strings legally contain
+  `;()#,` — split-on-semicolon corrupts the index; the head match is
+  ANCHORED at the record start so a `#5=IFCX(` inside a string can't
+  false-index); pass 2 is a memoized recursive-descent arg parser
+  (`$ * ints trailing-dot/E-005 reals strings refs enums nested lists
+  typed-values binary`).  Only the product closure is ever parsed —
+  unknown entities and forward references are free.  Full STEP string
+  escapes (`'' \\ \\S\\ \\PA\\ \\X\\ \\X2\\ \\X4\\` + tolerant raw-UTF-8
+  re-decode).  `.ifczip` sniffed by zip magic, never extension.
+- **Units first**: SI-prefix table + conversion-based units (FOOT/INCH
+  via IfcMeasureWithUnit); missing unit block → metres + a loud warning.
+  The scale applies ONCE to final world vertices (target unit: decimal
+  feet, the Fieldstitch/Loft frame; `target_unit="m"` accepted).
+- **Placement**: IfcAxis2Placement3D with Gram-Schmidt (exporters emit
+  non-perpendicular RefDirections; without it geometry shears), memoized
+  IfcLocalPlacement chains with cycle guard, non-identity
+  WorldCoordinateSystem composed (attr 4 — attr 3 is Precision).
+- **Geometry**: IfcExtrudedAreaSolid over rectangle (CENTERED on its 2D
+  Position), arbitrary-closed polyline (repeated closing point dropped),
+  circle (16-gon) and IFC4 indexed-polycurve (line segments; arcs skip
+  honestly) profiles; one level of IfcMappedItem indirection
+  (RepresentationMap ∘ CartesianTransformationOperator3D, uniform scale
+  only).  'Body' representation selected explicitly — the fallback
+  EXCLUDES 'Axis'/'FootPrint' identifiers even when swept-typed (an Axis
+  rep typed SweptSolid imports stick figures otherwise; caught by the
+  zero-usable acceptance test).  bim mapping mirrors load_obj: Faces per
+  ring + shared-edge-deduped wireframe Segments, system colors walls/
+  slabs/columns for the Strata legend.
+- **The report contract** (keys frozen in the test): schema, unit_scale,
+  target_unit, imported, skipped `(id, class, reason)`, unsupported_counts,
+  storeys, warnings — every candidate lands in imported or skipped, the
+  two sum to the candidate count, a malformed product becomes a skip
+  reason (never a crash), zero imports raises ValueError WITH the skip
+  summary.  Viewer: "Open IFC…" beside Open OBJ; the coverage report
+  shows in an info dialog after every load — a partial import must never
+  look like a full one.
+- Tests (`tests/test_ifclite.py`, 90 checks): exact feet vertices, IFC2X3
+  == IFC4 geometry, rotation/nested-placement/tilted-axis math, the unit
+  matrix (metre == FOOT file), L-slab, coverage contract, grammar
+  torture, zero-usable error, mapped item, 16-gon column, polycurve + arc
+  skip, ifczip, storeys, determinism; construct test drives
+  `viewer.load_ifc` end to end and asserts the coverage dialog.
+- SKIP list held (booleans/openings — walls import without door holes;
+  BReps/tessellations; curved geometry; materials/styles; psets beyond
+  the free Name; georeferencing; non-uniform transforms; writing IFC —
+  ever).  58 suites green twice.  NEXT: Phase J — the pypdf retirement
+  (bo_F.md), v5.0.0.
 
 ## Roadmap (still open)
 

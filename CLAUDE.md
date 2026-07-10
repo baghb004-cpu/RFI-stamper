@@ -103,6 +103,11 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/integrations.py file-based bridges: CSV in/out, .ics, bundles,
                               drop-folder scan — NEVER network
     rfi_stamper/bim.py        3D math + procedural building model + OBJ loader
+    rfi_stamper/ifclite.py    the Draw-In: IFC/STEP (ISO 10303-21) import
+                              subset — lazy two-pass parser, units-first,
+                              placement chains, extruded walls/slabs/columns
+                              -> bim Faces/Segments, coverage-honest report
+                              (every candidate imported OR skipped w/ reason)
                               + interrogation kernel: screen_ray (inverse of
                               project_points), Möller-Trumbore ray_triangles
                               (two-sided), Liang-Barsky clip_segment_box (cut
@@ -393,6 +398,14 @@ were proven on real export files. GUI constructs under xvfb.
   Score WER only through `eval._charset_spaced`: `only_charset` on a spaced
   string strips the spaces (space is outside CHARSET), collapsing the page
   to ONE token and pinning WER at a constant 0%-or-100%.
+- Draw-In (ifclite) import law: a wall's 'Axis' representation can carry
+  RepresentationType 'SweptSolid', so the body-selection FALLBACK must
+  exclude identifiers 'Axis'/'FootPrint' or it imports stick figures (hit
+  in the zero-usable acceptance test).  Rectangle profiles are CENTERED on
+  their 2D Position (±half-dims).  The unit scale applies ONCE, to final
+  world vertices — scaling profile dims and placement translations
+  separately double-scales, and directions are unitless.  IFC axes map to
+  bim x/y/z with NO flip.
 - minipdf's `Canvas.showPage()` has REPORTLAB semantics: it *ends* the page and
   the next page materializes lazily on the first draw, so the pervasive
   trailing `showPage(); save()` idiom never adds a blank page — and the default

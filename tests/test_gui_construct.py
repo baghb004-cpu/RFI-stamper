@@ -671,6 +671,52 @@ def main():
     bv._on_release(_EvAt(400, 300))
     fx.set_quality("off")
 
+    # bim3d: the Draw-In (Open IFC) — engine wired in, coverage surfaced
+    ifc_fix = os.path.join(tmp, "wall.ifc")
+    with open(ifc_fix, "w", encoding="latin-1") as fh:
+        fh.write(
+            "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n"
+            "#1=IFCPROJECT('0000000000000000000001',$,'P',$,$,$,$,(#20),#7);\n"
+            "#7=IFCUNITASSIGNMENT((#8));\n"
+            "#8=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n"
+            "#20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.0E-005,#21,$);\n"
+            "#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n"
+            "#22=IFCCARTESIANPOINT((0.,0.,0.));\n"
+            "#30=IFCLOCALPLACEMENT($,#21);\n"
+            "#40=IFCRECTANGLEPROFILEDEF(.AREA.,$,#41,4000.,200.);\n"
+            "#41=IFCAXIS2PLACEMENT2D(#42,$);\n"
+            "#42=IFCCARTESIANPOINT((0.,0.));\n"
+            "#43=IFCDIRECTION((0.,0.,1.));\n"
+            "#45=IFCEXTRUDEDAREASOLID(#40,$,#43,3000.);\n"
+            "#50=IFCSHAPEREPRESENTATION(#20,'Body','SweptSolid',(#45));\n"
+            "#51=IFCPRODUCTDEFINITIONSHAPE($,$,(#50));\n"
+            "#60=IFCWALL('0000000000000000000002',$,'W1',$,$,#30,#51,$,$);\n"
+            "ENDSEC;\nEND-ISO-10303-21;\n")
+    infos = []
+    _info1 = _mb.showinfo
+    _mb.showinfo = lambda *a, **k: infos.append(a)
+    try:
+        bv.load_ifc(ifc_fix)
+        root.update()
+    finally:
+        _mb.showinfo = _info1
+    assert bv.model.faces and ("walls", "#9aab9e") in bv.model.systems, \
+        "Draw-In wall did not reach the viewer"
+    assert infos and "Imported 1 wall(s)" in infos[0][1], \
+        "coverage report not surfaced"
+
+    def _has_ifc_btn(w):
+        for c in w.winfo_children():
+            try:
+                if str(c.cget("text")) == "Open IFC…":
+                    return True
+            except tk.TclError:
+                pass
+            if _has_ifc_btn(c):
+                return True
+        return False
+    assert _has_ifc_btn(bv), "Open IFC… button missing from the viewer bar"
+
     # pano: alpha images and PDF "photos" load; unreadable files never
     # orphan a Toplevel; a 2:1 image opens as a live panorama
     from rfi_stamper.gui import pano

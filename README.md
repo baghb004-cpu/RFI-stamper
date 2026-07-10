@@ -327,7 +327,10 @@ also works by click-to-browse) ·
 clickable jump that works in any viewer, plus a bookmark index per sheet ·
 revision compare with FFT auto-align · calibrated measurements with per-sheet
 scale memory · auto-numbered punch dots · batch stamping · a submittal-log
-parser · a command palette (Ctrl+K) that searches every feature.
+parser · **IFC import** (the Draw-In — walls, slabs and columns from an open
+building-model exchange file straight into the 3D viewer, with an honest
+coverage report of anything skipped) · a command palette (Ctrl+K) that
+searches every feature.
 
 ## Install & run
 
@@ -364,8 +367,10 @@ OCR run, confirm every uncertain read and machine repair against the
 pixels, keyboard-first; your accepted edits can teach the recognizer your
 firm's lettering (human-gated, saved as a local font profile), and the
 searchable text is rewritten with your decisions. The BIM viewer is a
-wireframe walkthrough with sheet
-placement, not an IFC authoring tool. Offline summaries are serviceable cliff
+wireframe/massing walkthrough with sheet placement, not an IFC authoring
+tool — IFC **import** (the Draw-In) reads walls, slabs and columns as
+extruded solids and reports everything it skipped by name (booleans,
+openings, curved geometry); it never silently pretends full coverage. Offline summaries are serviceable cliff
 notes, not judgment calls. The verification pass is the backstop: if it says
 FAIL, don't issue the sheet. Cloud collaboration and mobile apps are out of
 scope by design — this tool exists to keep NDA-covered documents local.
