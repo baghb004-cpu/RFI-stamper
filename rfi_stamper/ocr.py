@@ -68,7 +68,8 @@ def needs_ocr(path: str, page_no: int | None = None, min_chars: int = 12) -> boo
 
 
 def ocr_pdf(path: str, out_path: str, dpi: int = 300, language: str = "eng",
-            skip_text_pages: bool = True, log=print) -> dict:
+            skip_text_pages: bool = True, log=print, review_sink=None,
+            overrides=None) -> dict:
     """Write a searchable copy of ``path`` to ``out_path`` (built-in OCR).
 
     Each page that already carries real text is copied through untouched when
@@ -79,12 +80,17 @@ def ocr_pdf(path: str, out_path: str, dpi: int = 300, language: str = "eng",
     numbering.  Page order and point-size are preserved; the input is never
     mutated; the write is atomic.
 
-    ``language`` is accepted and ignored (the Tracer is single-model).  Returns
+    ``review_sink`` (list) collects queue-worthy reads as
+    ``tracer.ReviewItem`` for the review deck; ``overrides``
+    ``{(page, bbox): text}`` lets a review session re-run the writer with
+    the accepted texts.  ``language`` is accepted and ignored (the Tracer
+    is single-model).  Returns
     ``{"pages_ocred": int, "pages_total": int, "out_path": str}``.
     """
     return tracer.ocr_pdf(path, out_path, dpi=dpi, language=language,
                           skip_text_pages=skip_text_pages, log=log,
-                          lexicon=_default_lexicon())
+                          lexicon=_default_lexicon(),
+                          review_sink=review_sink, overrides=overrides)
 
 
 def ocr_page_text(path: str, page_no: int, dpi: int = 300,

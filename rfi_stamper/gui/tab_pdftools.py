@@ -100,6 +100,17 @@ class PdfToolsTab(ttk.Frame):
         self.open_btn = ttk.Button(grid, text="Open result", state="disabled",
                                    command=lambda: self._out and open_path(self._out))
         self.open_btn.grid(row=len(buttons), column=0, sticky="ew", pady=(8, 2))
+        # human-in-the-loop OCR review: enabled after an OCR run queues reads
+        self.review_btn = ttk.Button(grid, text="Review uncertain reads",
+                                     state="disabled",
+                                     command=self.open_review)
+        self.review_btn.grid(row=len(buttons) + 1, column=0, sticky="ew",
+                             pady=2)
+        Tooltip(self.review_btn, "Confirm the Tracer's uncertain reads and "
+                                 "machine repairs against the pixels; edits "
+                                 "can teach the recognizer (human-gated).",
+                theme)
+        self._review = None         # (sink, src_path, out_path) after OCR
 
         self.log = LogConsole(self, theme, height=5)
         self.log.pack(fill="x", pady=(8, 0))
@@ -197,8 +208,9 @@ class PdfToolsTab(ttk.Frame):
             messagebox.showinfo("PDF Tools", f"No one-touch fix for '{iss.title}'.")
 
     # -------------------------------------------------------------- runner
-    def _run(self, label, fn, suffix, done_msg):
-        """Run an engine fn(in, out, log)->result in the background."""
+    def _run(self, label, fn, suffix, done_msg, after=None):
+        """Run an engine fn(in, out, log)->result in the background.
+        ``after(res)`` runs on the UI thread after a successful finish."""
         path = self._path()
         if not path or self._running:
             return
@@ -224,6 +236,8 @@ class PdfToolsTab(ttk.Frame):
             self.log.say(f"wrote {out}")
             toast(self.root, self.theme, msg)
             self.diagnose()
+            if after is not None:
+                after(res)
 
         run_bg(self, work, done)
 
@@ -270,13 +284,42 @@ class PdfToolsTab(ttk.Frame):
         ``ocr.ocr_pdf`` runs the Tracer with P3 post-correction ON: a default
         trade lexicon + the document's own sheet index (auto-harvested inside
         ocr_pdf) cross-check every read, so a smudged S-1O1 snaps to the real
-        S-101 in the set, number-locked."""
+        S-101 in the set, number-locked.  Queue-worthy reads (mid-band +
+        machine repairs) collect into the review sink; the review deck
+        opens on demand."""
+        sink: list = []
+        src = self._path()
+
+        def after(_res):
+            self._review = (sink, src, self._out)
+            n = len(sink)
+            self.review_btn.configure(
+                state="normal" if n else "disabled",
+                text=f"Review uncertain reads ({n})")
+            if n:
+                self.log.say(f"  {n} read(s) queued for human review")
+
         self._run("OCR",
-                  lambda p, o: ocr.ocr_pdf(p, o, log=self.log.say),
+                  lambda p, o: ocr.ocr_pdf(p, o, log=self.log.say,
+                                           review_sink=sink),
                   "searchable",
                   lambda r: f"OCR complete — {r['pages_ocred']}/{r['pages_total']} "
                             "page(s) made searchable (cross-checked against the "
-                            "set's own sheet index)")
+                            "set's own sheet index)",
+                  after=after)
+
+    def open_review(self):
+        """Open the review deck over the last OCR run's queue."""
+        if not self._review or not self._review[0]:
+            return
+        sink, src, out = self._review
+        from .review_deck import ReviewDeck
+
+        def rerun(overrides, log):
+            return ocr.ocr_pdf(src, out, log=log, overrides=overrides)
+
+        ReviewDeck(self, self.theme, sink, src_pdf=src, rerun=rerun,
+                   log=self.log.say, root=self.root, status=self.status)
 
     # Back-compat alias: the palette command and older callers still reach the
     # single built-in OCR action through ``tracer_ocr``.

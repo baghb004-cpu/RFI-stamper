@@ -78,13 +78,21 @@ def _verify_only_text(src_page, out_page, dpi: int) -> dict:
 
 
 def write_searchable(in_pdf: str, out_pdf: str, dpi: int = 300,
-                     skip_text_pages: bool = True, log=print, ctx=None) -> dict:
+                     skip_text_pages: bool = True, log=print, ctx=None,
+                     review_sink=None, overrides=None) -> dict:
     """Write a searchable copy of ``in_pdf`` to ``out_pdf`` (see module docstring).
 
     Returns ``{"pages_ocred", "pages_total", "out_path"}``.  Delegates the
     per-page reading to the package pipeline (``read_image``); imported late to
     avoid an import cycle with the package facade.  The optional ``ctx`` is the
     P3 post-correction Context (``None`` → identical to P2).
+
+    ``review_sink``: list — queue-worthy reads append as ReviewItem with
+    the 1-based page stamped.  ``overrides``: ``{(page, bbox): text}``
+    replaces a word's text just before it is written (empty text = the
+    read is rejected and not written) — the review deck re-runs this
+    writer with accepted texts, and the existing pixel-diff verify step
+    re-proves the raster untouched.  Both default to None = today.
     """
     from . import read_image                    # late: breaks the import cycle
 
@@ -106,8 +114,15 @@ def write_searchable(in_pdf: str, out_pdf: str, dpi: int = 300,
                 pw, ph = pix.width / zoom, pix.height / zoom
                 new = out.new_page(width=pw, height=ph)          # /Rotate 0
                 new.insert_image(new.rect, pixmap=pix)
-                words = read_image(gray, dpi=dpi, ctx=ctx)
+                page_sink = [] if review_sink is not None else None
+                words = read_image(gray, dpi=dpi, ctx=ctx,
+                                   review_sink=page_sink)
+                if page_sink:
+                    review_sink.extend(it._replace(page=i + 1)
+                                       for it in page_sink)
                 for (x0, y0, x1, y1, text, _score) in words:
+                    if overrides is not None:
+                        text = overrides.get((i + 1, (x0, y0, x1, y1)), text)
                     if not text:
                         continue
                     # pixel → point (raster placed at zoom on a /Rotate 0 page)

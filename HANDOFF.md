@@ -6,13 +6,14 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.15.0, offline construction workspace; Python package
+- Product: **Planloom** v4.16.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
-  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB,
-  3D raster, clash, vector-diff and CPM engines are all Planloom's own.
-- 56 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  stdlib — the OCR (Tracer, with a human review deck), PDF writer (minipdf),
+  drag-drop, voice, KB, 3D raster, clash, vector-diff and CPM engines are
+  all Planloom's own.
+- 57 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -1072,6 +1073,68 @@ project store — zero schema migration.
   write dates, and it does not exist yet; no logic-arrow overlay).
   56 suites green twice.  NEXT: Phase G — the OCR correction-review
   GUI.
+
+## Round 31 (SHIPPED, v4.16.0): BUILDOUT Phase G — the OCR review deck
+
+Human-in-the-loop confirmation of uncertain OCR reads — the
+professional verification-station shape, wired into the machinery
+profile.py already promised.
+
+- **Engine taps (transparent no-ops by default)**:
+  `read_image(review_sink=)` appends a `ReviewItem` per QUEUE-WORTHY
+  read — the mid-band (τ_lo <= conf < τ_hi) plus every machine repair
+  the corrector CHANGED (`_REVIEW_REPAIRS`: index/lexicon/grammar
+  snaps — those were lifted to 0.95, above τ_hi, so a pure mid-band
+  filter would hide exactly the tokens where the machine overrode the
+  pixels).  Each item carries raw + corrected text, conf, why, and the
+  per-glyph NORMALIZED 28x28 cells (the only thing safe to promote).
+  `write_searchable(review_sink=, overrides=)` stamps pages into the
+  sink and honors `{(page, bbox): text}` overrides just before
+  insert_text (empty text = read rejected) — the deck re-runs the
+  writer with accepted texts, never in-place PDF surgery, and the
+  existing pixel-diff verify re-proves the raster untouched.
+  `tracer.ocr_pdf` / `ocr.ocr_pdf` thread both through.  Sink=None is
+  byte-identical to before (test-pinned).
+- **gui/review_deck.py (new)**: Toplevel deck.  One Treeview of DATA
+  rows (never a widget/PhotoImage per row — detail-pane-only rendering
+  IS the tk virtual list); detail pane = integer-zoomed word crop from
+  the page raster + per-glyph cell strip (char + conf, mid-band
+  tinted) + editable Entry.  Keyboard-first: Enter accept, Tab skip
+  (returns "break" or tk traversal eats it), Shift+Tab back,
+  Ctrl+Enter batch-accept above a spinbox threshold (audit-tagged
+  "batch"), Esc close (confirms when undecided remain).  THE
+  correctness rule: an accepted EDIT files per-glyph corrections only
+  when edit length == glyph count — a mismatch is a segmentation
+  error, not a label; the text still flows to overrides + audit.
+  Corrections are PENDING until the explicit "Promote N corrections…"
+  button (Corrections.promote into the process-singleton ensemble —
+  the same object the next OCR run uses), which then offers "save as
+  firm font profile" (~/.planloom/fontprofiles/<label>.npz; producer
+  metadata is often NDA-stripped, so the label is user-typed).
+  "Apply N accepted…" re-runs the writer with overrides under run_bg.
+  Append-only JSONL audit (~/.planloom/tracer_reviews.jsonl, one
+  record per decision, atomic on close).
+- **tab_pdftools**: `_run` gained an `after=` success hook; the OCR
+  action collects the sink and lights "Review uncertain reads (N)";
+  `open_review` builds the deck with a rerun closure that repeats
+  `ocr.ocr_pdf` with the same lexicon config + overrides.
+- **Tests** (tests/test_review.py, engine + xvfb deck halves): tap
+  no-op byte-identity + mid-band predicate; end-to-end sink through
+  ocr_pdf (a rendered "PLUMBNG" snaps to "PLUMBING", queued as a
+  machine repair with the page stamped); overrides replace/reject +
+  deterministic (page, bbox) keys across runs; the human gate
+  (record does NOT train, promote does, FontProfile save/load/apply
+  round trip on FRESH load_ensemble() instances — never the
+  singleton); deck: rows, detail images, accept/skip/batch handlers
+  called directly, the alignment fence (mismatched edit files zero
+  glyph corrections), overrides dict, apply-through-rerun, audit
+  JSONL (4 records, atomic, redirected out of $HOME).
+- SKIP list held (no re-segmentation UI — text-edit only; no per-row
+  thumbnails; no auto-promotion or background retraining; no undo
+  stack, multi-doc sessions, or reviewer accounts; no τ threshold
+  editing from the deck; dropped `< τ_lo` reads stay a count, not a
+  tray).  57 suites green twice.  NEXT: Phase H — Tracer P5, the
+  touching-glyph residual (the review data now exists to feed it).
 
 ## Roadmap (still open)
 

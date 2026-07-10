@@ -202,9 +202,13 @@ run; the `*_report.txt` must end in PASS).
                               overlay, viewer, prefs (~/.planloom), pano (offline 360° site-photo viewer), tab_fieldstitch
                               (layout-points board), oldhand
                               (the Old Hand: global Heartwood Q&A drawer,
-                              Ctrl+/ from any section), squawk_deck (Squawk
-                              Box voice deck), holler_deck (Holler floating
-                              voice companion), tab_draft
+                              Ctrl+/ from any section), review_deck (the OCR
+                              correction-review deck: mid-band + machine-
+                              repair queue, keyboard-first, human-gated
+                              Corrections.promote + firm FontProfiles,
+                              overrides re-run, JSONL audit), squawk_deck
+                              (Squawk Box voice deck), holler_deck (Holler
+                              floating voice companion), tab_draft
                               (The Loft drafting board), tab_home,
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,
@@ -330,6 +334,17 @@ were proven on real export files. GUI constructs under xvfb.
   NO Greek delta glyph — the redline's revision-delta tags are DRAWN
   triangles + a plain number.  Redline region markers are rectangles, not
   clouds (invariant #6 — clouded compare output needs owner sign-off).
+- The review deck's single most important correctness rule: an accepted
+  EDIT files per-glyph corrections ONLY when the edit length equals the
+  glyph count — a length mismatch is a segmentation error, not a label
+  (the cell↔char alignment is unknown); the text still flows to overrides
+  and audit.  Promote the NORMALIZED `ng.cell` the classifier saw, never
+  display crops (un-normalized features poison the kNN).  The machine
+  repairs (index/lexicon/grammar snaps) are LIFTED to 0.95 — above τ_hi —
+  so a pure mid-band review filter would hide exactly the tokens where
+  the machine overrode the pixels; `_REVIEW_REPAIRS` queues them.
+  `classify.default_ensemble()` is a process singleton — the deck holds
+  it, so promotions reach the next OCR run without re-applying a profile.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.

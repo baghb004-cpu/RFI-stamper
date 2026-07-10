@@ -30,6 +30,7 @@ image"); ``read_words`` maps them to viewer page points via the render scale.
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import numpy as np
 import fitz
@@ -40,9 +41,10 @@ from .fonts import CHARSET
 from .searchable import write_searchable, _visible
 
 __all__ = [
-    "CHARSET", "available", "info", "needs_ocr", "read_image", "read_words",
-    "ocr_page_text", "ocr_pdf", "write_searchable", "harvest_sheet_hints",
-    "tesseract_available", "tesseract_info", "OcrUnavailable",
+    "CHARSET", "ReviewItem", "available", "info", "needs_ocr", "read_image",
+    "read_words", "ocr_page_text", "ocr_pdf", "write_searchable",
+    "harvest_sheet_hints", "tesseract_available", "tesseract_info",
+    "OcrUnavailable",
 ]
 
 # Confidence anchors (OCR_PLAN §5): below τ_lo a read is garbage, above τ_hi it
@@ -52,6 +54,30 @@ TAU_LO = 0.60
 TAU_HI = 0.90
 _MIN_KEEP = 0.30          # drop words below this mean cosine as noise
 _MIN_HINT_CHARS = 12      # a page with ≥ this many visible chars is vector text
+
+#: machine repairs the review deck surfaces for one-keystroke confirmation —
+#: these were LIFTED to 0.95 (above τ_hi), so a pure mid-band filter would
+#: hide exactly the tokens where the machine overrode the pixels.
+_REVIEW_REPAIRS = frozenset(
+    {"sheet:index_snap", "word:lexicon_snap", "dim:grammar_repair"})
+
+
+class ReviewItem(NamedTuple):
+    """One queue-worthy read for the human review deck (gui/review_deck).
+
+    ``bbox`` is raster pixels, inclusive; ``raw`` is the pre-correction
+    text, ``text`` the post-correction default the reviewer edits.
+    ``glyphs`` carries, per glyph, the NORMALIZED 28x28 cell the
+    classifier actually saw (the only thing safe to promote as a kNN
+    exemplar), its raster span (y0, x0, y1, x1), the read char, and the
+    per-glyph confidence.  ``page`` is stamped by write_searchable."""
+    page: int
+    bbox: tuple
+    raw: str
+    text: str
+    conf: float
+    why: str
+    glyphs: list
 
 
 class OcrUnavailable(RuntimeError):
@@ -130,7 +156,8 @@ def _resolve_ctx(sheet_hints, lexicon, heartwood_path, ctx):
 
 
 def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
-               sheet_hints=None, lexicon=None, heartwood_path=None, ctx=None):
+               sheet_hints=None, lexicon=None, heartwood_path=None, ctx=None,
+               review_sink=None):
     """Read one upright grayscale raster → ``[(x0, y0, x1, y1, text, score)]``.
 
     Coordinates are **raster pixels** (inclusive bbox).  The pipeline:
@@ -144,6 +171,12 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
     routed through :func:`lexicon.correct` — sheet-number index snap, dimension
     grammar repair, word lexicon snap, number-lock, garbage rejection — in this
     pixel frame.  With all of them ``None`` the output is identical to P2.
+
+    **Review tap (optional, transparent):** pass a list as ``review_sink``
+    and every QUEUE-WORTHY read appends a :class:`ReviewItem` — the
+    mid-band (τ_lo <= conf < τ_hi) plus every machine repair the
+    corrector CHANGED (those were lifted above τ_hi and would otherwise
+    hide).  ``review_sink=None`` is byte-identical to not passing it.
     """
     ctx = _resolve_ctx(sheet_hints, lexicon, heartwood_path, ctx)
     gray = np.asarray(gray)
@@ -210,6 +243,8 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
             y0 = min(s[0] for s in spans)
             x1 = max(s[3] for s in spans)
             y1 = max(s[2] for s in spans)
+            raw = text
+            why, changed = "", False
             if use_ctx is not None:
                 tok = _lexicon.Tok(text, (int(x0), int(y0), int(x1), int(y1)),
                                    float(score))
@@ -217,6 +252,16 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
                 if not res["keep"]:
                     continue
                 text, score = res["text"], res["conf"]
+                why, changed = res["why"], bool(res["changed"])
+            if review_sink is not None:
+                queue = (TAU_LO <= score < TAU_HI) or (
+                    changed and why.split("|")[0] in _REVIEW_REPAIRS)
+                if queue:
+                    review_sink.append(ReviewItem(
+                        0, (int(x0), int(y0), int(x1), int(y1)), raw, text,
+                        float(score), why,
+                        [(cells[i], spans[i], chars[i], float(cos[i]))
+                         for i in range(len(cells))]))
             results.append((int(x0), int(y0), int(x1), int(y1), text, float(score)))
     return results
 
@@ -296,7 +341,8 @@ def harvest_sheet_hints(doc) -> list:
 
 def ocr_pdf(path: str, out_path: str, dpi: int = 300, language: str = "eng",
             skip_text_pages: bool = True, log=print, sheet_hints=None,
-            lexicon=None, heartwood_path=None) -> dict:
+            lexicon=None, heartwood_path=None, review_sink=None,
+            overrides=None) -> dict:
     """Write a searchable copy of ``path`` (delegates to ``write_searchable``).
 
     ``language`` accepted and ignored (compat).  Returns
@@ -317,6 +363,7 @@ def ocr_pdf(path: str, out_path: str, dpi: int = 300, language: str = "eng",
                                      heartwood_path=heartwood_path)
         log(f"  · P3 post-correction on ({len(merged)} sheet hint(s))")
     res = write_searchable(path, out_path, dpi=dpi,
-                           skip_text_pages=skip_text_pages, log=log, ctx=ctx)
+                           skip_text_pages=skip_text_pages, log=log, ctx=ctx,
+                           review_sink=review_sink, overrides=overrides)
     return {"pages_ocred": res["pages_ocred"], "pages_total": res["pages_total"],
             "out_path": res["out_path"]}

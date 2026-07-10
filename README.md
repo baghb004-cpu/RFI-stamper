@@ -358,7 +358,12 @@ Sheet detection needs text near the title block (scanned sets: run OCR
 first). OCR is Planloom's own built-in engine (the Tracer) — no install, no
 external binary; it reads title-block and large lettering well, with
 small/degraded/linework-fused text an honest work-in-progress routed to
-review. The BIM viewer is a wireframe walkthrough with sheet
+review — and "routed to review" now means a real **review deck**: after an
+OCR run, confirm every uncertain read and machine repair against the
+pixels, keyboard-first; your accepted edits can teach the recognizer your
+firm's lettering (human-gated, saved as a local font profile), and the
+searchable text is rewritten with your decisions. The BIM viewer is a
+wireframe walkthrough with sheet
 placement, not an IFC authoring tool. Offline summaries are serviceable cliff
 notes, not judgment calls. The verification pass is the backstop: if it says
 FAIL, don't issue the sheet. Cloud collaboration and mobile apps are out of
