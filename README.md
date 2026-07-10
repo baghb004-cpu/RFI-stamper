@@ -42,12 +42,27 @@ A **project** is one local `.ploom.json` file holding tasks, schedule, punch,
 inspections, change orders, budget, documents and specs — portable, mergeable
 (via bundles), never uploaded.
 
+## Learning it: the Ropes
+
+First launch offers a hands-on walkthrough — and every course stays in
+**Help → Training Center**. A spotlight dims the screen and opens a clear
+window over the real control (on Windows, a true translucent tint with a
+crisp punched circle you click straight through); an arrow and a plain-
+words card tell you what it does; **you click the real button** and the
+tour moves with you. Every step has a **"Show me"** that animates a
+pointer doing it for you, courses open with "after this you will be able
+to…" roadmaps and close with **"You try it!"** checkpoints, progress is
+saved per course, and Esc leaves anytime. *Tell me and I'll forget, show
+me and I'll remember, involve me and I'll understand.*
+
 ## The look
 
 Planloom is themed on color theory, not flat gray: a warm drafting-paper
-light mode, a deep blueprint-blue dark mode, and a distinct hue per workspace
-so you always know where you are. Motion is everywhere but honest about
-hardware:
+light mode, a deep blueprint-blue dark mode, and a distinct **memory
+palette** — one calm anchor hue per workspace, repeated in the nav, panel
+headers and training spotlight alike, evened in intensity so no section
+shouts: you learn where things live by color without ever being nagged by
+it. Motion is everywhere but honest about hardware:
 
 * eased section transitions, an animated nav indicator, gradient headers with
   a drifting sheen, count-up KPIs, sweep-in Gantt bars, draw-in sparklines,

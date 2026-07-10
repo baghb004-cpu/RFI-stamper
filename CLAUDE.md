@@ -261,7 +261,12 @@ run; the `*_report.txt` must end in PASS).
                               Corrections.promote + firm FontProfiles,
                               overrides re-run, JSONL audit), squawk_deck
                               (Squawk Box voice deck), holler_deck (Holler
-                              floating voice companion), tab_draft
+                              floating voice companion), ropes (the Ropes:
+                              hands-on training mode — spotlight overlay w/
+                              Windows alpha+transparentcolor punch / open-
+                              hole strip fallback, done_when watcher,
+                              Show-me pointer, Training Center, first-run
+                              offer; courses per section), tab_draft
                               (The Loft drafting board), tab_home,
                               tab_field, tab_project (incl. ResolutionBoard),
                               tab_plansbim, tab_reporting, tab_integrations,
@@ -544,6 +549,18 @@ were proven on real export files. GUI constructs under xvfb.
   boxless occurrences (headers/running text carry the model name on
   nearly every sheet); marking gates are one row, one box, pixel-empty —
   a skipped mark ALWAYS logs its reason and count.
+- The Ropes laws: a tk canvas is OPAQUE — a full-window "tint" hides the
+  app AND the target; the spotlight hole must be PHYSICALLY uncovered
+  (Windows: alpha + transparentcolor punch = translucent tint + clear
+  click-through circle; elsewhere: four strip canvases leave an open rect
+  — the real control stays visible and really clickable).  The tour
+  advances by WATCHING each step's done_when state, NOT by intercepting
+  clicks; that watcher is a step-scoped after-chain, deliberately NOT an
+  fx loop: the fx scheduler ticks NOTHING at quality "off" (by design)
+  and `_LoopTask`/`_resolve_host` require widget owners — a plain-object
+  owner dies instantly and silently.  Grand-tour nav steps must never
+  target the section the user is already in (done_when would be true at
+  draw time and the step self-skips).
 - Drag-drop (gui/dnd.py) routes by REGISTRY + GEOMETRY, not widget stacking:
   the smallest viewable registered widget containing the drop point wins, the
   toplevel's own registration is the overlay's window-level enter/leave hook +

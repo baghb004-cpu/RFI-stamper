@@ -73,15 +73,22 @@ DARK = {
     "card_hi": "#2a2532",
 }
 
-# workspace section hues (keys match the nav) — one color family per section
+# workspace section hues (keys match the nav) — the MEMORY PALETTE.
+# Color-theory discipline (owner-approved): ONE stable anchor hue per
+# section, repeated everywhere that section appears (nav, tab headers,
+# panel titles, the Ropes spotlight) so location memory builds by
+# repetition; hues spaced around the wheel for discriminability; chroma
+# and lightness EVENED so no section shouts or fatigues — calm anchors
+# aid recall, saturation does not.  The one loud color in the app stays
+# the action accent (Accent.TButton); everything else defers to it.
 SECTIONS = {
-    "home":         {"color": "#c2402f", "glyph": "⌂", "label": "Home"},
-    "field":        {"color": "#2f9e62", "glyph": "⛑", "label": "Field Management"},
-    "project":      {"color": "#3f6fe0", "glyph": "▤", "label": "Project Management"},
-    "plans":        {"color": "#8b5cf6", "glyph": "⬒", "label": "Plans & BIM"},
-    "reporting":    {"color": "#dd8427", "glyph": "◫", "label": "Reporting"},
-    "integrations": {"color": "#12a5ba", "glyph": "⇌", "label": "App Integrations"},
-    "truth":        {"color": "#d64570", "glyph": "◎", "label": "Ground Truth"},
+    "home":         {"color": "#b9503f", "glyph": "⌂", "label": "Home"},
+    "field":        {"color": "#3d9a6b", "glyph": "⛑", "label": "Field Management"},
+    "project":      {"color": "#5273d6", "glyph": "▤", "label": "Project Management"},
+    "plans":        {"color": "#8a6cdd", "glyph": "⬒", "label": "Plans & BIM"},
+    "reporting":    {"color": "#c98a3f", "glyph": "◫", "label": "Reporting"},
+    "integrations": {"color": "#3399ab", "glyph": "⇌", "label": "App Integrations"},
+    "truth":        {"color": "#c25577", "glyph": "◎", "label": "Ground Truth"},
 }
 
 

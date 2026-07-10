@@ -64,6 +64,8 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Chalk Mark** | certainty-gated model-number checkbox marking inside Swatchbook builds (swatchbook.py) | a tailor's chalk mark tells the shop exactly where to cut — one small, deliberate mark, never a guess |
 | **The Story Pole** | dimension-anchored witnessed autoscale (setscale.py) | the carpenter's rod marked with known lengths, used to transfer and VERIFY measurements — never trusted from one mark alone |
 | **The Reed Count** | fixture-symbol recognition + auto-count (reedcount.py) | the reed count is the loom's dents-per-inch — THE density count of the trade, now counting fixtures per sheet |
+| **The Ropes** | hands-on training mode: spotlight tours + Training Center (gui/ropes.py) | "show you the ropes" — the oldest way a new hand learns the job |
+| **The memory palette** | the evened per-section anchor-hue system (gui/theme.py SECTIONS) | color placed for recall, not decoration — one calm anchor per room of the workspace |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1598,21 +1600,63 @@ is context-gated on two lanes:
   ownership; tombstones; to_packets integration) + a construct block
   driving Scan plan set → pull list → pre-filled callouts.
 
+## Round 41 (SHIPPED, v5.7.0): the Ropes — hands-on training + the memory palette
+
+Owner-confirmed campaign items 1–3 (of four; item 4 — the Fieldstitch
+staged board — is next).  Pedagogy seeded from an uploaded RTS training
+deck, structure only: lesson roadmaps ("after this you will be able
+to…"), hands-on "You try it!" checkpoints, a per-step "Show me".
+
+- **The tour engine** (gui/ropes.py, ``RopesTour``): every step
+  spotlights a REAL control.  Two renderers (the dnd_win32 HAS_
+  precedent): on Windows the punch — a borderless Toplevel with
+  ``-alpha`` (true grey translucent tint) + ``-transparentcolor``
+  punching a fully CLEAR, CLICK-THROUGH circle over the target;
+  everywhere else the fallback — four tint strips that leave the hole
+  PHYSICALLY OPEN (tk widgets cannot be translucent, and a full-canvas
+  tint hides the target too — see the gotcha).  Section-anchored ring
+  settles onto the target (one fx motion, no loop), arrow + caption
+  card with step count / Show me / Next / End tour.  The tour advances
+  by WATCHING each step's ``done_when`` state (step-scoped after-chain
+  — deliberately not an fx loop, which ticks nothing at quality "off");
+  the trainee's click lands on the real widget in both renderers.
+  "Show me" animates a pointer (its own tiny placed canvas — crosses
+  strips, hole and overlay alike), then performs the step and moves on.
+  Esc ends; progress saved per course.
+- **Courses** (``courses()``): the grand tour (9 steps: welcome, all
+  seven nav sections hands-on, a You-try-it palette checkpoint) +
+  section courses for Project (stamp → Swatchbook → build-all
+  checkpoint), Plans (markup/Story Pole/Reed Count → Loft →
+  tag-a-fixture checkpoint), Field, Ground Truth.  Tab steps navigate
+  for the trainee (``on_show`` selects the tab) and spotlight the live
+  panel.  Grand-tour nav steps never target the section the user is
+  already in (done_when would self-skip — gotcha).
+- **Training Center** (Help menu + Ctrl+K "Show me the ropes"): course
+  list with ▢/⏳/✓ progress, the deck's proverb, per-course roadmap,
+  Start/Resume (per-course step memory in prefs["ropes"]).
+- **First-run offer**: one-time "New around here?" dialog (suppressed
+  in headless runs via PLOOM_NO_FIRST_RUN; tested explicitly with
+  prefs redirected to a temp dir).
+- **The memory palette** (theme.py SECTIONS): per-section anchor hues
+  retuned — same hue families (existing users' location memory keeps),
+  chroma/lightness EVENED so no section shouts; the action accent stays
+  the app's one loud color.  Color-theory rationale documented inline.
+- **Tests**: construct blocks — offer shows once; catalog + roadmaps;
+  overlay draws; welcome = card only; nav step spotlights the real nav
+  zone; strips never cover the hole; a REAL user action advances via
+  the watcher; Show me performs + advances; end saves resumable
+  progress; Training Center lists courses and offers Resume.
+
 ## Roadmap (still open)
-- **Owner-confirmed next campaign (2026-07-10)** — four recommendations
-  locked by the owner: (1) the training mode — hands-on click-to-advance
-  steps with a per-step "Show me" animated fallback; (2) Training Center
-  + first-run prompt, per-section courses with progress tracking; (3)
-  full-app memory palette (one consistent low-saturation anchor hue per
-  section, calm neutrals, accent only where action is needed); (4) the
-  Fieldstitch staged workflow board (Job → Set Up → Points → Stake/QA →
-  Export as big touch-friendly stage tiles) + station-setup geometry
-  advisor (good/bad triangle check, re-check-backsight reminders) + XLSX
-  coordinates in the robotic-total-station export kit.  Inspiration
-  seed: an uploaded RTS training deck — structure and pedagogy only
-  (lesson roadmaps, "You Try It!" checkpoints, correct-vs-incorrect
-  reviews), never its content or vendor names.  Also owner-requested:
-  a dead-simple first-run connect wizard (folders, formats, kits).
+- **Owner-confirmed campaign, item 4 (next round)**: the Fieldstitch
+  staged workflow board (Job → Set Up → Points → Stake/QA → Export as
+  big touch-friendly stage tiles) + station-setup geometry advisor
+  (good/bad triangle check, re-check-backsight reminders) + XLSX
+  coordinates in the robotic-total-station export kit; plus the
+  dead-simple first-run connect wizard (folders, formats, kits).
+- **Owner smoke on real Windows**: the Ropes punch renderer (alpha +
+  transparentcolor + click-through) joins the standing drag-drop and
+  mic smoke items.
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
 - **Richer extrusion**: door/window gap detection, per-layer wall heights.

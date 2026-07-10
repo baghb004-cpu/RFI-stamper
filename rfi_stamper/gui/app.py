@@ -208,6 +208,21 @@ class App:
         if fx.quality() != "off":
             self.root.after(50, self._warp_up)
 
+        # the Ropes: offer the hands-on walkthrough ONCE on a fresh install
+        # (suppressed in headless test runs via PLOOM_NO_FIRST_RUN)
+        if (not os.environ.get("PLOOM_NO_FIRST_RUN")
+                and not self.prefs.get("ropes_offered")):
+            self.prefs["ropes_offered"] = True
+            self.root.after(1400, self._offer_ropes)
+
+    def _offer_ropes(self):
+        from . import ropes
+        ropes.first_run_offer(self)
+
+    def open_training(self):
+        from . import ropes
+        ropes.TrainingCenter(self)
+
     # -------------------------------------------------------- celebration
     def celebrate_verified(self):
         """A rubber-stamp slam: 'VERIFIED' drops onto the screen at an angle,
@@ -486,6 +501,8 @@ class App:
                            command=self.toggle_guard)
         m.add_cascade(label="Tools", menu=toolsm)
         helpm = tk.Menu(m, tearoff=0)
+        helpm.add_command(label="Training Center — the Ropes…",
+                          command=self.open_training)
         helpm.add_command(label="Keyboard shortcuts\tF1",
                           command=self.show_shortcuts)
         helpm.add_command(label="About Planloom", command=self.about)
@@ -498,6 +515,8 @@ class App:
         p.register("Toggle dark mode", "View", self.toggle_dark, "Ctrl+D")
         p.register("Fullscreen", "View", self.toggle_fullscreen, "F11")
         p.register("Keyboard shortcuts", "Help", self.show_shortcuts, "F1")
+        p.register("Show me the ropes (Training Center)", "Help",
+                   self.open_training)
         p.register("About Planloom", "Help", self.about)
         p.register("Set author name (markups)", "Preferences",
                    self.set_author)

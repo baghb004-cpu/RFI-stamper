@@ -10,6 +10,8 @@ import os
 import sys
 import tempfile
 
+os.environ["PLOOM_NO_FIRST_RUN"] = "1"   # the Ropes offer: tested explicitly
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz                                            # noqa: E402
@@ -1595,6 +1597,99 @@ def main():
     from rfi_stamper import offline_guard
     assert offline_guard.is_active()
     assert mk_tab.UNDO_LIMIT >= 500
+
+    # the Ropes: first-run offer, tour engine (spotlight + hands-on click +
+    # Show me), progress persistence, and the Training Center
+    from rfi_stamper.gui import prefs as _prefs_mod
+    from rfi_stamper.gui import ropes as _ropes
+    import time as _trp
+    _pp0 = (_prefs_mod.PREFS_DIR, _prefs_mod.PREFS_PATH)
+    _prefs_mod.PREFS_DIR = os.path.join(tmp, "ploomprefs")
+    _prefs_mod.PREFS_PATH = os.path.join(_prefs_mod.PREFS_DIR, "prefs.json")
+    os.makedirs(_prefs_mod.PREFS_DIR, exist_ok=True)
+    try:
+        _dlg = _ropes.first_run_offer(app)
+        root.update()
+        assert _dlg is not None and _dlg.winfo_exists(), "offer shows once"
+        _dlg.destroy()
+        root.update()
+        assert _ropes.first_run_offer(app) is None, "offer never nags twice"
+
+        _cat = _ropes.courses(app)
+        assert _cat[0]["key"] == "grand_tour" and len(_cat) >= 5
+        assert all(c["roadmap"] and c["steps"] for c in _cat), "roadmaps set"
+
+        _ended = []
+        tour = _ropes.RopesTour(app, _cat[0],
+                                on_end=lambda d: _ended.append(d))
+        tour.start(0)
+        for _ in range(100):
+            root.update()
+            if tour.drawn >= 1:
+                break
+            _trp.sleep(0.02)
+        assert tour.cv is not None and tour.cv.winfo_exists(), \
+            "spotlight overlay drew"
+        assert tour._circle is None, "welcome step: card only, no hole"
+        tour._next()                        # -> the "home" nav step
+        for _ in range(100):
+            root.update()
+            if tour.drawn >= 2:
+                break
+            _trp.sleep(0.02)
+        assert tour._circle is not None, "nav step spotlights the nav zone"
+        _hy = tour._circle[1]
+        assert _hy < app.nav.HEIGHT + 40, "spotlight sits on the nav bar"
+        assert tour._strips, "fallback tint strips leave the hole OPEN"
+        # the hole is physically uncovered: no strip contains its center
+        _hcx = (tour._circle[0] + tour._circle[2]) / 2
+        _hcy = (tour._circle[1] + tour._circle[3]) / 2
+        for _st in tour._strips:
+            _sx, _sy = _st.winfo_x(), _st.winfo_y()
+            assert not (_sx <= _hcx <= _sx + _st.winfo_width()
+                        and _sy <= _hcy <= _sy + _st.winfo_height()), \
+                "a tint strip covers the spotlight hole"
+        # hands-on: the trainee clicks the REAL nav item through the open
+        # hole; simulate that real action — the done_when watcher advances
+        _i0 = tour.i
+        app.goto("field")
+        for _ in range(100):
+            root.update()
+            if tour.drawn >= 3 and tour.i == _i0 + 1:
+                break
+            _trp.sleep(0.02)
+        assert tour.i == _i0 + 1, "the real action advanced the step"
+        # Show me: the pointer performs the step and moves on
+        _step = tour.course["steps"][tour.i]
+        _bbox = tour._target_bbox(_step)
+        assert _bbox is not None
+        _i1 = tour.i
+        tour._show_me(_bbox)
+        for _ in range(150):
+            root.update()
+            if tour.i == _i1 + 1:
+                break
+            _trp.sleep(0.02)
+        assert tour.i == _i1 + 1, "Show me performed and advanced"
+        assert app._current == "project", "Show me really navigated"
+        tour.end()
+        root.update()
+        assert tour.cv is None and _ended == [False], "tour ends cleanly"
+        _saved = _prefs_mod.load().get("ropes", {}).get("grand_tour", {})
+        assert _saved.get("step") == _i1 + 1 and not _saved.get("done"), \
+            _saved
+        # the Training Center lists every course and offers Resume
+        tc = _ropes.TrainingCenter(app)
+        root.update()
+        assert tc.listbox.size() == len(_cat), "all courses listed"
+        assert "Resume" in str(tc.start_btn.cget("text")), \
+            tc.start_btn.cget("text")
+        tc.dlg.destroy()
+        root.update()
+    finally:
+        _prefs_mod.PREFS_DIR, _prefs_mod.PREFS_PATH = _pp0
+    app.goto("home")
+    root.update()
 
     # the from-scratch drag-drop layer (tkinterdnd2 retired)
     check_dnd(root)
