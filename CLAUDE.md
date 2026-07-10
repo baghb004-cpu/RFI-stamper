@@ -105,7 +105,12 @@ run; the `*_report.txt` must end in PASS).
                               harvest-style reconcile into the project store
                               (machine facts refresh, human callouts/notes
                               survive, orphans tombstone), Swatchbook
-                              proposal packets; synced on every Loft save
+                              proposal packets; synced on every Loft save;
+                              + the set-scan lane: fixture-schedule table
+                              parser (y-band lines, header-cell columns) +
+                              tags beside Reed Count symbols on Story
+                              Pole-verified sheets (context-gated; sheet-
+                              number/word-exact rejects; skips surfaced)
     rfi_stamper/swatchbook.py the Swatchbook: plumbing cut-sheet submittal
                               builder — offline manufacturer-sheet library
                               (manifest + sha256 + alias resolution), one
@@ -519,6 +524,13 @@ were proven on real export files. GUI constructs under xvfb.
   inside the cluster bbox.  Size sanity vs the stencil footprint is the
   strongest false-positive killer (north arrows match wh at 0.85) and is
   why the Reed Count REQUIRES a verified scale (Story Pole or human cal).
+- Set-scan laws: schedule-table lines group by Y-BAND, never the
+  extractor's (block, line) — CAD tables emit every cell as its own block
+  and block grouping shreds the rows.  A tag counts only word-exact
+  ("2/P-1" never yields P-1) and never when it equals one of the set's
+  own sheet numbers.  Schedule callouts pre-fill a pull-list row ONLY at
+  creation — callouts are human-owned after that.  sync_scan fills empty
+  stencil/label but never overwrites the model lane's (stronger) facts.
 - Chalk Mark laws: many manufacturer sheets are FILLABLE FORMS whose
   checkboxes exist only as widget annotations — `show_pdf_page` embeds
   page content only, so `build_packet` BAKES annots+widgets into the

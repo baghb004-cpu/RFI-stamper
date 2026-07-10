@@ -337,6 +337,8 @@ class SwatchbookPanel(ttk.Frame):
                    command=self.load_reference).pack(side="right", padx=2)
         ttk.Button(bar, text="Import sheet…",
                    command=self.import_sheet).pack(side="right", padx=2)
+        ttk.Button(bar, text="Scan plan set…",
+                   command=self.scan_plan_set).pack(side="right", padx=2)
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, pady=(8, 0))
@@ -532,7 +534,8 @@ class SwatchbookPanel(ttk.Frame):
             return
         from .. import cutticket
         packets, needs = cutticket.to_packets(proj.pull_list)
-        keep = [p for p in self.fixtures if p.get("origin") != "model"]
+        keep = [p for p in self.fixtures
+                if p.get("origin") not in ("model", "set-scan")]
         have = {p["tag"] for p in keep}
         self.fixtures = keep + [p for p in packets if p["tag"] not in have]
         self._needs_attention = needs
@@ -569,6 +572,51 @@ class SwatchbookPanel(ttk.Frame):
                 len(p["components"]), "; ".join(p["missing"]) or "—"))
 
     # ------------------------------------------------------------- actions
+    def scan_plan_set(self, path: str | None = None):
+        """The Cut Ticket reads the set: fixture tags harvested
+        context-gated (schedule table rows + tags beside recognized
+        symbols on scale-verified sheets) land on the project's pull
+        list as PROPOSALS — loud provenance, human-owned fields
+        untouched, nothing builds without Build All."""
+        proj = self.get_project() if self.get_project else None
+        if proj is None:
+            messagebox.showinfo(
+                "Scan plan set", "Open or create a project first — "
+                "scanned tags land on its Cut Ticket pull list.")
+            return
+        if path is None:
+            path = filedialog.askopenfilename(
+                title="Scan a plan set for fixture tags",
+                filetypes=[("PDF", "*.pdf"), ("All files", "*.*")])
+        if not path:
+            return
+        from . import prefs as _prefs
+        extra = dict(_prefs.load().get("reed_symbols", {}))
+        self.status.set("Set scan: reading the drawing set…", "info")
+
+        def work():
+            from .. import cutticket
+            return cutticket.scan_set(path, extra_symbols=extra)
+
+        def done(scan, err):
+            if err:
+                self.status.set(f"set scan failed: {err}", "err")
+                return
+            from .. import cutticket
+            res = cutticket.sync_scan(proj, scan,
+                                      os.path.basename(path))
+            self.refresh_pull()
+            self.status.set(
+                f"Set scan: {res['tags']} tag(s) — {res['added']} new, "
+                f"{res['updated']} updated, {res['orphaned']} tombstoned; "
+                f"{res['untagged']} untagged symbol(s)", "ok")
+            if scan["skipped"]:
+                messagebox.showinfo(
+                    "Set scan — skipped (surfaced, never silent)",
+                    "\n".join(scan["skipped"][:20]))
+
+        run_bg(self, work, done)
+
     def load_reference(self):
         recipes = swatchbook.load_recipes()
         self.fixtures = list(recipes["packets"])

@@ -340,8 +340,12 @@ symbols recognized on vector sheets — rotated, mirrored, any scale — and
 counted per sheet, with a hard real-size sanity gate so a water-closet
 shape at an impossible size never counts; look-alike conventions are
 flagged ambiguous instead of guessed, unknown symbols land in a tray you
-can label once and count forever after) · auto-numbered punch dots · batch
-stamping · a submittal-log
+can label once and count forever after) · **set scanning** (the Cut Ticket
+reads the whole set: fixture-schedule table rows and tags found beside
+recognized symbols become a preliminary fixture schedule on the pull list —
+manufacturer and model pre-filled from the schedule, every skip surfaced,
+and nothing is ever scraped from naked tag-shaped text) · auto-numbered
+punch dots · batch stamping · a submittal-log
 parser · **IFC import** (the Draw-In — walls, slabs and columns from an open
 building-model exchange file straight into the 3D viewer, with an honest
 coverage report of anything skipped) · **cut-sheet submittals** (the
@@ -365,7 +369,7 @@ Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (64 scripts)
+    python tests/run_all.py          # full test suite (65 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,

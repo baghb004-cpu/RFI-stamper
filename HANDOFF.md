@@ -1563,12 +1563,42 @@ stencils (convention-only descriptions, invariant #7).
   custom-symbol learning; no-scale refusal; determinism) + a construct
   block driving Story Pole → Reed Count to a counts tree.
 
-## Roadmap (still open)
+## Round 40 (SHIPPED, v5.6.0): the Cut Ticket reads the set — SETSCAN done
 
-- **SETSCAN_PLAN.md (owner-requested, staged; Phases 4+1+2 SHIPPED
-  v5.3.0/v5.4.0/v5.5.0)** — remaining: the Cut Ticket set-scan (fixture
-  tags + the legend-sheet schedule table harvested into preliminary
-  pull-list rows with pre-filled callouts — proposals only).
+SETSCAN Phase 3, the last one: scan a whole plan set for fixture tags
+and land them on the project's pull list as proposals.  The module's own
+first law holds — naked tag-shaped text is NEVER scraped — so the scan
+is context-gated on two lanes:
+
+- **Schedule lane** (`cutticket.schedule_rows`): the fixture-schedule
+  table itself.  Lines group by Y-BAND (CAD tables emit every cell as
+  its own text block — block grouping shreds rows); a header line
+  carrying MARK/TAG/SYMBOL/FIXTURE plus DESCRIPTION defines columns by
+  its cells' x-positions; data rows read word-exact tags until the tag
+  column goes quiet; wrapped description lines append; MANUFACTURER +
+  MODEL cells become a pre-filled callout.
+- **Symbol lane**: tags beside Reed Count-recognized symbols, only on
+  Story Pole-VERIFIED sheets (unverified sheets are skipped with the
+  verdict's reason, loudly).  Hard rejects: non-word-exact matches
+  ("2/P-1" never yields P-1), tokens equal to the set's own sheet
+  numbers (SheetIndex), untagged symbols surfaced as counts.
+- **Reconcile** (`sync_scan`): same field-ownership law as the model
+  lane under its own source key ("set-scan:<file>") — counts merge
+  per-source with the Loft lane; schedule callouts pre-fill ONLY on row
+  creation (human-owned after); stencil/label fill empty fields, never
+  overwrite the model lane's stronger facts; orphans tombstone.
+  `to_packets` now carries true origins ("set-scan-sourced: N placed").
+- **GUI**: "Scan plan set…" on the Swatchbook bar → pick a PDF → scan in
+  the background → proposals appear with provenance flags; skipped items
+  in a dialog; schedule-only rows surface "needs a 0-49 category"
+  (never guessed).
+- **Tests**: tests/test_setscan.py (24 checks — table parse w/ wrapped
+  rows; symbol+schedule lanes over a real two-page set (Loft plate +
+  synthetic legend); "SEE 2/P-1" decoy; unverified-sheet skip; reconcile
+  ownership; tombstones; to_packets integration) + a construct block
+  driving Scan plan set → pull list → pre-filled callouts.
+
+## Roadmap (still open)
 - **Owner-confirmed next campaign (2026-07-10)** — four recommendations
   locked by the owner: (1) the training mode — hands-on click-to-advance
   steps with a per-step "Show me" animated fallback; (2) Training Center

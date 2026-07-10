@@ -1,8 +1,8 @@
 # SETSCAN_PLAN.md — reading the drawing set (scale · symbols · tags · marks)
 
-**Status:** IN FLIGHT — Phase 4 (the Chalk Mark) SHIPPED v5.3.0; Phase 1
-(the Story Pole) SHIPPED v5.4.0; Phase 2 (the Reed Count) SHIPPED v5.5.0;
-Phase 3 planned, not yet built. Same discipline that shipped the Tracer
+**Status:** COMPLETE — all four phases SHIPPED: the Chalk Mark v5.3.0,
+the Story Pole v5.4.0, the Reed Count v5.5.0, the Cut Ticket set-scan
+v5.6.0. Same discipline that shipped the Tracer
 (OCR_PLAN), minipdf (MINIPDF_PLAN) and the BUILDOUT campaign: research →
 staged build behind tests → prove → ship, one phase = one round = one
 version. README documents only shipped features and is updated as each
@@ -115,8 +115,9 @@ clusters against a symbol library.
   never counts; unknown-cluster tray fills honestly.
 
 ## Phase 3 — the Cut Ticket reads the set: tags → preliminary schedule
-*(extends `cutticket.py` — new source lane `origin="set-scan"` beside the
-existing Loft-model lane; the per-source reconcile already merges lanes)*
+**SHIPPED v5.6.0** *(extends `cutticket.py` — new source lane
+`origin="set-scan"` beside the existing Loft-model lane; the per-source
+reconcile merges lanes exactly as planned.)*
 
 **Goal:** scan a whole plan set for fixture tags and emit the preliminary
 fixture schedule as Cut Ticket rows the Swatchbook auto-feeds.
@@ -189,7 +190,7 @@ and mark the checkbox beside it.
 | 4 | the Chalk Mark (checkbox marking) — **SHIPPED** | v5.3.0 | Swatchbook (shipped) |
 | 1 | the Story Pole (witnessed autoscale) — **SHIPPED** | v5.4.0 | — |
 | 2 | the Reed Count (symbol counting) — **SHIPPED** | v5.5.0 | 1 (size sanity) |
-| 3 | the Cut Ticket set-scan (tags → schedule) | v5.6.0 | 2 (symbol context), Swatchbook |
+| 3 | the Cut Ticket set-scan (tags → schedule) — **SHIPPED** | v5.6.0 | 2 (symbol context), Swatchbook |
 
 Phase 4 first: it completes the cut-sheet workflow the owner is actively
 using, is self-contained, and is the cheapest win. 1→2→3 build on each

@@ -881,6 +881,38 @@ def main():
     assert it.missing_from_model and it.count == 0, \
         "orphaned tag tombstoned, kept on the list"
 
+    # the Cut Ticket set-scan: a legend sheet's schedule rows land on the
+    # pull list as proposals with pre-filled callouts (loud provenance)
+    _ssd = fitz.open()
+    _ssp = _ssd.new_page(width=792, height=612)
+    _ssp.insert_text((60, 100), "MARK", fontsize=9)
+    _ssp.insert_text((130, 100), "DESCRIPTION", fontsize=9)
+    _ssp.insert_text((420, 100), "MANUFACTURER", fontsize=9)
+    _ssp.insert_text((560, 100), "MODEL", fontsize=9)
+    _ssp.insert_text((60, 120), "MS-7", fontsize=8)
+    _ssp.insert_text((130, 120), "MOP SINK, TERRAZZO", fontsize=8)
+    _ssp.insert_text((420, 120), "MAKER Z", fontsize=8)
+    _ssp.insert_text((560, 120), "TSB-300", fontsize=8)
+    _sspdf = os.path.join(tmp, "scanset.pdf")
+    _ssd.save(_sspdf)
+    _ssd.close()
+    _info_ss = _mb.showinfo
+    _mb.showinfo = lambda *a, **k: None      # skipped-notes dialog: no modal
+    import time as _tss
+    try:
+        swp.scan_plan_set(_sspdf)
+        for _ in range(200):
+            root.update()
+            if any(i.tag == "MS-7" for i in app.project.pull_list):
+                break
+            _tss.sleep(0.05)
+    finally:
+        _mb.showinfo = _info_ss
+    _ms7 = next(i for i in app.project.pull_list if i.tag == "MS-7")
+    assert _ms7.origin == "set-scan" and _ms7.callouts == ["MAKER Z TSB-300"], \
+        f"set-scan proposal with pre-filled callouts: {_ms7.callouts}"
+    assert _ms7.prefix == -1, "schedule-only row never guesses a category"
+
     # pano: alpha images and PDF "photos" load; unreadable files never
     # orphan a Toplevel; a 2:1 image opens as a live panorama
     from rfi_stamper.gui import pano
