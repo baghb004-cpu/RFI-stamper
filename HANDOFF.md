@@ -1350,10 +1350,12 @@ package — never improvise on them.
   components + 4 wanted, neutralized reference recipes: 19 packets, 3 gap
   fillers) — bundled into both frozen exes via the .spec datas list;
   `tests/golden_cutsheets/` (the 19 approved packets + frozen page counts
-  + neutralized build log).  The ~35 MB `seed_library/` of clean
-  manufacturer PDFs arrives as a separate kit zip → drop into
-  `rfi_stamper/data/cutsheet_library/seed_library/`; T1/T4/T7 light up
-  automatically (they currently SKIP with a note).
+  + neutralized build log).  The 43-sheet `seed_library/` of clean
+  manufacturer PDFs is INSTALLED (v5.1.1, owner-supplied kit zip): the
+  full acceptance runs live — T1 rebuilds all 19 reference packets with
+  exact filename + page-count matches against golden, T4 sha256-sweeps
+  every sheet, T3 re-verifies the rotated-page stamp on the rebuild, T7
+  pins gap-filler positions page-by-page.
 - **GUI**: the Swatchbook panel in Project Management (beside
   Submittals): fixture form (tag + 0-49 category + component callouts
   with live library resolution, loud red GAP labels, reorder = merge
