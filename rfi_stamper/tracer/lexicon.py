@@ -48,6 +48,77 @@ TAU_HI = 0.90             # at/above this a token auto-accepts
 _LIFT_TO = 0.95           # confidence a grammar/index-verified token is lifted to
 
 # --------------------------------------------------------------------------- #
+#  Char bigram prior (P5 lattice language model, OCR_PLAN §2.12/§5)            #
+# --------------------------------------------------------------------------- #
+#: anchor index (start ``^`` as prev / end ``$`` as cur) after the 43 chars
+_ANCHOR = len(CHARSET)
+_BIGRAM_K = 0.01          # add-k smoothing
+_BIGRAM_FLOOR = -2.5      # veto cap: with a ~160-word training set an
+#                           UNSEEN bigram is weak evidence, not proof of
+#                           impossibility — uncapped it reaches ~ -8.5 and
+#                           overrules channel evidence as strong as
+#                           p=1.0-vs-0.8 (measured: a welded P1 refusing
+#                           to split because P->1 was never seen)
+#: domain-shape training strings — sheet tokens and feet-inches dimensions
+#: join the word list so the prior never bends NON-words toward English-only
+#: bigrams (the P3 field grammars stay the final arbiter downstream)
+_BIGRAM_DOMAIN = (
+    "A-101", "A-401", "S-201", "S-1.2", "P-101", "M-201", "E-102", "SD-101",
+    "FP-1", "C-3", "12'-6\"", "3'-0\"", "0'-8\"", "25'-4 1/2\"", "1/8\"",
+    "3/4\"", "1'-0\"", "150'-0\"", "#5", "A&B",
+)
+_BIGRAM_CACHE: dict = {}
+
+
+def _build_bigram(words, centered: bool) -> "np.ndarray":
+    """(44, 44) float32 ``ln P(cur | prev)`` over CHARSET + the anchor
+    row/column, add-k smoothed, trained on the lexicon words plus the
+    domain shapes.  Row = previous char (row _ANCHOR = start), column =
+    next char (column _ANCHOR = end).
+
+    ``centered=True`` subtracts each row's expected log-probability (its
+    negative entropy) so the prior is LENGTH-NEUTRAL — an extra
+    transition scores relative to that state's typical successor instead
+    of paying a flat ~ -3 penalty per character; without this the LM
+    vetoes every correct weld split simply for being one glyph longer
+    (the language-model mirror of the old positive-sum channel bias).
+    ``centered=False`` keeps the conservative raw prior — on a lone
+    short token (a sheet number) the centered form net-REWARDS arbitrary
+    re-partitions and shreds clean reads (measured: a clean E-1.10)."""
+    n = len(CHARSET) + 1
+    idx = {c: i for i, c in enumerate(CHARSET)}
+    counts = np.zeros((n, n), np.float64)
+    for w in sorted(set(str(w).upper() for w in words) | set(_BIGRAM_DOMAIN)):
+        seq = [idx[c] for c in w if c in idx]
+        if not seq:
+            continue
+        prev = _ANCHOR
+        for c in seq:
+            counts[prev, c] += 1
+            prev = c
+        counts[prev, _ANCHOR] += 1
+    tot = counts.sum(axis=1, keepdims=True)
+    lp = np.log((counts + _BIGRAM_K) / (tot + _BIGRAM_K * n))
+    if centered:
+        lp = lp - (np.exp(lp) * lp).sum(axis=1, keepdims=True)
+    return np.maximum(lp, _BIGRAM_FLOOR).astype(np.float32)
+
+
+def bigram_lp(centered: bool = True) -> "np.ndarray":
+    """The module-default char bigram prior — built from the BUILTIN word
+    list only (no client data), cached per form, so ``read_image``
+    without any P3 hooks still gets the language model for its
+    segmentation lattice.  The lattice picks the form by its median-
+    reliability gate (centered on real text lines, conservative on lone
+    tokens)."""
+    got = _BIGRAM_CACHE.get(bool(centered))
+    if got is None:
+        got = _BIGRAM_CACHE[bool(centered)] = _build_bigram(
+            _BUILTIN_WORDS, bool(centered))
+    return got
+
+
+# --------------------------------------------------------------------------- #
 #  Edit-distance thresholds (OCR_PLAN §5 "Edit distance" / "SymSpell")         #
 # --------------------------------------------------------------------------- #
 WORD_DELTA_MAX = 2        # never exceed this raw edit distance

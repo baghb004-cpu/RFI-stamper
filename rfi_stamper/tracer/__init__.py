@@ -213,56 +213,83 @@ def read_image(gray, dpi: int = 300, min_keep: float = _MIN_KEEP,
         band_bot = max(b.y1 for b in line)
         band_span = max(1.0, float(band_bot - band_top))
         med_w = segment._median([b.w for b in line]) or 1.0
+        med_h = segment._median([b.h for b in line]) or 1.0
         for word in segment.group_words(line):
-            # P2: split a run of touching glyphs (drop-fall cuts + DP
-            # recombination) when a box is wide AND doesn't read as one glyph;
-            # normal-width glyphs (M, W, 0) never trigger it.
+            # P5: the split+merge lattice — touching glyphs cut (drop-fall
+            # candidates, both variants), broken glyphs rejoined, the
+            # partition picked by classifier confidence + the char bigram
+            # prior; wide single glyphs (M, W, 0) never trigger it.
             cells, aspects, rel_ys, spans = [], [], [], []
-            for b in word:
-                for (yy0, xx0, yy1, xx1) in segment.split_glyph_boxes(
-                        ink2, b, med_w, clf):
-                    crop = ink2[yy0:yy1 + 1, xx0:xx1 + 1]
-                    if not crop.any():
-                        continue
-                    ng = normalize.norm_glyph(crop)
-                    cells.append(ng.cell)
-                    aspects.append(ng.aspect)
-                    cy = (yy0 + yy1) / 2.0
-                    rel_ys.append((cy - band_top) / band_span)
-                    spans.append((yy0, xx0, yy1, xx1))
+            for (yy0, xx0, yy1, xx1) in segment.word_spans(
+                    ink2, word, med_w, clf, med_n=len(line)):
+                crop = ink2[yy0:yy1 + 1, xx0:xx1 + 1]
+                if not crop.any():
+                    continue
+                ng = normalize.norm_glyph(crop)
+                cells.append(ng.cell)
+                aspects.append(ng.aspect)
+                cy = (yy0 + yy1) / 2.0
+                rel_ys.append((cy - band_top) / band_span)
+                spans.append((yy0, xx0, yy1, xx1))
             if not cells:
                 continue
             ranked = clf.classify_batch(np.stack(cells), aspects, rel_ys)
             chars = [r[0][0] for r in ranked]
             cos = [r[0][1] for r in ranked]
-            text = "".join(chars)
-            score = _word_score(cos)
-            if score < min_keep:
-                continue
-            x0 = min(s[1] for s in spans)
-            y0 = min(s[0] for s in spans)
-            x1 = max(s[3] for s in spans)
-            y1 = max(s[2] for s in spans)
-            raw = text
-            why, changed = "", False
-            if use_ctx is not None:
-                tok = _lexicon.Tok(text, (int(x0), int(y0), int(x1), int(y1)),
-                                   float(score))
-                res = _lexicon.correct(tok, ranked, use_ctx)
-                if not res["keep"]:
+            # P5: re-open words that fused across a real space — either a
+            # weld spanned the gap, or (measured on the touching tier)
+            # toner dilation shrank an unwelded inter-word gap below
+            # Wong's absolute rule.  Re-apply the rule over the FINAL
+            # glyph spans, plus the outlier test: a real space is a gap
+            # far outside the word's own inter-character spacing.
+            gaps_px = [spans[k][1] - spans[k - 1][3] - 1
+                       for k in range(1, len(spans))]
+            pos = [g for g in gaps_px if g >= 0]
+            gmed = float(np.median(pos)) if pos else 0.0
+            use_outlier = len(gaps_px) >= segment.RETOK_MIN_GAPS and gmed > 0
+            parts = [[0]]
+            for k in range(1, len(spans)):
+                gap = spans[k][1] - spans[parts[-1][-1]][3] - 1
+                if gap > segment.WORD_GAP_FACTOR * med_h or (
+                        use_outlier
+                        and gap >= segment.RETOK_OUTLIER * gmed
+                        and gap >= segment.RETOK_FLOOR * med_h
+                        and chars[k] not in segment.RETOK_MARKS):
+                    parts.append([k])
+                else:
+                    parts[-1].append(k)
+            for idxs in parts:
+                text = "".join(chars[k] for k in idxs)
+                score = _word_score([cos[k] for k in idxs])
+                if score < min_keep:
                     continue
-                text, score = res["text"], res["conf"]
-                why, changed = res["why"], bool(res["changed"])
-            if review_sink is not None:
-                queue = (TAU_LO <= score < TAU_HI) or (
-                    changed and why.split("|")[0] in _REVIEW_REPAIRS)
-                if queue:
-                    review_sink.append(ReviewItem(
-                        0, (int(x0), int(y0), int(x1), int(y1)), raw, text,
-                        float(score), why,
-                        [(cells[i], spans[i], chars[i], float(cos[i]))
-                         for i in range(len(cells))]))
-            results.append((int(x0), int(y0), int(x1), int(y1), text, float(score)))
+                x0 = min(spans[k][1] for k in idxs)
+                y0 = min(spans[k][0] for k in idxs)
+                x1 = max(spans[k][3] for k in idxs)
+                y1 = max(spans[k][2] for k in idxs)
+                raw = text
+                why, changed = "", False
+                if use_ctx is not None:
+                    tok = _lexicon.Tok(
+                        text, (int(x0), int(y0), int(x1), int(y1)),
+                        float(score))
+                    res = _lexicon.correct(
+                        tok, [ranked[k] for k in idxs], use_ctx)
+                    if not res["keep"]:
+                        continue
+                    text, score = res["text"], res["conf"]
+                    why, changed = res["why"], bool(res["changed"])
+                if review_sink is not None:
+                    queue = (TAU_LO <= score < TAU_HI) or (
+                        changed and why.split("|")[0] in _REVIEW_REPAIRS)
+                    if queue:
+                        review_sink.append(ReviewItem(
+                            0, (int(x0), int(y0), int(x1), int(y1)), raw,
+                            text, float(score), why,
+                            [(cells[k], spans[k], chars[k], float(cos[k]))
+                             for k in idxs]))
+                results.append((int(x0), int(y0), int(x1), int(y1), text,
+                                float(score)))
     return results
 
 

@@ -110,6 +110,19 @@ def _degrade_touching(g, seed):
     return np.clip(synth.add_noise(x, 8, 0.004, rng), 0, 255).astype(np.uint8)
 
 
+def _degrade_gen3(g, seed):
+    """A third-generation photocopy: TWO toner-gain passes + heavier blur
+    and noise.  Since P5 pulled the single-weld tier under 2%, this tier
+    inherits the "genuinely degrades" role — the suite must always track
+    a real, non-zero residual (OCR_PLAN §8 framing: the synthetic tier is
+    a lower bound, not a promise)."""
+    rng = np.random.default_rng(seed)
+    x = synth._morph(g.astype(float), dilate_ink=True)
+    x = synth._morph(x, dilate_ink=True)
+    x = synth.blur(x, 0.9)
+    return np.clip(synth.add_noise(x, 10, 0.004, rng), 0, 255).astype(np.uint8)
+
+
 # --------------------------------------------------------------------------- #
 #  1. clean auto-labeled real set — CER ≤ 2 % (the parity artifact)           #
 # --------------------------------------------------------------------------- #
@@ -124,8 +137,11 @@ def test_clean_cer_bar():
 
     res = tracer_eval.score_page(gray, truth, dpi=300)
     A(res["n_ref"] > 150, f"the paragraph has real length, n={res['n_ref']}")
-    A(res["cer"] <= 0.02,
-      f"clean auto-labeled CER ≤ 2% (parity bar), got {res['cer']:.4f}")
+    # P5 tightened this from ≤ 2% to EXACTLY zero: the clean tier is
+    # deterministic and measures 0.00 — any lattice change that grazes a
+    # clean read must fail loudly, not hide under a tolerance
+    A(res["cer"] <= 1e-9,
+      f"clean auto-labeled CER == 0 (P5 bar), got {res['cer']:.4f}")
 
     # the confusion sub-metric is COMPUTED over the aligned (true, pred) pairs
     apairs = tracer_eval.align_pairs(res["ref"], res["hyp"])
@@ -216,23 +232,81 @@ def test_degraded_tier():
     # spurious deletions the size-gate bug used to manufacture).
     tg = _degrade_touching(gray, seed=2)
     rest = tracer_eval.score_page(tg, truth, dpi=300)
-    A(rest["cer"] <= 0.15,
-      f"touching-glyph CER under the loose ceiling, got {rest['cer']:.4f}")
-    A(rest["cer"] > 0.0,
-      "the touching-glyph tier genuinely degrades (has errors to track)")
+    # P5 tightened this from the ≤ 15% loose ceiling: the split+merge
+    # lattice + bigram prior + masked word crop measured 0.00% (from
+    # 3.38%).  ≤ 2% stays the hard bar — the weld-masquerade regime is
+    # real (gen-3 below carries it) and a zero must never become a
+    # brittle promise
+    A(rest["cer"] <= 0.02,
+      f"touching-glyph CER ≤ 2% (the P5 bar), got {rest['cer']:.4f}")
+    # word re-tokenization: welds/dilation across spaces must not fuse
+    # words (was a constant 100% before P5 — partly a metric artifact,
+    # partly group_words running before splitting)
+    A(rest["wer"] < 0.50,
+      f"touching-glyph WER < 50% (word re-tokenization), "
+      f"got {rest['wer']:.4f}")
     apairs = tracer_eval.align_pairs(rest["ref"], rest["hyp"])
     M = tracer_eval.confusion(apairs)
     A(M.shape == (len(CHARSET), len(CHARSET)), "touching confusion matrix 43×43")
-    dom = tracer_eval.domain_error(apairs)
-    A(dom > 0.0, "the touching-glyph tier's domain error is non-zero")
+
+    # (c) GEN-3 PHOTOCOPY — the honest hard residual (double weld pass).
+    g3 = _degrade_gen3(gray, seed=3)
+    res3 = tracer_eval.score_page(g3, truth, dpi=300)
+    A(res3["cer"] <= 0.20,
+      f"gen-3 CER under the regression ceiling, got {res3['cer']:.4f}")
+    A(res3["cer"] > 0.0,
+      "the gen-3 tier genuinely degrades (has errors to track)")
+    apairs3 = tracer_eval.align_pairs(res3["ref"], res3["hyp"])
+    dom = tracer_eval.domain_error(apairs3)
+    A(dom > 0.0, "the gen-3 tier's domain error is non-zero")
 
     _REPORT["degraded_cer"] = res["cer"]
     _REPORT["degraded_wer"] = res["wer"]
     _REPORT["touching_cer"] = rest["cer"]
     _REPORT["touching_wer"] = rest["wer"]
+    _REPORT["gen3_cer"] = res3["cer"]
+    _REPORT["gen3_wer"] = res3["wer"]
     _REPORT["degraded_domain_err"] = dom
     _REPORT["degraded_confusion_offdiag"] = int(M.sum() - np.trace(M))
     doc.close()
+
+
+# --------------------------------------------------------------------------- #
+#  3b. P5 unit fixtures — the merge move + determinism                         #
+# --------------------------------------------------------------------------- #
+
+def test_p5_units():
+    # (a) broken-glyph MERGE: snap the H of SHAFT with a 2-px white column
+    # (two tall non-x-overlapping pieces); the lattice's merge move must
+    # rejoin them and the word must read whole
+    from rfi_stamper.tracer import binarize, components
+    g = _render_token("SHAFT HEIGHT NOTED", w=1100)
+    ink = binarize.binarize(g)
+    _, boxes = components.label(ink)
+    boxes = sorted(boxes, key=lambda b: b.x0)
+    h = boxes[1]
+    cut = (h.x0 + h.x1) // 2
+    g2 = g.copy()
+    g2[:, cut:cut + 2] = 255
+    reads = [w[4] for w in tracer.read_image(g2, dpi=300)]
+    A(reads == ["SHAFT", "HEIGHT", "NOTED"],
+      f"snapped H rejoined by the merge move, got {reads}")
+    # (b) marks are NOT merge fodder: the clean page keeps its trailing
+    # periods (MERGE_MIN_H fences a period from being swallowed) — pinned
+    # by the clean == 0 bar and asserted here on a paragraph-size fixture
+    doc2 = fitz.open()
+    pg2 = doc2.new_page(width=400, height=120)
+    pg2.insert_text((40, 70), "SEE NOTES. OK", fontname="helv", fontsize=13)
+    pix2 = pg2.get_pixmap(dpi=300, colorspace=fitz.csGRAY, alpha=False)
+    gp = np.frombuffer(pix2.samples, np.uint8).reshape(
+        pix2.height, pix2.width).copy()
+    doc2.close()
+    reads2 = [w[4] for w in tracer.read_image(gp, dpi=300)]
+    A(reads2 == ["SEE", "NOTES.", "OK"],
+      f"trailing period survives the lattice, got {reads2}")
+    # (c) determinism: two runs, identical output
+    A(tracer.read_image(g2, dpi=300) == tracer.read_image(g2, dpi=300),
+      "read_image is deterministic across runs")
 
 
 # --------------------------------------------------------------------------- #
@@ -266,9 +340,11 @@ def test_metric_tools():
 
 def main():
     tests = [
-        (test_clean_cer_bar, "clean auto-labeled real set CER ≤ 2% (parity)"),
+        (test_clean_cer_bar, "clean auto-labeled real set CER == 0 (P5 bar)"),
         (test_sheet_field_accuracy, "sheet-number field accuracy ≥ 99% (index)"),
-        (test_degraded_tier, "degraded tiers: speckle ≤ 2% guard + touching ≤ 15%"),
+        (test_degraded_tier,
+         "degraded tiers: speckle ≤ 2% + touching ≤ 2% + gen-3 tracked"),
+        (test_p5_units, "P5 units: merge move, mark fence, determinism"),
         (test_metric_tools, "CER/WER/align/confusion/domain tools correct"),
     ]
     for fn, label in tests:
@@ -289,15 +365,18 @@ def main():
           f"(thin-glyph robustness guard — was 11.39% before the glyph-height fix)")
     print(f"  touching: CER {_REPORT['touching_cer']*100:5.2f}%   "
           f"WER {_REPORT['touching_wer']*100:5.2f}%   "
+          f"(was 3.38% / a constant 100% before the P5 lattice)")
+    print(f"  gen-3:    CER {_REPORT['gen3_cer']*100:5.2f}%   "
+          f"WER {_REPORT['gen3_wer']*100:5.2f}%   "
           f"domain {_REPORT['degraded_domain_err']*100:.2f}%  "
-          f"confusion off-diag={_REPORT['degraded_confusion_offdiag']}  "
-          f"(honest touching-glyph residual, OCR_PLAN §8)")
-    print(f"TRACER P4 EVAL TEST PASSED  ({_N[0]} checks)  — the Tracer, Phase P4")
+          f"(the honest hard residual, OCR_PLAN §8 — a lower bound, "
+          f"not a promise)")
+    print(f"TRACER P5 EVAL TEST PASSED  ({_N[0]} checks)  — the Tracer, Phase P5")
 
 
 if __name__ == "__main__":
     try:
         main()
     except AssertionError as e:
-        print("TRACER P4 EVAL TEST FAILED:", e)
+        print("TRACER P5 EVAL TEST FAILED:", e)
         sys.exit(1)

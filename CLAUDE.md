@@ -85,9 +85,10 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/tracer/       the Tracer: from-scratch OCR (pure numpy + fitz, no
                               external engine) — render/binarize/deskew/linework/
                               components/segment/normalize/fonts/classify(NCC)/
-                              searchable; drop-in-compatible with ocr.py; P1
-                              reads title-block/large lettering (OCR_PLAN.md
-                              staged P1-P4; Tesseract removed only at P4)
+                              searchable; drop-in-compatible with ocr.py; P5
+                              split+merge lattice (Viterbi + char bigram prior)
+                              reads touching/broken photocopy glyphs (OCR_PLAN.md
+                              staged P1-P5; Tesseract removed at P4)
     rfi_stamper/hyperlink.py  auto sheet cross-linking (native GoTo links) + outline
     rfi_stamper/transmittal.py  RFI-log / generic table PDF (minipdf flow engine)
     rfi_stamper/batch.py      stamp many plan sets against one RFI pile
@@ -375,8 +376,23 @@ were proven on real export files. GUI constructs under xvfb.
   on degraded photocopies — it was 100% dropped thin glyphs (0 substitutions).
   Fixed in v4.7.1; `filter_glyphs`/`read_image` pass `dpi` through so the floor
   scales. The eval's speckle tier (`test_tracer_eval.py`, ≤2%) is the guard —
-  keep it. Genuine degraded residual is now touching/broken glyphs + sub-legible
-  text (OCR_PLAN §8), not thin-glyph loss.
+  keep it. Genuine degraded residual is now gen-3 double-weld copies +
+  sub-legible text (OCR_PLAN §8), not thin-glyph loss — single-weld touching
+  glyphs read clean since the P5 lattice (v4.17.0).
+- The P5 word lattice (`segment.word_spans`/`_lattice_spans`) fails SILENTLY
+  into the per-box path when no complete boundary path exists, so bugs there
+  masquerade as "the lattice didn't help". Two hard-won rules: (1) the word
+  crop is MASKED to the word's own component boxes — stray speckle (already
+  rejected by `filter_glyphs`) otherwise blocks the no-ink free connectors,
+  voids every path, and rides into a span's full-height ink trim (a speck
+  above the dash read '-' as '); (2) the over-width confidence discount
+  (OVERWIDE_LAMBDA past SEG_W_HI) models the weld-MASQUERADE band (dilated
+  welds measure 0.84-0.92, Hershey welds ≤0.80) — a whole-box reading ≥
+  SEG_SURE_CONF (0.95) is a genuine wide glyph and must never be discounted
+  (the discount alone shredded a degraded conf-1.00 '0' into two '1's).
+  Score WER only through `eval._charset_spaced`: `only_charset` on a spaced
+  string strips the spaces (space is outside CHARSET), collapsing the page
+  to ONE token and pinning WER at a constant 0%-or-100%.
 - minipdf's `Canvas.showPage()` has REPORTLAB semantics: it *ends* the page and
   the next page materializes lazily on the first draw, so the pervasive
   trailing `showPage(); save()` idiom never adds a blank page — and the default

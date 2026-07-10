@@ -1,6 +1,6 @@
 # BUILDOUT_PLAN.md — the from-scratch feature campaign (post-v4.9.2)
 
-**Status:** BUILDING — Phases A (v4.10.0) through G (v4.16.0) shipped; next up: Phase H.
+**Status:** BUILDING — Phases A (v4.10.0) through H (v4.17.0) shipped; next up: Phase I.
 **Owner directive:** every feature on this list gets built, from scratch, with **no code bloat** —
 every line purposeful; honest SKIP lists over speculative generality; smallest correct algorithm wins.
 **Provenance:** synthesized from an 8-agent parallel research pass (per-track dossiers appended as
@@ -49,7 +49,7 @@ one version. Acceptance gates are per-phase; a phase does not start until the pr
 | **E** | Vector drawing diff (addendum redline): segment match + change clustering + minipdf redline overlay — **SHIPPED v4.14.0** (`rfi_stamper/drawdiff.py`, the Slipsheet) | v4.14.0 | A (overlay PDF) |
 | **F** | CPM scheduler: forward/backward pass, float, critical path — drives the existing canvas Gantt — **SHIPPED v4.15.0** (`rfi_stamper/cpm.py`, the Tautline) | v4.15.0 | — |
 | **G** | OCR correction-review GUI: the human gate feeding Corrections.promote + per-firm FontProfiles — **SHIPPED v4.16.0** (`gui/review_deck.py` + engine taps) | v4.16.0 | — |
-| **H** | Tracer P5: touching-glyph residual (language-prior DP, merge candidates), honest new eval bar | v4.17.0 | G (review data helps) |
+| **H** | Tracer P5: touching-glyph residual (language-prior DP, merge candidates), honest new eval bar — **SHIPPED v4.17.0** (`tracer/segment.py` lattice + `lexicon` bigram prior; touching tier 3.38% → 0.00%, gen-3 tier added as the tracked residual) | v4.17.0 | G (review data helps) |
 | **I** | IFC-lite import: STEP parser subset → walls/slabs/columns in the world frame, coverage-honest | v4.18.0 | B (viewing) |
 | **J** | The pypdf retirement: from-scratch PDF reader/merger behind a flag, pypdf as oracle, then flip — runtime becomes fitz + numpy only | **v5.0.0** | A–I stable |
 

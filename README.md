@@ -356,9 +356,10 @@ CLI (also answers to the legacy flag style):
 
 Sheet detection needs text near the title block (scanned sets: run OCR
 first). OCR is Planloom's own built-in engine (the Tracer) — no install, no
-external binary; it reads title-block and large lettering well, with
-small/degraded/linework-fused text an honest work-in-progress routed to
-review — and "routed to review" now means a real **review deck**: after an
+external binary; it reads title-block and large lettering well, and a
+split+merge lattice now reads toner-welded and snapped glyphs on photocopy
+scans too, with third-generation copies and sub-legible small text the
+honest remaining limit, routed to review — and "routed to review" now means a real **review deck**: after an
 OCR run, confirm every uncertain read and machine repair against the
 pixels, keyboard-first; your accepted edits can teach the recognizer your
 firm's lettering (human-gated, saved as a local font profile), and the

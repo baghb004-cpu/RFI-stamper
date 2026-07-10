@@ -127,11 +127,21 @@ def score_page(gray, truth_words, dpi: int = 300, spaced: bool = False):
     from . import read_image
     hyp_words = [(x0, y0, x1, y1, t)
                  for (x0, y0, x1, y1, t, _s) in read_image(gray, dpi=dpi)]
+
+    def _charset_spaced(words):
+        # per-token charset restriction that PRESERVES spaces — running
+        # only_charset over the spaced string strips them (space is not in
+        # CHARSET), collapsing the page into ONE token and making wer() a
+        # constant 0%-or-100% artifact
+        toks = (only_charset(t)
+                for t in words_to_text(words, spaced=True).split())
+        return " ".join(t for t in toks if t)
+
     ref_c = only_charset(words_to_text(truth_words, spaced=False))
     hyp_c = only_charset(words_to_text(hyp_words, spaced=False))
-    ref_w = only_charset(words_to_text(truth_words, spaced=True))
-    hyp_w = only_charset(words_to_text(hyp_words, spaced=True))
-    return {"cer": cer(ref_c, hyp_c), "wer": wer(ref_w, hyp_w),
+    return {"cer": cer(ref_c, hyp_c),
+            "wer": wer(_charset_spaced(truth_words),
+                       _charset_spaced(hyp_words)),
             "ref": ref_c, "hyp": hyp_c, "n_ref": len(ref_c)}
 
 

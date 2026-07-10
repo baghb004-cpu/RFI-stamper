@@ -6,13 +6,13 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.16.0, offline construction workspace; Python package
+- Product: **Planloom** v4.17.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
-  stdlib — the OCR (Tracer, with a human review deck), PDF writer (minipdf),
-  drag-drop, voice, KB, 3D raster, clash, vector-diff and CPM engines are
-  all Planloom's own.
+  stdlib — the OCR (Tracer, with a human review deck and a touching-glyph
+  lattice), PDF writer (minipdf), drag-drop, voice, KB, 3D raster, clash,
+  vector-diff and CPM engines are all Planloom's own.
 - 57 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
@@ -1135,6 +1135,62 @@ profile.py already promised.
   editing from the deck; dropped `< τ_lo` reads stay a count, not a
   tray).  57 suites green twice.  NEXT: Phase H — Tracer P5, the
   touching-glyph residual (the review data now exists to feed it).
+
+## Round 32 (SHIPPED, v4.17.0): BUILDOUT Phase H — Tracer P5, the touching-glyph lattice
+
+The touching/broken-glyph residual OCR_PLAN §8 names, taken head-on:
+one split+merge recombination lattice per word, scored by classifier
+confidence + a char bigram prior.  Touching-tier CER 3.38% → **0.00%**
+(WER was a constant "100%" — partly a metric artifact — now 0.00%);
+clean/speckle stay 0.00%; sheets 100%.
+
+- **segment.py — the P5 lattice**: `_lattice_spans` is a Viterbi over
+  (boundary, last char): candidate segments are batch-classified once
+  (never per-segment in the loop), channel term `α·ln p` **weighted by
+  width** (per-unit-evidence: a confident single misread of a weld can't
+  win just by having fewer terms), `(1−α)·ln P(c|c')` bigram transitions,
+  `^`/`$` anchors, deterministic tie-breaks.  FREE CONNECTORS (no-ink
+  single-step boundary pairs) carry state across ordinary letter gaps —
+  without them the word lattice has NO complete path and silently falls
+  back per-box.  `candidate_cuts` got the ascending drop-fall variant
+  (baseline welds) + a stroke-width neck test.  `dp_recombine` rides the
+  same lattice (whole box always competes via `always`); `word_spans`
+  (new) runs one lattice per word with per-box cuts, mergeable-gap fences
+  (MERGE_GAP_FACTOR, MERGE_MIN_H — marks are not merge fodder), and a
+  fast path so clean pages never pay for it.
+- **Over-width discount, honestly bounded**: a weld reads as a CONFIDENT
+  single char (dilated welds measured 0.84–0.92, Hershey welds ≤ 0.80), so
+  beyond SEG_W_HI that confidence is discounted (OVERWIDE_LAMBDA) — but a
+  whole reading ≥ SEG_SURE_CONF (0.95) is a genuine wide glyph (M/W/0/Q
+  measure ≥ 0.95) and is NEVER discounted: the discount alone was
+  shredding a degraded '0' (conf 1.00) into two '1's.
+- **Masked word crop**: the word lattice's crop contains ONLY the word's
+  own component boxes.  Stray speckle (already rejected by
+  filter_glyphs) otherwise blocks the free connectors — voiding the
+  lattice into the per-box fallback — and rides into a span's
+  full-height ink trim (a speck above the dash read '-' as ').
+- **lexicon.py — the bigram prior**: 44×44 ln P(cur|prev) with `^`/`$`
+  anchor row/col, add-k over the lexicon words + domain shape strings
+  (sheet/dimension patterns), cached; `centered=True` subtracts row
+  entropy (length-neutral, for reliable lines), floored at −2.5 so an
+  unseen bigram can't single-handedly veto a correct split.
+- **read_image — word re-tokenization**: toner dilation shrinks
+  inter-word gaps below Wong's rule and fuses words with no weld at all;
+  after the lattice, Wong's rule + an outlier test (RETOK_*) over the
+  FINAL spans re-opens real spaces (never before a trailing mark).
+- **eval.py**: WER was scored on `only_charset` of the SPACED string —
+  which strips spaces, collapsing the page to one token (a constant
+  0%-or-100% artifact); `_charset_spaced` restricts per-token instead.
+- **test_tracer_eval.py**: clean bar tightened to **== 0** (deterministic;
+  any lattice graze fails loudly), touching ≤ 2% + WER < 50% (hard bars),
+  new gen-3 double-weld tier (≤ 20%, must be > 0 — the suite always
+  tracks a real residual; measures ~16%), `test_p5_units` (snapped-H
+  merge, trailing-period fence, determinism).
+- SKIP list held: no word-level language model beyond char bigrams, no
+  beam search (Viterbi is exact here), no per-font lattice retuning, no
+  touching-glyph handling in the P1 `split_touching` stub (kept only for
+  API compat), gen-3 stays a tracked tier — not a target.  57 suites
+  green twice.  NEXT: Phase I — IFC-lite import (bo_E.md).
 
 ## Roadmap (still open)
 

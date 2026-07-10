@@ -289,7 +289,7 @@ sidecar keyed by producer, auto-selected when a new set matches.
 | Char n-gram | 3-gram, add-k k≈0.01, ≤ ~45³≈91k cells (sparse), back-off to bi/unigram |
 | Word confidence | `exp(mean(log p_i))`; blend α ≈ 0.6 |
 | Confidence thresholds | auto-accept τ_hi ≈ 0.90 (+ ensemble margin + lexicon); hard-reject τ_lo ≈ 0.60; 0.60–0.90 → review; NCC auto-add ≥ 0.90 |
-| Accuracy targets | clean 300 dpi CER ≤ 1–2% (measured 0.00%); speckled/noisy scan CER ~0 (v4.7.1 noise-robust glyph height); touching/broken-glyph photocopy CER 3–15%; sheet-number field acc ≥ 99% (measured 100%); WER ≈ 1−(1−CER)^L, L≈5 |
+| Accuracy targets | clean 300 dpi CER ≤ 1–2% (measured 0.00%); speckled/noisy scan CER ~0 (v4.7.1 noise-robust glyph height); touching/broken-glyph photocopy CER 3–15% (P5 split+merge lattice measured 0.00%; the gen-3 double-weld tier ~16% is the tracked residual); sheet-number field acc ≥ 99% (measured 100%); WER ≈ 1−(1−CER)^L, L≈5 |
 | Page pixel budget | ARCH-D @300 ≈ 78 MP; ARCH-E @300 ≈ 155 MP; **tile > ~100 MP** (1024–2048 px tiles + window/128 px halo) |
 | Timing | rasterize < 1 s; Sauvola full ARCH-D ~0.1–0.3 s; CC (numpy union-find) 0.3–2 s (**bottleneck**); feature+classify thousands of glyphs < 0.1 s; ROI-first well under a few seconds |
 
