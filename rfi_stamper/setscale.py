@@ -283,6 +283,108 @@ def _view_titles(page) -> list:
     return out
 
 
+def _scale_cells(page) -> list:
+    """SCALE-labeled title-block cells -> [{"title", "ref", "label",
+    "ppf"}].
+
+    The other declaration convention: a cell reading just "SCALE" with
+    the value in the cell BELOW it (or beside it), often next to a big
+    detail number — the CAD title-block table.  Blocks keep the cells
+    separate, so this pairs them by geometry."""
+    blocks = [(fitz.Rect(b[:4]), b[4]) for b in page.get_text("blocks")
+              if isinstance(b[4], str)]
+    out = []
+    for rect, text in blocks:
+        if text.strip().upper().rstrip(":") != "SCALE":
+            continue
+        best = None
+        for orect, otext in blocks:
+            got = _note_in(otext)
+            if got is None:
+                continue
+            # "below" tolerates bbox overlap: a tall detail number in the
+            # value's block stretches its bbox UP beside the label
+            below = (orect.y0 - rect.y1 <= 30
+                     and orect.y1 >= rect.y1 + 4
+                     and orect.x1 > rect.x0 and orect.x0 < rect.x1)
+            beside = (abs(orect.y0 - rect.y0) <= 8
+                      and 0 <= orect.x0 - rect.x1 <= 160)
+            if below or beside:
+                d = abs(orect.y0 - rect.y1) + abs(orect.x0 - rect.x0)
+                if best is None or d < best[0]:
+                    best = (d, got, otext)
+        if best is None:
+            continue
+        label, ppf = best[1]
+        # a big lone detail number names the view the cell scales — it
+        # often lands INSIDE the value's own text block (block merging)
+        ref = ""
+        for ln in best[2].splitlines():
+            t = ln.strip()
+            if t.isdigit() and len(t) <= 2:
+                ref = f"detail {t}"
+                break
+        if not ref:
+            for orect, otext in blocks:
+                t = otext.strip()
+                if (t.isdigit() and len(t) <= 2
+                        and abs(orect.y0 - rect.y0) <= 60
+                        and abs(orect.x0 - rect.x1) <= 160):
+                    ref = f"detail {t}"
+                    break
+        out.append({"title": "", "ref": ref, "label": label,
+                    "ppf": round(ppf, 6)})
+    return out
+
+
+def declared_scales(page) -> list:
+    """Every scale the sheet DECLARES, deduped: view-title bars first,
+    then SCALE-labeled cells, then the loose title-block match."""
+    out = list(_view_titles(page))
+    by_key = {(v["ppf"], v["label"]): v for v in out}
+    for c in _scale_cells(page):
+        key = (c["ppf"], c["label"])
+        have = by_key.get(key)
+        if have is None:
+            by_key[key] = c
+            out.append(c)
+        elif not (have["title"] or have["ref"]) and (c["title"]
+                                                     or c["ref"]):
+            have.update(c)          # the cell knows its detail number
+    if not out:
+        loose = _scale_note(page)
+        if loose is not None and loose["ppf"] is not None:
+            out.append({"title": "", "ref": "", "label": loose["label"],
+                        "ppf": round(loose["ppf"], 6)})
+    return out
+
+
+def fingerprint(page, salt: str) -> str:
+    """Salted LAYOUT fingerprint for the manual-scale learning store.
+
+    Features are coarse geometry only — page size on a half-inch grid,
+    the quantized positions of "SCALE" labels, the title-block edge —
+    never text content, names, or anything identifying.  The salt is a
+    random per-install secret, so the stored hash is meaningless off
+    this machine and nothing about the firm can be recovered from it
+    (untraceable by construction, not by encryption)."""
+    import hashlib
+    r = page.rect
+    feats = [f"{round(r.width / 36)}x{round(r.height / 36)}"]
+    scale_ws = sorted(
+        ((w[0], w[1]) for w in page.get_text("words")
+         if w[4].strip().upper().rstrip(":") == "SCALE"))[:4]
+    for x, y in scale_ws:
+        feats.append(f"S{round(10 * x / r.width)},{round(10 * y / r.height)}")
+    edge = 0.0
+    for p0, p1, ln in _segments(page):
+        if abs(p0[0] - p1[0]) < 1.0 and ln > 0.5 * r.height:
+            edge = max(edge, p0[0])
+    feats.append(f"E{round(20 * edge / max(r.width, 1))}")
+    return hashlib.sha256(
+        (salt + "|" + "|".join(feats)).encode("utf-8")).hexdigest()[:16]
+
+
 def _check_line(page, segs) -> dict | None:
     """The print-check ruler: declared-length margin line, measured.
 
@@ -365,26 +467,26 @@ def sheet_verdict(page, min_witnesses: int = MIN_WITNESSES,
     the declared note verified by the physically measured check line."""
     segs = _segments(page)
     hyps = _dim_hypotheses(page, segs=segs)
-    views = _view_titles(page)
+    views = declared_scales(page)
     check = _check_line(page, segs)
-    if views:
-        vals = sorted({v["ppf"] for v in views})
-        if len(vals) == 1:
-            note = {"label": views[0]["label"], "ppf": vals[0]}
-        else:                       # views at different scales: surfaced,
-            note = {"label": " / ".join(       # never picked from
-                f"{v['title'] or v['ref'] or 'view'}: {v['label']}"
-                for v in views), "ppf": None}
+    vals = sorted({v["ppf"] for v in views})
+    if len(vals) == 1:
+        note = {"label": views[0]["label"], "ppf": vals[0]}
+    elif vals:                      # several DECLARED scales: only sheet
+        note = {"label": " / ".join(       # evidence may pick between them
+            f"{v['title'] or v['ref'] or 'view'}: {v['label']}"
+            for v in views), "ppf": None}
     else:
-        note = _scale_note(page)
+        note = _scale_note(page)    # "AS NOTED" sheets etc. -> None
     verdict = {"status": "REFUSED", "pt_per_ft": None, "label": None,
                "reasons": [], "witnesses": [], "outliers": [],
                "door_checks": [], "note": note, "view_notes": views,
                "check_line": check}
+    ratio = check["ratio"] if check else 1.0
     # the note's EXPECTED measurement on this print (note x print ratio)
     expected = None
     if note is not None and note["ppf"] is not None:
-        expected = note["ppf"] * (check["ratio"] if check else 1.0)
+        expected = note["ppf"] * ratio
 
     def refuse(reason):
         verdict["reasons"].append(reason)
@@ -425,10 +527,11 @@ def sheet_verdict(page, min_witnesses: int = MIN_WITNESSES,
         ppf = statistics.median(h["ppf"] for h in verdict["witnesses"])
         doors_ok, n_doors = check_doors(ppf)
         note_agrees = None
+        note_txt = ""
         if expected is not None:
-            ratio = ppf / expected
-            note_agrees = abs(ratio - 1.0) <= NOTE_TOL
-            note["measured_ratio"] = round(ratio, 4)
+            rr = ppf / expected
+            note_agrees = abs(rr - 1.0) <= NOTE_TOL
+            note["measured_ratio"] = round(rr, 4)
             if not note_agrees:
                 if check:
                     return refuse(
@@ -437,10 +540,28 @@ def sheet_verdict(page, min_witnesses: int = MIN_WITNESSES,
                         f"check ratio ({check['ratio']}) expects "
                         f"{expected:.3f} — conflicting evidence")
                 return refuse(
-                    f"measured scale is {ratio:.3f}x the title-block note "
+                    f"measured scale is {rr:.3f}x the title-block note "
                     f"({note['label']}) — printed at reduced/enlarged "
                     "size? Calibrating to this sheet would mismeasure "
                     "everything")
+            note_txt = (f"; note x print-check ({check['ratio']}x) agrees"
+                        if check else "; title-block note agrees")
+        elif len(vals) > 1:
+            # several declared scales (title block vs viewports): the
+            # measured dimensions PICK the one that governs — evidence-
+            # based, never a silent preference
+            hit = sorted({v for v in vals
+                          if abs(ppf / (v * ratio) - 1.0) <= NOTE_TOL})
+            if len(hit) == 1:
+                m = next(x for x in views if x["ppf"] == hit[0])
+                note_agrees = True
+                note["matched"] = m["label"]
+                note_txt = (
+                    f"; matches the declared {m['label']}"
+                    + (f" ({m['title'] or m['ref']})"
+                       if (m["title"] or m["ref"]) else "")
+                    + f" — the other {len(vals) - 1} declared scale(s) "
+                      "read as details/insets")
         door_gate = (n_doors > 0 and doors_ok >= min(min_doors, n_doors)
                      and doors_ok * 2 >= n_doors)
         if not door_gate and note_agrees is not True:
@@ -458,37 +579,54 @@ def sheet_verdict(page, min_witnesses: int = MIN_WITNESSES,
                            f"witnesses agree at {ppf:.3f} pt/ft"
                       + (f"; {doors_ok}/{n_doors} door openings "
                          "corroborate" if n_doors else "")
-                      + ((f"; note x print-check ({check['ratio']}x) "
-                          "agrees" if check else "; title-block note "
-                          "agrees") if note_agrees else ""))
+                      + (note_txt if note_agrees else ""))
 
-    if expected is not None and check is not None:
-        # the declared path: the view-title/title-block note, verified by
-        # the physically measured print-check ruler — two independent
-        # families even on a dimension-poor sheet.  Any dimensions that
-        # DO exist must not contradict it.
-        if hyps:
-            med = statistics.median(h["ppf"] for h in hyps)
-            if abs(med / expected - 1.0) > 0.02:
-                return refuse(
-                    f"the declared note x print-check expects "
-                    f"{expected:.3f} pt/ft but the sheet's few "
-                    f"dimensions measure {med:.3f} — conflicting "
-                    "evidence, calibrate by hand")
-        doors_ok, n_doors = check_doors(expected)
-        if n_doors and doors_ok * 2 < n_doors:
+    if check is not None and vals:
+        # the declared path: a declared scale verified by the physically
+        # measured print-check ruler — two independent families even on
+        # a dimension-poor sheet.  With SEVERAL declared scales, the
+        # sheet's own evidence (dimensions, doors) must single one out.
+        med = statistics.median(h["ppf"] for h in hyps) if hyps else None
+        survivors = []
+        for v in vals:
+            exp_v = v * ratio
+            if med is not None and abs(med / exp_v - 1.0) > 0.02:
+                continue
+            doors_ok, n_doors = check_doors(exp_v)
+            if n_doors and (doors_ok * 2 < n_doors or doors_ok < 1):
+                continue
+            survivors.append(v)
+        if len(vals) > 1 and med is None and not verdict["door_checks"]:
             return refuse(
-                f"the declared note x print-check expects "
-                f"{expected:.3f} pt/ft but {n_doors - doors_ok} of "
-                f"{n_doors} door openings land off standard sizes at "
-                "that scale")
-        return passed(expected, (
-            f"declared scale ({note['label']}) verified by the print-"
-            f"check ruler: measured {check['len_pt']} pt for "
-            f"{check['declared_in']:g}\" ({check['ratio']}x print)"
+                f"{len(vals)} declared scales ({note['label']}) and "
+                "nothing on the sheet distinguishes them — calibrate "
+                "the region you need by hand")
+        if not survivors:
+            return refuse(
+                f"the declared scale(s) ({note['label']}) x print-check "
+                f"({check['ratio']}x) contradict the sheet's dimensions/"
+                "doors — calibrate by hand")
+        if len(survivors) > 1:
+            return refuse(
+                f"{len(survivors)} declared scales all fit the sparse "
+                f"evidence ({note['label']}) — calibrate the region you "
+                "need by hand")
+        win = survivors[0]
+        exp = win * ratio
+        wv = next(x for x in views if x["ppf"] == win)
+        doors_ok, n_doors = check_doors(exp)
+        return passed(exp, (
+            f"declared scale ({wv['label']}"
+            + (f", {wv['title'] or wv['ref']}" if (wv["title"]
+                                                   or wv["ref"]) else "")
+            + f") verified by the print-check ruler: measured "
+              f"{check['len_pt']} pt for {check['declared_in']:g}\" "
+              f"({check['ratio']}x print)"
             + (f"; {len(hyps)} dimension(s) consistent" if hyps else "")
             + (f"; {doors_ok}/{n_doors} door openings corroborate"
-               if n_doors else "")))
+               if n_doors else "")
+            + (f"; picked from {len(vals)} declared scales by the "
+               "sheet's own evidence" if len(vals) > 1 else "")))
 
     if not hyps:
         tail = ""

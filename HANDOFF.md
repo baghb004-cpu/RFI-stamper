@@ -1726,6 +1726,52 @@ margin print-check ruler.
   note x ratio conflicting with witnesses still refuses).  GUI verdict
   dialog shows view declarations + the measured ruler.
 
+## Round 44 (SHIPPED, v5.10.0): paper names, SCALE cells, manual fallback + learning
+
+Owner requests from two more real screenshots, plus the "remember my
+manual picks" ask.
+
+- **Paper-size readout** (gui/viewer.py + `sheets.paper_name`): every
+  PDFViewer now shows the sheet's size and named plot paper ("42 x 30
+  in — ARCH E1"; orientation-blind; "non-standard" is honest) — the
+  first thing to know before printing or trusting a scale.  The
+  ANSI/ARCH/ISO table lives in sheets.PAPER_SIZES.
+- **SCALE-labeled cells** (`_scale_cells`): the boxed title-block table
+  convention — a cell reading "SCALE" with the value in the cell below
+  or beside it, often next to a big detail number.  The "below" test
+  tolerates bbox overlap (a tall detail number in the value's block
+  stretches its bbox up beside the label) and the detail number is
+  found INSIDE the merged block first.  `declared_scales()` unifies
+  view-title bars + SCALE cells + the loose title-block match, deduped
+  with the richer entry winning.
+- **Multi-scale disambiguation**: a sheet that declares SEVERAL scales
+  (title block says 1/8", the site-plan viewport says 1"=40'-0" — the
+  owner's real P101) is now resolved by the sheet's OWN evidence: with
+  enough dimension witnesses, the declaration they match governs and
+  the others are reported as detail/inset scales; on dimension-poor
+  sheets the print-check path keeps only candidates consistent with
+  whatever dimensions/doors exist and passes ONLY when exactly one
+  survives — zero or several -> refuse listing everything.
+- **Manual fallback** (Story Pole dialog): a ladder combobox + "Set
+  selected manually" on every verdict run — a refused sheet gets a
+  human scale in two clicks (row flips to MANUAL), feeding the same
+  per-sheet ScaleCal memory.
+- **The learning store** (untraceable by construction): every manual
+  set records `fingerprint(page, salt)` -> scale-label count in
+  ~/.planloom.  The fingerprint hashes coarse LAYOUT geometry only
+  (page size grid, quantized "SCALE" label positions, title-block edge)
+  with a random per-install salt — opaque 16-hex keys, no text, no
+  names, nothing decryptable; a different install's salt makes the same
+  sheet hash differently.  Next run, a sheet with a known layout
+  pre-fills the manual box and shows "remembered: this layout was set
+  to 1/4\" = 1'-0\" N× before" — a HINT, never auto-applied.
+- **Tests**: test_storypole.py at 54 checks (SCALE cell + detail
+  number, the P101 pick with the losers named, paper names, fingerprint
+  same-layout/different-content stability + salt dependence + opacity)
+  and construct blocks (viewer names ARCH D; manual set calibrates;
+  the second run hints from the first; the prefs file holds only
+  opaque hashes).
+
 ## Roadmap (still open)
 - **Owner smoke on real Windows**: the Ropes punch renderer (alpha +
   transparentcolor + click-through) joins the standing drag-drop and

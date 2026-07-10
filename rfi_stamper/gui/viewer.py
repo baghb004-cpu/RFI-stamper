@@ -50,6 +50,10 @@ class PDFViewer(ttk.Frame):
                    command=self.fit_page).pack(side="left", padx=2)
         self.zoom_lbl = ttk.Label(bar, text="", style="Muted.TLabel")
         self.zoom_lbl.pack(side="left", padx=8)
+        # sheet size + named plot paper ("42 x 30 in — ARCH E1"): the
+        # first thing to know before printing or trusting a scale
+        self.size_lbl = ttk.Label(bar, text="", style="Muted.TLabel")
+        self.size_lbl.pack(side="right", padx=8)
         self.sheet_lbl = ttk.Label(bar, text="", style="Muted.TLabel")
         self.sheet_lbl.pack(side="right", padx=4)
 
@@ -251,6 +255,16 @@ class PDFViewer(ttk.Frame):
         self.page_var.set(str(self.page_no) if self.doc else "–")
         self.count_lbl.configure(text=f"/ {self.page_count}")
         self.zoom_lbl.configure(text=f"{self.zoom * 100:.0f}%" if self.doc else "")
+        if self.doc:
+            from ..sheets import paper_name
+            r = self.page.rect
+            wi, hi = r.width / 72.0, r.height / 72.0
+            name = paper_name(r.width, r.height)
+            self.size_lbl.configure(
+                text=f"{wi:.4g} × {hi:.4g} in"
+                     + (f"  —  {name}" if name else "  —  non-standard"))
+        else:
+            self.size_lbl.configure(text="")
 
     # ---------------------------------------------------------- coordinates
     def page_to_canvas(self, x: float, y: float):

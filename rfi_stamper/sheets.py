@@ -111,3 +111,30 @@ class SheetIndex:
 
     def info(self, page_no: int) -> PageInfo:
         return self.pages[page_no - 1]
+
+
+# ------------------------------------------------------------- paper sizes --
+
+#: (name, short_in, long_in) — the drawing-paper families a plan set is
+#: actually plotted on.  Portrait dims; orientation-blind matching.
+PAPER_SIZES = (
+    ("ANSI A (letter)", 8.5, 11.0), ("ANSI B (ledger)", 11.0, 17.0),
+    ("ANSI C", 17.0, 22.0), ("ANSI D", 22.0, 34.0), ("ANSI E", 34.0, 44.0),
+    ("ARCH A", 9.0, 12.0), ("ARCH B", 12.0, 18.0), ("ARCH C", 18.0, 24.0),
+    ("ARCH D", 24.0, 36.0), ("ARCH E1", 30.0, 42.0), ("ARCH E", 36.0, 48.0),
+    ("ISO A4", 8.27, 11.69), ("ISO A3", 11.69, 16.54),
+    ("ISO A2", 16.54, 23.39), ("ISO A1", 23.39, 33.11),
+    ("ISO A0", 33.11, 46.81),
+)
+
+
+def paper_name(w_pt: float, h_pt: float, tol_in: float = 0.25):
+    """Named paper size for a page (points), or None off the chart.
+
+    Orientation-blind: a 42x30 landscape sheet IS ARCH E1 — knowing the
+    intended plot paper is half of knowing whether a print shrank."""
+    lo, hi = sorted((w_pt / 72.0, h_pt / 72.0))
+    for name, a, b in PAPER_SIZES:
+        if abs(lo - a) <= tol_in and abs(hi - b) <= tol_in:
+            return name
+    return None

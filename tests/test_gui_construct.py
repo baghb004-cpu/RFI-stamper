@@ -334,6 +334,63 @@ def main():
     _dlg2.destroy()
     root.update()
 
+    # the viewer names the plot paper (a Loft plate is ARCH D 36x24)
+    assert "ARCH D" in mk_tab.viewer.size_lbl.cget("text"), \
+        mk_tab.viewer.size_lbl.cget("text")
+
+    # manual fallback + the untraceable learning store: set a refused
+    # sheet by hand once; the SAME title-block layout hints next time
+    from rfi_stamper.gui import prefs as _prefs_mod2
+    _pp1 = (_prefs_mod2.PREFS_DIR, _prefs_mod2.PREFS_PATH)
+    _prefs_mod2.PREFS_DIR = os.path.join(tmp, "spprefs")
+    _prefs_mod2.PREFS_PATH = os.path.join(_prefs_mod2.PREFS_DIR,
+                                          "prefs.json")
+    os.makedirs(_prefs_mod2.PREFS_DIR, exist_ok=True)
+    try:
+        mk_tab.open_pdf(pdf2)               # 2 dimension-free pages: REFUSED
+        root.update()
+        mk_tab.story_pole_dialog()
+        _dlg3 = None
+        for _ in range(200):
+            root.update()
+            _dlg3 = next((w for w in mk_tab.winfo_children()
+                          if isinstance(w, _tksp.Toplevel)), None)
+            if _dlg3 is not None:
+                break
+            _tsp.sleep(0.05)
+        assert _dlg3 is not None, "verdict dialog for the refused set"
+        mk_tab._sp_manual_var.set('1/4" = 1\'-0"')
+        mk_tab._sp_manual_btn.invoke()
+        root.update()
+        assert abs(mk_tab.cal_for(1).real_per_pt * 18.0 - 1.0) < 1e-6, \
+            "manual fallback calibrated the refused sheet"
+        _dlg3.destroy()
+        root.update()
+        mk_tab.story_pole_dialog()          # same layout -> the hint fires
+        _dlg4 = None
+        for _ in range(200):
+            root.update()
+            _dlg4 = next((w for w in mk_tab.winfo_children()
+                          if isinstance(w, _tksp.Toplevel)), None)
+            if _dlg4 is not None and mk_tab._sp_hint_lbl.winfo_exists():
+                break
+            _tsp.sleep(0.05)
+        root.update()
+        assert "remembered" in mk_tab._sp_hint_lbl.cget("text"), \
+            f"learning hint: {mk_tab._sp_hint_lbl.cget('text')!r}"
+        assert mk_tab._sp_manual_var.get() == '1/4" = 1\'-0"', \
+            "the remembered label pre-fills the manual box"
+        import json as _spj
+        with open(_prefs_mod2.PREFS_PATH) as _fh:
+            _spdata = _spj.load(_fh)["storypole"]
+        assert all(len(k) == 16 and all(c in "0123456789abcdef" for c in k)
+                   for k in _spdata["learned"]), \
+            "only opaque salted hashes persist — nothing traceable"
+        _dlg4.destroy()
+        root.update()
+    finally:
+        _prefs_mod2.PREFS_DIR, _prefs_mod2.PREFS_PATH = _pp1
+
     # home routing: one PDF -> plan viewing; several -> combine list
     before = len(app.projsec.merge.items)
     app.route_paths([pdf, pdf])

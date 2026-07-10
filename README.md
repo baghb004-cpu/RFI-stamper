@@ -370,7 +370,15 @@ viewport's title-bar scale and the margin "this line is 1 inch when
 printed at full scale" ruler, which it physically measures: a half-size
 print with that ruler calibrates correctly with the ratio named, and a
 dimension-poor sheet passes on the declared scale verified by the
-measured ruler) · **fixture auto-count** (the Reed Count: plumbing fixture
+measured ruler; when one sheet declares several scales — a title-block
+cell and a viewport bar disagreeing — the sheet's own dimensions pick
+which governs, and the rest are reported as detail scales; anything
+refused can be set **manually** in two clicks from the same dialog, and
+Planloom **remembers your manual picks by title-block layout** — stored
+only as salted, opaque layout hashes, so nothing about any firm's sheets
+is readable or recoverable — and offers them back as a hint next time)
+· a viewer status readout naming every sheet's **plot paper** ("42 × 30
+in — ARCH E1") so you know what it's meant to print on · **fixture auto-count** (the Reed Count: plumbing fixture
 symbols recognized on vector sheets — rotated, mirrored, any scale — and
 counted per sheet, with a hard real-size sanity gate so a water-closet
 shape at an impossible size never counts; look-alike conventions are

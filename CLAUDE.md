@@ -136,8 +136,16 @@ run; the `*_report.txt` must end in PASS).
                               calibrates reduced prints correctly and
                               forms its own two-family PASS on dimension-
                               poor sheets; an UNexplained disagreeing note
-                              still refuses with the exact ratio; views at
-                              different scales surface, never picked from;
+                              still refuses with the exact ratio; SCALE-
+                              labeled title-block cells (value below/
+                              beside, detail number named) join view-title
+                              bars in declared_scales(); SEVERAL declared
+                              scales are picked between ONLY by the
+                              sheet's own dimensions/doors (else refuse
+                              listing all); fingerprint(page, salt) =
+                              salted layout hash for the manual-scale
+                              learning hints (GUI-side store; opaque hex
+                              only, per-install salt, untraceable);
                               per-sheet verdicts, never inherited
     rfi_stamper/reedcount.py  the Reed Count: fixture-symbol auto-count on
                               vector sheets at a VERIFIED scale — strip long

@@ -1056,23 +1056,60 @@ class MarkupTab(ttk.Frame):
             messagebox.showinfo("Story Pole", "Open a PDF first.")
             return
         path = self.viewer.path
+        salt = self._sp_salt()
         self.status.set("Story Pole: measuring the set…", "info")
 
         def work():
+            import fitz as _fz
             from .. import setscale
-            return setscale.set_verdicts(path)
+            verdicts = setscale.set_verdicts(path)
+            doc = _fz.open(path)
+            try:                # layout fingerprints feed the learning hints
+                fps = {p + 1: setscale.fingerprint(doc[p], salt)
+                       for p in range(doc.page_count)}
+            finally:
+                doc.close()
+            return verdicts, fps
 
-        def done(verdicts, err):
+        def done(res, err):
             if err:
                 self.status.set(f"Story Pole failed: {err}", "err")
                 return
             if self.viewer.path != path:
                 return                      # a different PDF was opened since
-            self._story_pole_results(verdicts)
+            self._story_pole_results(*res)
 
         run_bg(self, work, done)
 
-    def _story_pole_results(self, verdicts):
+    # -- the manual-fallback learning store: salted layout fingerprints ->
+    # -- remembered scale labels.  Counts only; nothing readable persists.
+    @staticmethod
+    def _sp_salt() -> str:
+        from . import prefs as _prefs
+        p = _prefs.load()
+        sp = p.setdefault("storypole", {})
+        if "salt" not in sp:
+            sp["salt"] = os.urandom(16).hex()
+            _prefs.save(p)
+        return sp["salt"]
+
+    @staticmethod
+    def _sp_learned(fp: str) -> dict:
+        from . import prefs as _prefs
+        return dict(_prefs.load().get("storypole", {})
+                    .get("learned", {}).get(fp, {}))
+
+    @staticmethod
+    def _sp_learn(fp: str, label: str):
+        from . import prefs as _prefs
+        p = _prefs.load()
+        rec = p.setdefault("storypole", {}).setdefault("learned", {}) \
+               .setdefault(fp, {})
+        rec[label] = rec.get(label, 0) + 1
+        _prefs.save(p)
+
+    def _story_pole_results(self, verdicts, fps=None):
+        fps = fps or {}
         dlg = tk.Toplevel(self)
         dlg.title("The Story Pole — witnessed autoscale")
         dlg.transient(self.winfo_toplevel())
@@ -1143,6 +1180,65 @@ class MarkupTab(ttk.Frame):
                 f"Story Pole: calibrated {len(passing)} PASS sheet(s); "
                 f"{len(verdicts) - len(passing)} refused (unchanged)", "ok")
             dlg.destroy()
+
+        # the manual fallback: set a refused sheet yourself — and the
+        # learning store remembers the choice against this title-block
+        # LAYOUT (salted hash; nothing readable is kept)
+        from .. import setscale as _ss
+        man = ttk.Frame(frm)
+        man.pack(fill="x", pady=(8, 0))
+        ttk.Label(man, text="Manual fallback:").pack(side="left")
+        self._sp_manual_var = tk.StringVar()
+        self._sp_manual_cb = ttk.Combobox(
+            man, textvariable=self._sp_manual_var, width=18,
+            values=[lbl for lbl, _ in _ss._LADDER])
+        self._sp_manual_cb.pack(side="left", padx=4)
+
+        def set_manual():
+            sel = tree.selection()
+            txt = self._sp_manual_var.get().strip()
+            if not sel or not txt:
+                return
+            got = _ss._note_in(txt)
+            if got is None:
+                self.status.set(f"can't read a scale from {txt!r}", "err")
+                return
+            page_no = int(sel[0])
+            self.cals[page_no] = measure.ScaleCal(
+                real_per_pt=1.0 / got[1], unit="ft")
+            self._save_cal()
+            self._show_cal()
+            self._recompute_measures()
+            self.after_change()
+            fp = fps.get(page_no)
+            if fp:
+                self._sp_learn(fp, got[0])
+            tree.set(str(page_no), "verdict", "MANUAL")
+            tree.set(str(page_no), "scale", got[0])
+            self.status.set(f"sheet {page_no} set to {got[0]} manually — "
+                            "remembered for this layout", "ok")
+
+        self._sp_manual_btn = ttk.Button(man, text="Set selected manually",
+                                         command=set_manual)
+        self._sp_manual_btn.pack(side="left", padx=2)
+        self._sp_hint_lbl = ttk.Label(man, text="", style="Muted.TLabel")
+        self._sp_hint_lbl.pack(side="left", padx=8)
+
+        def hint(_e=None):
+            sel = tree.selection()
+            self._sp_hint_lbl.configure(text="")
+            if not sel:
+                return
+            fp = fps.get(int(sel[0]))
+            counts = self._sp_learned(fp) if fp else {}
+            if counts:
+                best = max(counts, key=counts.get)
+                self._sp_manual_var.set(best)
+                self._sp_hint_lbl.configure(
+                    text=f"remembered: this layout was set to {best} "
+                         f"{counts[best]}× before")
+
+        tree.bind("<<TreeviewSelect>>", hint, add="+")
 
         btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=(8, 0))

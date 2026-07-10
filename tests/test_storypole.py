@@ -304,7 +304,8 @@ def test_view_title_and_print_check():
     doc = _open(p4)
     v4 = setscale.sheet_verdict(doc[0])
     A(v4["status"] == "REFUSED"
-      and "DIFFERENT scales" in v4["reasons"][0], v4["reasons"])
+      and "declared scales" in v4["reasons"][0]
+      and "distinguishes" in v4["reasons"][0], v4["reasons"])
     A(len(v4["view_notes"]) == 2, v4["view_notes"])
     doc.close()
     # deterministic
@@ -346,6 +347,74 @@ def test_print_check_reconciles_witnesses():
     doc.close()
 
 
+def test_scale_cells_and_disambiguation():
+    # the boxed title-block table: "SCALE" cell + value cell below +
+    # a big detail number beside (the other declaration convention)
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((100, 500), "SCALE", fontsize=9)
+    page.insert_text((100, 518), '1/8"=1\'-0"', fontsize=9)
+    page.insert_text((190, 515), "2", fontsize=22)
+    ds = setscale.declared_scales(page)
+    A(len(ds) == 1 and abs(ds[0]["ppf"] - 9.0) < 1e-6
+      and ds[0]["ref"] == "detail 2", f"SCALE cell + detail number: {ds}")
+    doc.close()
+    # the P101 case: title block declares one scale, the viewport another
+    # — the sheet's own dimensions PICK which one governs
+    ppf = 72.0 / 40.0                        # the viewport truth: 1"=40'-0"
+    dims = [(ppf * ft, f"{ft}'-0\"") for ft in (40, 60, 80, 100, 120)]
+    p = _sheet(os.path.join(TMP, "p101.pdf"), dims)
+    doc = fitz.open(p)
+    page = doc[0]
+    page.insert_text((450, 560), "SCALE", fontsize=8)     # title-block cell
+    page.insert_text((450, 574), '1/8"=1\'-0"', fontsize=8)
+    page.insert_text((100, 520), "SITE PLAN", fontsize=12)
+    page.draw_line((90, 528), (300, 528))
+    page.insert_text((100, 542), "P101", fontsize=8)
+    page.insert_text((150, 542), '1"=40\'-0"', fontsize=8)
+    doc.saveIncr()
+    v = setscale.sheet_verdict(doc[0])
+    A(v["status"] == "PASS" and abs(v["pt_per_ft"] - ppf) < 0.01,
+      f"dimensions pick the governing declaration: {v['reasons']}")
+    A("1\"=40'" in v["reasons"][0]
+      and "details/insets" in v["reasons"][0], v["reasons"])
+    A(len({d["ppf"] for d in v["view_notes"]}) == 2, v["view_notes"])
+    doc.close()
+
+
+def test_fingerprint_and_paper():
+    from rfi_stamper.sheets import paper_name
+    A(paper_name(42 * 72, 30 * 72) == "ARCH E1", "42x30 landscape = E1")
+    A(paper_name(30 * 72, 42 * 72) == "ARCH E1", "orientation-blind")
+    A(paper_name(8.5 * 72, 11 * 72) == "ANSI A (letter)", "letter")
+    A(paper_name(36 * 72, 24 * 72) == "ARCH D", "arch d")
+    A(paper_name(500, 500) is None, "off-chart is honest")
+    # the learning fingerprint: layout-only, salted, untraceable
+    def make(title):
+        doc = fitz.open()
+        page = doc.new_page(width=42 * 72, height=30 * 72)
+        page.insert_text((2800, 500), title, fontsize=14)   # firm content
+        page.insert_text((2800, 800), "SCALE", fontsize=9)
+        page.insert_text((2800, 818), '1/4"=1\'-0"', fontsize=9)
+        page.draw_line((2700, 50), (2700, 2100))            # tb edge
+        return doc
+    d1, d2 = make("SOMETHING ELEMENTARY SCHOOL"), make("A DIFFERENT JOB")
+    f1 = setscale.fingerprint(d1[0], "saltA")
+    f2 = setscale.fingerprint(d2[0], "saltA")
+    A(f1 == f2, "same LAYOUT, different content -> same fingerprint")
+    A(setscale.fingerprint(d1[0], "saltB") != f1,
+      "a different install salt changes everything (untraceable)")
+    A(len(f1) == 16 and all(c in "0123456789abcdef" for c in f1),
+      "opaque hex only — nothing readable is stored")
+    d3 = fitz.open()
+    d3.new_page(width=36 * 72, height=24 * 72)              # other layout
+    A(setscale.fingerprint(d3[0], "saltA") != f1,
+      "different layout -> different fingerprint")
+    d1.close()
+    d2.close()
+    d3.close()
+
+
 # --------------------------------------------------------------------------- #
 
 def main():
@@ -367,6 +436,11 @@ def main():
         (test_print_check_reconciles_witnesses, "the ruler explains a "
                                                 "reduced print; conflicts "
                                                 "still refuse"),
+        (test_scale_cells_and_disambiguation, "SCALE cells parse; "
+                                              "dimensions pick between "
+                                              "conflicting declarations"),
+        (test_fingerprint_and_paper, "paper names + the salted layout "
+                                     "fingerprint (untraceable learning)"),
     ]
     for fn, label in tests:
         fn()
