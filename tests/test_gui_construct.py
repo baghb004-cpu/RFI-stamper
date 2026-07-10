@@ -840,6 +840,9 @@ def main():
     root.update()
     assert app.plans.bim.pins == []
 
+    # the Slipsheet vector-diff button rides in the As-Built compare tab
+    assert app.plans.asbuilt.compare.vdiff_btn.winfo_exists()
+
     # ---- Pipewright: draw a run by tool, slope it, cap it, check it
     import rfi_stamper.pipewright as pw
     app.plans.nb.select(loft)

@@ -6,13 +6,13 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.13.0, offline construction workspace; Python package
+- Product: **Planloom** v4.14.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
   stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB,
-  3D raster and clash engines are all Planloom's own.
-- 54 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  3D raster, clash and vector-diff engines are all Planloom's own.
+- 55 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -53,6 +53,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **Trips / Placards / Fetches / Runs** | Holler command kinds (shortcut / text insert / open target / macro) | a trip fires a tool; a placard is exact posted text; a fetch retrieves; a run is a keystroke sequence |
 | **The Songbook / The Ticker** | Holler's command dictionary / live counter tape | the book of what it knows; the running tally |
 | **The Selvage** | the wire-format dialects module (LandXML / GSI / SP-record fieldbook / DXF attribute tier + the ONE coordinate-order writer table) | the loom's self-finished edge — the woven boundary where Planloom's weave meets the field instruments without fraying |
+| **The Slipsheet** | vector drawing-revision diff + redline PDF (drawdiff.py) | slip-sheeting two vellums on a light table — the reviewer's oldest compare |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -965,6 +966,62 @@ coordination vocabulary and a hard zero-false-positive contract.
   cross-source clash, no clash-management workflow, no insulation
   radius default, no self-clash).  54 suites green twice.  NEXT:
   Phase E — vector drawing diff (addendum redline).
+
+## Round 29 (SHIPPED, v4.14.0): BUILDOUT Phase E — the Slipsheet (vector diff)
+
+Revision compare on the VECTORS: what linework changed between two
+issues of a sheet, clustered into numbered change regions, written as a
+deterministic redline PDF.
+
+- **drawdiff.py (new, GUI-free)**: the whole diff is 1-D interval
+  algebra per infinite line — segments from both revisions land in
+  (theta, rho) buckets (rho measured from page CENTER; 3x3 union-find
+  over cells, with the theta=0/pi SEAM probe where direction flips and
+  rho NEGATES — miss it and horizontal-ish lines randomly fail to
+  group), each bucket's segments become intervals along the leader's
+  direction, collinear chains merge (GAP_TOL 0.75 pt — below dash gaps
+  so dashed linetypes stay dashed), and added/removed are interval
+  differences.  Splits, merges, extensions and partial erasures all
+  fall out of ONE code path: the classic false diff (a line re-exported
+  as two touching pieces) merges back and diffs to nothing BY
+  CONSTRUCTION.  Registration first (the whole game): align.auto_align
+  applied rotate-about-center-then-shift when score >= 0.35, or a
+  caller AlignResult; low-confidence warns "sheets may not correspond".
+  Word layer (text is invisible to get_drawings; a changed dimension
+  is the worst silent miss): get_text("words") through rotation_matrix
+  (the sheets.py trap), NFC + nbsp-normalized, (text, 2-pt-grid) multi-
+  set diff.  Region clustering on a 24-pt grid, one issue per region,
+  ordered by change magnitude.  extract_segments reused (min_len 1.5,
+  cap raised to 20000 — a one-sided cap MANUFACTURES diffs; cap-hit
+  warns).  Raster pages surface extract_segments' honest ValueError.
+- **redline_pdf**: unchanged linework gray 0.78 (context), REMOVED
+  dashed house-red (the demolition-plan convention), ADDED solid blue
+  (align.py's exact overlay blue — raster and vector compares speak one
+  color language), change regions boxed DASHED-RED with a DRAWN
+  revision-delta triangle + number (WinAnsi carries no Greek delta
+  glyph — minipdf would print "?").  NOTE: region markers are
+  rectangles, NOT revision clouds — invariant #6 reserves cloud shapes
+  and clouded compare output needs the owner's explicit sign-off;
+  flip to `markups.cloud_path_points` outlines only after that
+  sign-off.  Legend + totals + alignment note + warnings on the page.
+  minipdf bytes are deterministic (test-pinned).
+- **GUI**: "Vector diff PDF…" button in the Compare tab (run_bg,
+  honest failure toast, warnings to the log); uses the tab's manual
+  alignment when one is set, else auto.
+- **Tests** (tests/test_drawdiff.py, 11 checks): exact echo, counted
+  edits incl. a move, THE collinear split/merge case + 0.5 pt gap
+  variant + mirror (all zero), extension length, rigid transform
+  (rotation-sign pinned end to end + translation through the REAL
+  auto_align), 3-corner clustering + delta-ordering, word layer,
+  /Rotate 90 parity, deterministic renderer bytes + legend + tag
+  numbers, honest failures (raster ValueError, size-mismatch warning),
+  full-report determinism.
+- SKIP list held (no bezier canonicalization — chord diffs are a
+  documented limitation; no scale recovery on size mismatch; no
+  multi-sheet auto-pairing — single page-pair like the raster compare;
+  no hatch suppression — a re-hatched area IS a change, the pt-length
+  totals let the reviewer recognize restyling).  55 suites green
+  twice.  NEXT: Phase F — the CPM scheduler.
 
 ## Roadmap (still open)
 

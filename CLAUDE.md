@@ -72,6 +72,12 @@ run; the `*_report.txt` must end in PASS).
     rfi_stamper/offline_guard.py  process-wide outbound-socket kill-switch
     rfi_stamper/merge.py      combine / split / rotate engine (pypdf)
     rfi_stamper/align.py      auto-align + color overlay compare (numpy FFT)
+    rfi_stamper/drawdiff.py   the Slipsheet: vector drawing-revision diff —
+                              (theta, rho) line buckets + 1-D interval
+                              algebra (splits/merges/extensions are one code
+                              path), align-first, word layer, change-region
+                              clustering, deterministic redline PDF (removed
+                              dashed red / added solid blue / regions boxed)
     rfi_stamper/pdfdoctor.py  diagnose + repair/unlock/compress/rasterize/upscale/
                               linearize/strip-metadata/normalize-rotation, verify_safe
     rfi_stamper/ocr.py        thin facade over the Tracer (historical API names
@@ -310,6 +316,14 @@ were proven on real export files. GUI constructs under xvfb.
   scenes must offset run ends by MORE than that or they silently stop
   clashing.  Runs without inverts are excluded AND surfaced (skip note via
   `backcheck._RuleSkip`) — never guessed at z=0.
+- drawdiff's line buckets have a theta=0/pi SEAM: direction flips there and
+  rho NEGATES — the wrap probe unions `(nbins-1, -rb-1)` neighborhoods or
+  near-horizontal lines randomly fail to group.  Members of a seam group
+  project correctly because projection uses ENDPOINTS with the leader's
+  direction, never the member's own u.  minipdf text is WinAnsi: there is
+  NO Greek delta glyph — the redline's revision-delta tags are DRAWN
+  triangles + a plain number.  Redline region markers are rectangles, not
+  clouds (invariant #6 — clouded compare output needs owner sign-off).
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.

@@ -109,6 +109,13 @@ class CompareTab(ttk.Frame):
         self.pdf_btn = ttk.Button(bar, text="Save overlay PDF…",
                                   command=self.save_pdf)
         self.pdf_btn.pack(side="right", padx=6)
+        self.vdiff_btn = ttk.Button(bar, text="Vector diff PDF…",
+                                    command=self.save_vector_diff)
+        self.vdiff_btn.pack(side="right")
+        Tooltip(self.vdiff_btn, "The Slipsheet: a vector redline — removed "
+                                "linework dashed red, added solid blue, "
+                                "change regions boxed and numbered. Needs "
+                                "vector (CAD-exported) pages.", theme)
         self.open_btn = ttk.Button(bar, text="Open result", state="disabled",
                                    command=lambda: self._out and open_path(self._out))
         self.open_btn.pack(side="right")
@@ -239,6 +246,47 @@ class CompareTab(ttk.Frame):
             self.canvas.create_image(0, 0, image=self._photo, anchor="nw")
             self.canvas.configure(scrollregion=(0, 0, img.shape[1], img.shape[0]))
             self.status.set("Preview ready — drag to pan", "ok")
+
+        run_bg(self, work, done)
+
+    def save_vector_diff(self):
+        """The Slipsheet: vector redline PDF (drawdiff.redline_pdf)."""
+        if not self._ready():
+            return
+        default = os.path.splitext(self.a.path)[0] + "_redline.pdf"
+        out = filedialog.asksaveasfilename(defaultextension=".pdf",
+                                           initialfile=os.path.basename(
+                                               default),
+                                           filetypes=[("PDF", "*.pdf")])
+        if not out:
+            return
+        a_path, a_pg = self.a.path, self.a.page_no
+        b_path, b_pg = self.b.path, self.b.page_no
+        r = self.align_result if self.align_result is not None else "auto"
+
+        def work():
+            from .. import drawdiff
+            return drawdiff.redline_pdf(a_path, b_path, out, base_page=a_pg,
+                                        rev_page=b_pg, align=r,
+                                        log=self.log.say), out
+
+        def done(res, err):
+            if err:
+                self.log.say(f"!! vector diff failed: {err}")
+                self.status.set("Vector diff failed — see log", "err")
+                return
+            rep, path = res
+            t = rep["totals"]
+            self._out = path
+            self.open_btn.configure(state="normal")
+            self.log.say(
+                f"wrote {path} — {len(rep['regions'])} change region(s), "
+                f"{t['added']} added / {t['removed']} removed piece(s)")
+            for wtxt in rep["warnings"]:
+                self.log.say(f"  !! {wtxt}")
+            self.status.set(
+                f"Vector diff: {len(rep['regions'])} change region(s)",
+                "ok")
 
         run_bg(self, work, done)
 
