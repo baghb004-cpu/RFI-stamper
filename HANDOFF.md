@@ -63,6 +63,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Cut Ticket** | model-driven pull list feeding the Swatchbook (cutticket.py) | the garment-trade production order that travels with a cut of cloth telling the shop what to make — the order the drawing writes for the cut sheets |
 | **The Chalk Mark** | certainty-gated model-number checkbox marking inside Swatchbook builds (swatchbook.py) | a tailor's chalk mark tells the shop exactly where to cut — one small, deliberate mark, never a guess |
 | **The Story Pole** | dimension-anchored witnessed autoscale (setscale.py) | the carpenter's rod marked with known lengths, used to transfer and VERIFY measurements — never trusted from one mark alone |
+| **The Reed Count** | fixture-symbol recognition + auto-count (reedcount.py) | the reed count is the loom's dents-per-inch — THE density count of the trade, now counting fixtures per sheet |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1527,15 +1528,47 @@ door-opening cross-check.
   door; engineering note form; determinism) + a construct block driving
   the dialog to an applied calibration.
 
+## Round 39 (SHIPPED, v5.5.0): the Reed Count — fixture symbols counted
+
+SETSCAN Phase 2.  Counts plumbing fixtures on vector sheets by matching
+linework clusters against a symbol library seeded from the Loft's own
+stencils (convention-only descriptions, invariant #7).
+
+- **Engine** (reedcount.py): primitives from get_drawings (lines, curve
+  samples, rects, quads) → strip long linework (> 6.5 ft real) and door
+  swings (the Story Pole's arc detector, reused) → proximity clusters
+  (3" real gap) → 220-point resample → 24-rotation × flip pose search
+  scored by dilated-grid soft-F1 against stencil signatures.  Principal-
+  axis canonicalization was tried and REJECTED: a square's axis is
+  arbitrary (see gotcha).  Requires a verified pt/ft (Story Pole or
+  human cal) and refuses without one.
+- **Honesty gates**: size sanity vs the stencil's real footprint (±35 %)
+  is a hard gate — north arrows match the water-heater circle at 0.85
+  and die on size; near-identical conventions surface as AMBIGUOUS with
+  both names (mop vs single-bowl sink), never silently picked;
+  text-labeled stencils (WH, CO) count only with their label word in the
+  cluster bbox; every exclusion is counted (long linework, door swings,
+  size rejections); unmatched fixture-sized clusters land in the unknown
+  tray with their nearest miss named.
+- **Human-gated learning**: `make_symbol` turns a labeled tray cluster
+  into a custom library entry (real-inch points about the centroid),
+  persisted in ~/.planloom `reed_symbols` — the review-deck precedent.
+- **GUI**: "Count fixtures — the Reed Count…" beside the Story Pole in
+  the markup tab's scale menu — refuses without a verified ft scale;
+  results dialog: counts table, filter tallies, unknown tray with
+  reasons, label-an-unknown flow, recount.
+- **Tests**: tests/test_reedcount.py (17 checks — exact counts through
+  the real plate pipeline incl. rotated/flipped/45° placements; decoy
+  never counts; size gate carries reasons; ambiguity named; label gate;
+  custom-symbol learning; no-scale refusal; determinism) + a construct
+  block driving Story Pole → Reed Count to a counts tree.
+
 ## Roadmap (still open)
 
-- **SETSCAN_PLAN.md (owner-requested, staged; Phases 4+1 SHIPPED
-  v5.3.0/v5.4.0)** — remaining: the Reed Count (fixture-symbol library +
-  auto-count over vector linework, size-sane via the verified scale,
-  unknown shapes surfaced for human labeling), and the Cut Ticket
-  set-scan (fixture tags + the legend-sheet schedule table harvested
-  into preliminary pull-list rows with pre-filled callouts — proposals
-  only).
+- **SETSCAN_PLAN.md (owner-requested, staged; Phases 4+1+2 SHIPPED
+  v5.3.0/v5.4.0/v5.5.0)** — remaining: the Cut Ticket set-scan (fixture
+  tags + the legend-sheet schedule table harvested into preliminary
+  pull-list rows with pre-filled callouts — proposals only).
 - **Owner-confirmed next campaign (2026-07-10)** — four recommendations
   locked by the owner: (1) the training mode — hands-on click-to-advance
   steps with a per-step "Show me" animated fallback; (2) Training Center

@@ -126,6 +126,15 @@ run; the `*_report.txt` must end in PASS).
                               block scale note); a disagreeing note refuses
                               with the exact ratio (half-size print);
                               per-sheet verdicts, never inherited
+    rfi_stamper/reedcount.py  the Reed Count: fixture-symbol auto-count on
+                              vector sheets at a VERIFIED scale — strip long
+                              linework + door swings, proximity-cluster,
+                              normalize (24-rotation x flip pose search,
+                              dilated-grid soft-F1 vs Loft-stencil
+                              signatures), size-sanity hard gate, ambiguity
+                              surfaced (mop vs single sink), text-labeled
+                              symbols (WH) need their label, unknown tray +
+                              human-gated custom symbols
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
                               header suffix, Designer Pickup Sheet PDF
     rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
@@ -500,6 +509,16 @@ were proven on real export files. GUI constructs under xvfb.
   tokens preceded by "=" are skipped.  PASS requires TWO evidence
   families (dimension self-agreement + doors or note): a half-size print
   is perfectly self-consistent, so self-agreement alone must refuse.
+- Reed Count laws: principal-axis canonicalization is UNSTABLE for
+  symmetric shapes (a square's axis is arbitrary) — pose search is a brute
+  24-rotation x flip enumeration, and raw grid IoU is brittle to one-cell
+  sampling drift, so scoring is a dilated-grid soft-F1.  Near-identical
+  conventions (mop sink vs single-bowl sink: concentric rectangles both)
+  must surface as AMBIGUOUS, never silently picked.  A water heater is
+  just a circle — text-labeled stencils count ONLY with their label word
+  inside the cluster bbox.  Size sanity vs the stencil footprint is the
+  strongest false-positive killer (north arrows match wh at 0.85) and is
+  why the Reed Count REQUIRES a verified scale (Story Pole or human cal).
 - Chalk Mark laws: many manufacturer sheets are FILLABLE FORMS whose
   checkboxes exist only as widget annotations — `show_pdf_page` embeds
   page content only, so `build_packet` BAKES annots+widgets into the

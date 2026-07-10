@@ -287,6 +287,51 @@ def main():
     assert abs(mk_tab.cal_for(1).real_per_pt * 9.0 - 1.0) < 0.01, \
         "1/8\" plate -> 9 pt/ft"
 
+    # the Reed Count: fixture counting on the calibrated sheet
+    _sm.add("fixture", [(6, 5)], stencil="wc")
+    _sm.add("fixture", [(12, 5)], stencil="lav")
+    _plate2 = os.path.join(tmp, "reedcount_plate.pdf")
+    _dr.plate_pdf(_sm, _plate2)
+    mk_tab.open_pdf(_plate2)
+    root.update()
+    mk_tab.story_pole_dialog()
+    _dlg = None
+    for _ in range(200):
+        root.update()
+        _dlg = next((w for w in mk_tab.winfo_children()
+                     if isinstance(w, _tksp.Toplevel)), None)
+        if _dlg is not None:
+            break
+        _tsp.sleep(0.05)
+    [w for w in _dlg.winfo_children()[0].winfo_children()[-1]
+     .winfo_children() if isinstance(w, _ttksp.Button)][0].invoke()
+    root.update()
+    mk_tab.reed_count_dialog()
+    _dlg2 = None
+    for _ in range(200):
+        root.update()
+        _dlg2 = next((w for w in mk_tab.winfo_children()
+                      if isinstance(w, _tksp.Toplevel)), None)
+        if _dlg2 is not None:
+            break
+        _tsp.sleep(0.05)
+    assert _dlg2 is not None, "Reed Count dialog should appear"
+
+    # counts tree is the first Treeview in the dialog
+    def _find_trees(w, acc):
+        for c in w.winfo_children():
+            if isinstance(c, _ttksp.Treeview):
+                acc.append(c)
+            _find_trees(c, acc)
+        return acc
+    _trees = _find_trees(_dlg2, [])
+    assert _trees, "counts tree present"
+    _rows = {_trees[0].item(i)["values"][0]: _trees[0].item(i)["values"][2]
+             for i in _trees[0].get_children()}
+    assert _rows.get("wc") == 1 and _rows.get("lav") == 1, _rows
+    _dlg2.destroy()
+    root.update()
+
     # home routing: one PDF -> plan viewing; several -> combine list
     before = len(app.projsec.merge.items)
     app.route_paths([pdf, pdf])

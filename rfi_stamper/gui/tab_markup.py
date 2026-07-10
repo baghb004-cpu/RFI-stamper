@@ -447,6 +447,8 @@ class MarkupTab(ttk.Frame):
                          command=lambda: self.set_tool("calibrate"))
         menu.add_command(label="Auto scale — the Story Pole…",
                          command=self.story_pole_dialog)
+        menu.add_command(label="Count fixtures — the Reed Count…",
+                         command=self.reed_count_dialog)
         menu.add_checkbutton(label="Apply scale to ALL pages",
                              variable=self.scale_all_pages)
         menu.add_separator()
@@ -1139,6 +1141,115 @@ class MarkupTab(ttk.Frame):
         ttk.Button(btns, text="Close", command=dlg.destroy).pack(side="right")
         if verdicts:
             tree.selection_set(str(verdicts[0]["page"]))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    # =========================================================== reed count
+    def reed_count_dialog(self):
+        """Count fixture symbols on the CURRENT sheet at its verified
+        scale.  No calibration = honest refusal pointing at the Story
+        Pole — size sanity is what keeps the counts trustworthy."""
+        if not self.viewer.path:
+            messagebox.showinfo("Reed Count", "Open a PDF first.")
+            return
+        cal = self.cal_for(self.viewer.page_no)
+        if cal is None or cal.unit != "ft" or cal.real_per_pt <= 0:
+            messagebox.showinfo(
+                "Reed Count",
+                "This sheet has no verified ft scale yet.\nRun the Story "
+                "Pole (or calibrate two points) first — fixture counting "
+                "needs real sizes to stay honest.")
+            return
+        path, pno = self.viewer.path, self.viewer.page_no
+        ppf = 1.0 / cal.real_per_pt
+        from . import prefs as _prefs
+        extra = dict(_prefs.load().get("reed_symbols", {}))
+        self.status.set("Reed Count: counting fixtures…", "info")
+
+        def work():
+            import fitz as _fz
+            from .. import reedcount
+            doc = _fz.open(path)
+            try:
+                return reedcount.count_fixtures(doc[pno - 1], ppf,
+                                                extra_symbols=extra)
+            finally:
+                doc.close()
+
+        def done(rep, err):
+            if err:
+                self.status.set(f"Reed Count failed: {err}", "err")
+                return
+            self._reed_count_results(rep, ppf)
+
+        run_bg(self, work, done)
+
+    def _reed_count_results(self, rep, ppf):
+        dlg = tk.Toplevel(self)
+        dlg.title("The Reed Count — fixture symbols on this sheet")
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+        cf, ctree = make_tree(frm, self.theme,
+                              [("sym", "Symbol"), ("label", "Label"),
+                               ("count", "Count")],
+                              [70, 220, 60], height=6)
+        from ..reedcount import build_library
+        from . import prefs as _prefs
+        lib = build_library(dict(_prefs.load().get("reed_symbols", {})))
+        for key in sorted(rep["counts"]):
+            label = lib.get(key, {}).get("label", key)
+            ctree.insert("", "end", values=(key, label, rep["counts"][key]))
+        cf.pack(fill="x")
+        ex = rep["excluded"]
+        ttk.Label(frm, text=(
+            f"filtered: {ex['long_linework']} linework, "
+            f"{ex['door_swing']} door-swing, "
+            f"{ex['size_rejected']} size-rejected primitives/clusters"
+        )).pack(anchor="w", pady=(6, 0))
+        ttk.Label(frm, text=f"Unknown tray ({len(rep['unknown'])}) — "
+                            "select one to label it:").pack(anchor="w",
+                                                            pady=(8, 0))
+        uf, utree = make_tree(frm, self.theme,
+                              [("size", "Size (ft)"), ("near", "Nearest"),
+                               ("why", "Why not counted")],
+                              [80, 90, 300], height=6)
+        for i, u in enumerate(rep["unknown"]):
+            utree.insert("", "end", iid=str(i),
+                         values=(f"{u['size_ft'][0]} x {u['size_ft'][1]}",
+                                 u.get("nearest") or "—",
+                                 u.get("rejected", "no library match")))
+        uf.pack(fill="both", expand=True)
+
+        def label_unknown():
+            sel = utree.selection()
+            if not sel:
+                return
+            u = rep["unknown"][int(sel[0])]
+            import tkinter.simpledialog as sd
+            name = sd.askstring(
+                "Label symbol", "Name this symbol (it joins YOUR library "
+                "and counts from now on):", parent=dlg)
+            if not name or not name.strip():
+                return
+            from .. import reedcount
+            from . import prefs as _prefs
+            sym = reedcount.make_symbol(u["pts"], ppf, name.strip())
+            p = _prefs.load()
+            key = name.strip().lower().replace(" ", "_")[:24]
+            p.setdefault("reed_symbols", {})[key] = sym
+            _prefs.save(p)
+            self.status.set(f"Symbol '{name.strip()}' learned — recount to "
+                            "apply", "ok")
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(8, 0))
+        ttk.Button(btns, text="Label selected unknown…",
+                   command=label_unknown).pack(side="left")
+        ttk.Button(btns, text="Recount",
+                   command=lambda: (dlg.destroy(), self.reed_count_dialog())
+                   ).pack(side="left", padx=6)
+        ttk.Button(btns, text="Close", command=dlg.destroy).pack(side="right")
         dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     # ============================================================ multiply

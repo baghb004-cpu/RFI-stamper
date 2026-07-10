@@ -1,7 +1,8 @@
 # SETSCAN_PLAN.md — reading the drawing set (scale · symbols · tags · marks)
 
 **Status:** IN FLIGHT — Phase 4 (the Chalk Mark) SHIPPED v5.3.0; Phase 1
-(the Story Pole) SHIPPED v5.4.0; Phases 2–3 planned, not yet built. Same discipline that shipped the Tracer
+(the Story Pole) SHIPPED v5.4.0; Phase 2 (the Reed Count) SHIPPED v5.5.0;
+Phase 3 planned, not yet built. Same discipline that shipped the Tracer
 (OCR_PLAN), minipdf (MINIPDF_PLAN) and the BUILDOUT campaign: research →
 staged build behind tests → prove → ship, one phase = one round = one
 version. README documents only shipped features and is updated as each
@@ -81,8 +82,13 @@ dimensions, and accept it only when independent witnesses agree.
   with the ratio; a no-dimension sheet refuses; door widths verify.
 
 ## Phase 2 — the Reed Count: fixture-symbol recognition + auto-count
-*(module `rfi_stamper/reedcount.py` + `data/symbol_library/` — the reed
-count is the loom's dents-per-inch: THE density count of the trade)*
+**SHIPPED v5.5.0** *(module `rfi_stamper/reedcount.py` — the reed count is
+the loom's dents-per-inch: THE density count of the trade.  Built to this
+plan; the library seeds from the Loft STENCILS directly (no separate
+data/symbol_library/ needed) and user-labeled symbols persist in
+~/.planloom.  Two additions the plan didn't foresee: near-identical
+conventions surface as AMBIGUOUS, and text-labeled symbols require their
+label word.)*
 
 **Goal:** count plumbing fixtures on vector sheets by matching linework
 clusters against a symbol library.
@@ -182,7 +188,7 @@ and mark the checkbox beside it.
 |---|---|---|---|
 | 4 | the Chalk Mark (checkbox marking) — **SHIPPED** | v5.3.0 | Swatchbook (shipped) |
 | 1 | the Story Pole (witnessed autoscale) — **SHIPPED** | v5.4.0 | — |
-| 2 | the Reed Count (symbol counting) | v5.5.0 | 1 (size sanity) |
+| 2 | the Reed Count (symbol counting) — **SHIPPED** | v5.5.0 | 1 (size sanity) |
 | 3 | the Cut Ticket set-scan (tags → schedule) | v5.6.0 | 2 (symbol context), Swatchbook |
 
 Phase 4 first: it completes the cut-sheet workflow the owner is actively
