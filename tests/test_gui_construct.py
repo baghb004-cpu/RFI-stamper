@@ -829,11 +829,16 @@ def main():
     assert len(rd.pages) == 1
     assert abs(float(rd.pages[0].mediabox.width) - 36 * 72) < 1.0, res
 
-    # draft extrudes into the BIM viewer through the section bridge
+    # draft extrudes into the BIM viewer through the section bridge;
+    # clash-lite pins ride along and an empty send clears them
     m3 = draft_mod.to_bim(loft.model, wall_height=9.0, floors=2)
-    app.plans._loft_to_3d(m3)
+    app.plans._loft_to_3d(m3, [(1.0, 2.0, 3.0, "C1", "#c1121f")])
     root.update()
     assert app.plans.bim.model is m3
+    assert app.plans.bim.pins == [(1.0, 2.0, 3.0, "C1", "#c1121f")]
+    app.plans._loft_to_3d(m3)
+    root.update()
+    assert app.plans.bim.pins == []
 
     # ---- Pipewright: draw a run by tool, slope it, cap it, check it
     import rfi_stamper.pipewright as pw

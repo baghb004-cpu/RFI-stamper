@@ -34,6 +34,8 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
+from . import clash as _clash_const     # module top is stdlib-only: no cycle
+
 # --------------------------------------------------------------- vocabulary --
 
 #: Severity ranks, worst first -- the sort order for a review pass.
@@ -258,13 +260,16 @@ SKIPPED_RULES: dict = {
                   "features. A plan/BIM sheet app has no part model to read "
                   "them from.",
     },
+    # STD-SLEEVE graduated to a real rule at v4.13.0 (Clash-Lite supplies
+    # the MEP-vs-structure crossing data) — it stays skipped for PDF
+    # sources only, which carry no pipe model to clash.
     "STD-SLEEVE": {
         "category": "standards", "severity": "info",
         "title": "Wall-penetration sleeve present",
-        "inputs": {"pdf", "loft"},
-        "reason": "Not checked: proving a sleeve at every wall penetration "
-                  "needs MEP-vs-structure clash data (which pipe crosses "
-                  "which rated wall) that an offline 2D draft does not carry.",
+        "inputs": {"pdf"},
+        "reason": "Not checked on a PDF source: sleeve checks need the "
+                  "Loft pipe model (which pipe crosses which wall). Draft "
+                  "the run in the Loft to evaluate it.",
     },
     "DFX-DRAFT-ANGLE": {
         "category": "dfx", "severity": "info",
@@ -275,6 +280,12 @@ SKIPPED_RULES: dict = {
                   "direction -- out of scope for a plan/BIM app.",
     },
 }
+
+
+class _RuleSkip(Exception):
+    """Raised by a rule fn to register an honest skip note (str(exc) is
+    the reason) instead of findings — the rule ran, looked at the data,
+    and could not evaluate it.  Distinct from a rule ERROR."""
 
 
 def _rule(code, category, severity, title, rule, inputs):
@@ -318,6 +329,7 @@ class _Ctx:
         self.log = log
         self._net = None
         self._fittings = None
+        self._clash = None
 
     def net(self):
         if self._net is None:
@@ -330,6 +342,21 @@ class _Ctx:
             from . import pipewright
             self._fittings = pipewright.derive_fittings(self.model, self.net())
         return self._fittings
+
+    def clash(self):
+        """(clash groups, stats) — computed once, shared by all clash
+        rules.  Raises _RuleSkip when the model's pipes carry no inverts
+        (no real elevations — clash cannot be evaluated honestly)."""
+        if self._clash is None:
+            from . import clash as clash_mod
+            hits, stats = clash_mod.detect(self.model)
+            self._clash = (clash_mod.group(hits), stats)
+        groups, stats = self._clash
+        if not stats.get("capsules") and stats.get("no_elevation"):
+            raise _RuleSkip(
+                "Not checked: no pipe run carries an invert — set inverts "
+                "(the slope command) so clash has real elevations.")
+        return groups, stats
 
 
 # --------------------------------------------------------- geometry helpers --
@@ -1170,6 +1197,139 @@ def _r_unsupported_span(ctx) -> list:
 
 
 # =====================================================================
+#  geometry -- Clash-Lite interference (rfi_stamper.clash)
+# =====================================================================
+
+def _clash_loc(g, model) -> str:
+    """Location clause for a clash group: (x, y) + Z in feet-inches, plus
+    the nearest grid intersection when the model carries grids."""
+    from .draft import fmt_ftin, grid_points
+    x, y, z = g.at
+    txt = f"at ({fmt_ftin(x)}, {fmt_ftin(y)}), Z {fmt_ftin(z)}"
+    gps = grid_points(model)
+    if gps:
+        _gx, _gy, lbl = min(
+            gps, key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+        txt += f", near grid {lbl}"
+    return txt
+
+
+def _clash_detail(g, model, verb: str) -> str:
+    """'4" san × 2" dcw hard clash at (...), Z ..., near grid B/2:
+    overlap 1 1/4" (3 spots along p7×p9 — worst shown)'.  The pipe always
+    reads first; the wall (when present) second."""
+    from .pipewright import fmt_dia_in
+    (da, sa), (db, sb) = (g.dia_a, g.system_a), (g.dia_b, g.system_b)
+    if sa == "wall":
+        (da, sa), (db, sb) = (db, sb), (da, sa)
+    a = f'{fmt_dia_in(da)}" {sa}'
+    b = (f'{fmt_dia_in(db)}"-thick wall' if sb == "wall"
+         else f'{fmt_dia_in(db)}" {sb}')
+    txt = (f"{a} × {b} {verb} {_clash_loc(g, model)}: "
+           f'overlap {fmt_dia_in(g.overlap_ft * 12.0)}"')
+    if g.count > 1:
+        txt += f" ({g.count} spots along {g.ent_a}×{g.ent_b} — worst shown)"
+    return txt
+
+
+@_rule("GEO-CLASH-HARD", "geometry", "major", "Hard interference",
+       "Two runs (or a run and a wall) occupy the same volume; overlaps "
+       f"under {_clash_const.HARD_IGNORE_IN:g}\" are ignored per the "
+       "common coordination ignore-below convention -- verify against "
+       "the project coordination plan.",
+       {"pipe"})
+def _r_clash_hard(ctx) -> list:
+    from . import clash as clash_mod
+    groups, _stats = ctx.clash()
+    out = []
+    for g in groups:
+        if g.kind != "hard":
+            continue
+        sev = clash_mod.severity(g)
+        out.append(_finding(
+            "GEO-CLASH-HARD",
+            _clash_detail(g, ctx.model, "hard clash"),
+            "Re-route or re-invert one run so the volumes clear; gravity "
+            "systems coordinate first (they cannot re-slope freely).",
+            severity=sev, where=(g.at[0], g.at[1]),
+            ent_ids=[g.ent_a, g.ent_b]))
+    return out
+
+
+@_rule("GEO-CLASH-CLEAR", "geometry", "minor", "Clearance intrusion",
+       "A gap thinner than the project clearance buffer (clash.CLEARANCE_IN"
+       ", default 0 = off; 1-2\" is a common choice for insulated lines) "
+       "-- verify against the project coordination plan.",
+       {"pipe"})
+def _r_clash_clear(ctx) -> list:
+    groups, _stats = ctx.clash()
+    out = []
+    for g in groups:
+        if g.kind != "clearance":
+            continue
+        out.append(_finding(
+            "GEO-CLASH-CLEAR",
+            _clash_detail(g, ctx.model, "clearance intrusion"),
+            "Open the gap to the project clearance buffer or accept with "
+            "the coordinator's sign-off.",
+            where=(g.at[0], g.at[1]), ent_ids=[g.ent_a, g.ent_b]))
+    return out
+
+
+@_rule("GEO-CLASH-DUP", "geometry", "info", "Duplicate run",
+       "Two same-system, near-coaxial overlapping runs read as the same "
+       "element modeled twice -- verify and delete the extra.",
+       {"pipe"})
+def _r_clash_dup(ctx) -> list:
+    groups, _stats = ctx.clash()
+    return [_finding(
+        "GEO-CLASH-DUP",
+        _clash_detail(g, ctx.model, "duplicate run"),
+        "Delete the duplicate (or offset the second run if it is real).",
+        where=(g.at[0], g.at[1]), ent_ids=[g.ent_a, g.ent_b])
+        for g in groups if g.kind == "duplicate"]
+
+
+@_rule("GEO-PIPE-IN-WALL", "geometry", "info", "Run concealed in a wall",
+       "A run buried lengthwise inside a wall body: fine when it fits the "
+       "cavity (verify blocking), impossible when the diameter meets or "
+       "exceeds the wall thickness.",
+       {"pipe"})
+def _r_pipe_in_wall(ctx) -> list:
+    out = []
+    groups, _stats = ctx.clash()
+    for g in groups:
+        if g.kind == "wontfit":
+            out.append(_finding(
+                "GEO-PIPE-IN-WALL",
+                _clash_detail(g, ctx.model, "will not fit inside the wall"),
+                "Fur the wall, downsize the run, or route it exposed -- "
+                "the pipe is thicker than the wall body.",
+                severity="major", ent_ids=[g.ent_a, g.ent_b],
+                where=(g.at[0], g.at[1])))
+        elif g.kind == "concealed":
+            out.append(_finding(
+                "GEO-PIPE-IN-WALL",
+                _clash_detail(g, ctx.model, "runs concealed inside the wall"),
+                "Verify the wall cavity and blocking accept the run.",
+                ent_ids=[g.ent_a, g.ent_b], where=(g.at[0], g.at[1])))
+    return out
+
+
+@_rule("STD-SLEEVE", "standards", "info", "Wall-penetration sleeve",
+       "Every transverse wall penetration needs a sleeve (and firestop in "
+       "a rated assembly) -- verify against the rated-assembly schedule.",
+       {"pipe"})
+def _r_sleeve(ctx) -> list:
+    return [_finding(
+        "STD-SLEEVE",
+        _clash_detail(g, ctx.model, "penetrates the wall"),
+        "Sleeve the penetration; firestop per the rated-assembly schedule.",
+        where=(g.at[0], g.at[1]), ent_ids=[g.ent_a, g.ent_b])
+        for g in ctx.clash()[0] if g.kind == "penetration"]
+
+
+# =====================================================================
 #  lessons -- conflicts with lessons learned (Heartwood lane)
 # =====================================================================
 
@@ -1609,6 +1769,8 @@ def run_rules(ctx, rules=None, heartwood_path=None) -> Report:
                 f.source = ctx.source
             findings.extend(got)
             checked.append(code)
+        except _RuleSkip as sk:                    # honest can't-evaluate
+            skipped.append({"code": code, "reason": str(sk)})
         except Exception as exc:                   # one bad rule never aborts
             ctx.log(f"  !! rule {code} failed: {exc}")
             skipped.append({"code": code, "reason": f"rule error: {exc}"})

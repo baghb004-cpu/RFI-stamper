@@ -272,7 +272,13 @@ inconsistencies** (duplicate sheet numbers, contradictory dimensions, blank
 title blocks), **ambiguous or incomplete drawings** (dangling detail
 references, vague "by others"/"verify in field" notes, missing scales,
 unlabeled rooms), **geometry flaws** (sharp corners, unclosed walls,
-overlaps, degenerate 3D, unsupported pipe spans), **non-conformance**
+overlaps, degenerate 3D, unsupported pipe spans, and **clash detection** —
+exact pipe-vs-pipe and pipe-vs-wall interference with the coordination
+vocabulary: hard clashes with gross-bury escalation, expected wall
+penetrations flagged for sleeves instead of buried as clashes, runs that
+physically won't fit their wall, duplicate modeling, an opt-in clearance
+buffer — clustered one issue per pair, pinned in the 3D viewer, zero
+false positives on a clean model), **non-conformance**
 (sub-minimum lettering, missing invert callouts, untrapped fixtures,
 slope minimums), **conflicts with lessons learned** (repeat issues matched
 against your own trusted Heartwood lessons), and **DFX / constructability**

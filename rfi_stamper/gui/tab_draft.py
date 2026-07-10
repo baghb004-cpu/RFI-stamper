@@ -1660,25 +1660,32 @@ class LoftTab(ttk.Frame):
         except (ValueError, IndexError):
             messagebox.showwarning("To 3D", "Format:  height, floors")
             return
+        pins = []
         try:
             model3d = draft.to_bim(self.model, wall_height=height,
                                    floors=floors, faces=True)
             if any(e.kind == "pipe" for e in self.model.ents):
+                from .. import clash
                 from .. import pipewright as pw
                 pipes3d = pw.to_bim(self.model)
                 model3d.segments.extend(pipes3d.segments)
                 have = {s[0] for s in model3d.systems}
                 model3d.systems.extend(s for s in pipes3d.systems
                                        if s[0] not in have)
+                # clash-lite: interference pins ride into the viewer
+                hits, _stats = clash.detect(self.model, wall_height=height)
+                pins = clash.pins(clash.group(hits))
         except Exception as e:      # noqa: BLE001
             messagebox.showerror("To 3D", str(e))
             return
         if self.on_bim:
-            self.on_bim(model3d)
-            toast(self.root, self.theme, "Draft extruded into the 3D model"
-                  + (" — pipes ride at their inverts"
-                     if any(e.kind == "pipe" for e in self.model.ents)
-                     else ""))
+            self.on_bim(model3d, pins)
+            note = (f" — {len(pins)} clash pin(s)" if pins
+                    else (" — pipes ride at their inverts"
+                          if any(e.kind == "pipe" for e in self.model.ents)
+                          else ""))
+            toast(self.root, self.theme,
+                  "Draft extruded into the 3D model" + note)
 
     on_backcheck = None                 # app hook: run the Backcheck panel
 

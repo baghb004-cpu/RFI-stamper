@@ -777,17 +777,37 @@ def takeoff(model, book=None) -> list:
     return lines
 
 
+def run_z(ent, base_z: float = 0.0) -> list:
+    """Vertex z profile of one pipe run — INVERT elevations (pipe bottom),
+    one per vertex, interpolating along the run from ``invert_ft`` at the
+    commanded fall.  An invert with no slope sits flat at the invert;
+    neither sits flat at ``base_z``.  Shared by :func:`to_bim` and the
+    clash engine (``clash.capsules``) so the viewer and the checker can
+    never disagree about where a pipe is."""
+    inv = ent.props.get("invert_ft")
+    slope = ent.props.get("slope_in_ft")
+    zs, cum, prev = [], 0.0, None
+    for p in ent.pts:
+        if prev is not None:
+            cum += math.hypot(p[0] - prev[0], p[1] - prev[1])
+        if inv is None:
+            zs.append(float(base_z))
+        elif slope is None:
+            zs.append(float(inv))
+        else:
+            zs.append(float(inv) - float(slope) * cum / 12.0)
+        prev = p
+    return zs
+
+
 def to_bim(model, base_z: float = 0.0):
     """Pipe runs as 3D segments at their invert elevations, so slope is
-    visible in the viewer.  Vertex z interpolates along the run from
-    ``invert_ft`` at the commanded fall; a run with an invert but no slope
-    sits flat at its invert, and a run with neither sits flat at
-    ``base_z``.  Segments are colored by system with ``.system`` set to
-    the system label, so the 3D legend toggles work; ``model.systems``
-    lists only the systems present.  Each segment carries ``radius`` =
-    dia_in / 24 (trade diameter in inches -> radius in feet) so the
-    viewer's shaded mode can extrude the run into a pipe solid — wireframe
-    consumers ignore it."""
+    visible in the viewer.  Vertex z comes from :func:`run_z`.  Segments
+    are colored by system with ``.system`` set to the system label, so
+    the 3D legend toggles work; ``model.systems`` lists only the systems
+    present.  Each segment carries ``radius`` = dia_in / 24 (trade
+    diameter in inches -> radius in feet) so the viewer's shaded mode can
+    extrude the run into a pipe solid — wireframe consumers ignore it."""
     from .bim import Model, Segment
     m = Model()
     used: dict[str, tuple] = {}
@@ -797,19 +817,7 @@ def to_bim(model, base_z: float = 0.0):
         color = spec.get("color", "#8899aa")
         label = spec.get("label", system)
         used.setdefault(system, (label, color))
-        inv = e.props.get("invert_ft")
-        slope = e.props.get("slope_in_ft")
-        zs, cum, prev = [], 0.0, None
-        for p in e.pts:
-            if prev is not None:
-                cum += math.hypot(p[0] - prev[0], p[1] - prev[1])
-            if inv is None:
-                zs.append(float(base_z))
-            elif slope is None:
-                zs.append(float(inv))
-            else:
-                zs.append(float(inv) - float(slope) * cum / 12.0)
-            prev = p
+        zs = run_z(e, base_z)
         dia = float(e.props.get("dia_in", 4.0))
         width = max(1.0, dia / 3.0)
         for (p, zp), (q, zq) in zip(zip(e.pts, zs),

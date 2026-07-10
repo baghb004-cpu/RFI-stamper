@@ -156,9 +156,14 @@ def test_clean_loft_zero():
     # stats tallies all zero
     assert sum(r.stats["by_severity"].values()) == 0
     assert sum(r.stats["by_category"].values()) == 0
-    # the honestly-skipped rules are surfaced even on a clean pass
+    # the honestly-skipped rules are surfaced even on a clean pass.
+    # STD-SLEEVE graduated to a real rule at v4.13.0 (Clash-Lite): it is
+    # skipped only for PDF sources now, so a pipe-less loft neither
+    # checks nor skips it.
     skipped = {s["code"] for s in r.stats["skipped"]}
-    assert {"STD-HOLE-GDT", "STD-SLEEVE", "DFX-DRAFT-ANGLE"} <= skipped
+    assert {"STD-HOLE-GDT", "DFX-DRAFT-ANGLE"} <= skipped
+    assert "STD-SLEEVE" not in skipped
+    assert "STD-SLEEVE" not in r.stats["checked"]
     for s in r.stats["skipped"]:
         assert s["reason"]
 

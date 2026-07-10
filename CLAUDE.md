@@ -141,12 +141,21 @@ run; the `*_report.txt` must end in PASS).
                               slope/invert solver, cap/replace/resize command
                               APIs (Weaver-shaped report dicts), code-minimum
                               checks, takeoff, sloped-3D bridge
+    rfi_stamper/clash.py      Clash-Lite: deterministic interference (capsule
+                              vs capsule seg-seg closed form; capsule vs wall
+                              box via convex signed-distance ternary search),
+                              hard/clearance/penetration/concealed/wontfit/
+                              duplicate taxonomy, adjacency + ignore-below
+                              false-positive discipline, per-pair clustering,
+                              severity escalation, viewer pins
     rfi_stamper/backcheck.py  the Backcheck: deterministic peer-check rules
-                              (25) over PDF/Loft/pipe/DXF/OBJ in 6 categories,
-                              each finding cites its rule; markup bridge
+                              (31) over PDF/Loft/pipe/DXF/OBJ in 6 categories,
+                              each finding cites its rule; clash-lite lane
+                              (GEO-CLASH-*/STD-SLEEVE via clash.py; _RuleSkip
+                              = honest can't-evaluate notes); markup bridge
                               (findings -> cloud+callout annotations), Heartwood
-                              lessons lane, honest SKIP list (GD&T/molding/
-                              sleeve need a solid part model)
+                              lessons lane, honest SKIP list (GD&T/molding
+                              need a solid part model; sleeve on PDF sources)
     rfi_stamper/daybook.py    daily progress journal store + PDF log
     rfi_stamper/squawk.py     Squawk Box speech engine: winmm capture, MFCC+DTW
                               speaker-trained recognizer (pure numpy, offline)
@@ -291,6 +300,16 @@ were proven on real export files. GUI constructs under xvfb.
   `model.bounds()` must be a no-op (inclusive eps, bitwise-kept endpoints).
   The measure tape reads `bim.measure3d` = `fieldpro.deltas` — THE single
   delta source; viewer x=E, y=N, so deltas args are (y, x, z) order.
+- Clash-Lite: `pipewright.run_z` is the ONE pipe-z source (viewer + clash;
+  it returns the INVERT = pipe bottom — the capsule axis lifts +r).  The
+  ignore-below threshold applies to OVERLAP, never raw distance.  The
+  ternary-search box distance works because sd of a convex set along an
+  affine segment is convex — NEVER reuse it on a union of boxes.  Pipe
+  endpoints within `MERGE_TOL_FT` (0.05 ft) node-merge and fall under the
+  adjacency exclusion (connected runs never clash at their fitting) — test
+  scenes must offset run ends by MORE than that or they silently stop
+  clashing.  Runs without inverts are excluded AND surfaced (skip note via
+  `backcheck._RuleSkip`) — never guessed at z=0.
 - Resolution statuses are keyed by zero-filled RFI numbers (matching core's
   `zfill(3)`); `ResolutionStore.seed_from_records` never downgrades an
   existing status.

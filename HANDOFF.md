@@ -6,13 +6,13 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.12.0, offline construction workspace; Python package
+- Product: **Planloom** v4.13.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
-  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB and
-  3D raster engines are all Planloom's own.
-- 53 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  stdlib — the OCR (Tracer), PDF writer (minipdf), drag-drop, voice, KB,
+  3D raster and clash engines are all Planloom's own.
+- 54 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -901,6 +901,70 @@ geometry, read surveying numbers off the tape.
   snapping, no midpoint/intersection snaps, no S-H for markers). 53
   suites green twice. NEXT: Phase D — clash-lite through the Backcheck
   (needs this phase's picking/highlight substrate).
+
+## Round 28 (SHIPPED, v4.13.0): BUILDOUT Phase D — Clash-Lite
+
+Deterministic MEP interference through the Backcheck, with the industry
+coordination vocabulary and a hard zero-false-positive contract.
+
+- **clash.py (new, GUI-free, stdlib math only)**: capsule-vs-capsule =
+  the closed-form segment-segment closest distance (all degeneracies;
+  parallel picks s=0 — same answer every run); capsule-vs-wall-box =
+  exact signed distance to the box minimized by fixed-iteration ternary
+  search (sd of a convex set along an affine segment is convex — ONE
+  search replaces a page of Voronoi case analysis; never valid on a
+  union of boxes).  Pipe capsules ride the NEW `pipewright.run_z` (the
+  z-profile factored out of `to_bim` — one source, the viewer and the
+  checker can never disagree), lifted +r (run_z is the invert = pipe
+  bottom).  Runs with no invert are excluded AND counted — never guessed
+  at z=0.  Taxonomy: hard (ignore-below 0.5" on OVERLAP, basis stated),
+  clearance (opt-in knob, default 0 = off), penetration (a transverse
+  wall crossing is SUPPOSED to happen — sleeve, not clash; a degree-1
+  stub ending in a wall = fixture rough-in, demoted here too),
+  concealed/wontfit (lengthwise in the wall: verify-cavity info vs
+  physically-impossible major), duplicate (same-system near-coaxial —
+  subsumes the hard spam).  False-positive discipline: network-adjacency
+  exclusion (runs joined at a fitting never clash there; NOTE endpoints
+  within MERGE_TOL_FT 0.05 ft node-merge — test scenes must offset
+  more), inflated-AABB broad phase (flat i<j double loop — right at this
+  scale; the escape hatch past ~2k segments is the floor-cell hash, not
+  SAP).  Clustering: one ClashGroup per (kind, unordered pair) with
+  count + worst overlap/witness; severity() escalates hard to blocker at
+  overlap >= half the smaller diameter; pins() emits C1, C2, ...
+  severity-colored for the viewer.
+- **backcheck.py**: `_RuleSkip` exception — a rule can now register an
+  honest "can't evaluate" skip note (distinct from a rule ERROR);
+  `_Ctx.clash()` computes groups once, raises _RuleSkip when the model's
+  pipes carry no inverts.  Five rules: GEO-CLASH-HARD (major/blocker),
+  GEO-CLASH-CLEAR (minor, knob-gated), GEO-CLASH-DUP (info),
+  GEO-PIPE-IN-WALL (major wontfit / info concealed), and **STD-SLEEVE
+  GRADUATED from SKIPPED_RULES to a real rule** (Clash-Lite is exactly
+  the MEP-vs-structure data its skip reason demanded) — it stays
+  honestly skipped for PDF sources only (no pipe model there).  Details
+  carry systems + trade-fraction overlap (fmt_dia_in), feet-inches
+  location + Z (fmt_ftin), nearest grid intersection when grids exist;
+  the pipe always reads first.
+- **GUI**: `tab_draft.send_to_bim` runs clash after building the 3D
+  model and hands pins to `_loft_to_3d(model, pins)` — pins render with
+  the EXISTING stem/halo/label machinery, zero new viewer code; an
+  empty send clears stale pins; the toast reports the pin count.
+- **Tests**: tests/test_clash.py (16 checks) — kernel units (seg_seg
+  incl. parallel determinism, sd_box signs, ternary boundary/plateau),
+  run_z parity between capsules and to_bim, analytic overlap (2.8" on
+  the crossing-mains case) + blocker escalation, ignore-below, CLEAN
+  MODEL -> ZERO, full wall taxonomy, duplicate subsumption (and
+  cross-system stays hard), per-pair clustering + worst-hit + pins +
+  rerun determinism, Backcheck lane end-to-end (grid ref in details,
+  graduation asserted), the no-elevation skip note, registry pins,
+  clearance knob, perf tripwire.  test_backcheck's clean-loft
+  assertion updated (STD-SLEEVE now neither checked nor skipped on a
+  pipe-less loft); construct test asserts the pins bridge + clearing.
+- SKIP list held (no 4D, no per-discipline clearance tables, no slab
+  data source — the box math is slab-ready but Loft pipes carry no
+  risers, so slab boxes would be dead code; no mesh/BVH clash, no
+  cross-source clash, no clash-management workflow, no insulation
+  radius default, no self-clash).  54 suites green twice.  NEXT:
+  Phase E — vector drawing diff (addendum redline).
 
 ## Roadmap (still open)
 

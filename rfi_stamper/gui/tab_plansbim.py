@@ -154,9 +154,12 @@ class PlansSection(ttk.Frame):
 
         run_bg(self, work, done)
 
-    def _loft_to_3d(self, model):
-        """A drafted plan extrudes straight into the BIM viewer."""
+    def _loft_to_3d(self, model, pins=None):
+        """A drafted plan extrudes straight into the BIM viewer; clash-lite
+        pins (C1, C2, ... severity-colored) ride along, and an empty list
+        CLEARS stale pins from the previous send."""
         self.bim.set_model(model)
+        self.bim.set_pins(pins or [])
         self.nb.select(self.bim)
 
     def _loft_backcheck(self):
