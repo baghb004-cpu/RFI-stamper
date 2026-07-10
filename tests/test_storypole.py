@@ -233,6 +233,119 @@ def test_set_verdicts_and_determinism():
     A("non-standard" in setscale.scale_label(11.3), "off-ladder is honest")
 
 
+def _cad_sheet(path, shrink=1.0, ruler=True, second_view=None):
+    """The CAD-sheet conventions: a view-title bar (bubble + name +
+    ref + per-view scale) and the margin print-check ruler (rotated
+    text + a declared 1-inch bracket line), scaled by ``shrink``."""
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    if ruler:
+        page.insert_text((30, 700), "THIS LINE IS 1 INCH LONG WHEN "
+                                    "PRINTED TO FULL SCALE",
+                         fontsize=6, rotate=90)
+        page.draw_line((40, 700), (40, 700 - 72 * shrink))
+        page.draw_line((36, 700), (44, 700))
+        page.draw_line((36, 700 - 72 * shrink), (44, 700 - 72 * shrink))
+    page.draw_circle((200, 100), 12)
+    page.insert_text((196, 105), "1", fontsize=12)
+    page.insert_text((220, 103), "DEMO PLAN - FLOOR 1", fontsize=12)
+    page.draw_line((190, 112), (460, 112))
+    page.insert_text((220, 126), "AD2.10", fontsize=8)
+    page.insert_text((270, 126), '1/4" = 1\'-0"', fontsize=8)
+    if second_view:
+        page.insert_text((220, 503), "ENLARGED RESTROOM", fontsize=12)
+        page.draw_line((190, 512), (460, 512))
+        page.insert_text((220, 526), "AD2.11", fontsize=8)
+        page.insert_text((270, 526), second_view, fontsize=8)
+    page.draw_line((200, 300), (400, 300))     # bare walls, no dimensions
+    page.draw_line((200, 300), (200, 450))
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_view_title_and_print_check():
+    # the dimension-poor CAD sheet: view-title scale + print-check ruler
+    # form their own two-family PASS
+    p = _cad_sheet(os.path.join(TMP, "cad.pdf"))
+    doc = _open(p)
+    v = setscale.sheet_verdict(doc[0])
+    A(v["status"] == "PASS" and abs(v["pt_per_ft"] - 18.0) < 1e-6,
+      f"declared 1/4\" verified by the ruler: {v['reasons']}")
+    A(v["label"] == "1/4\" = 1'-0\"", v["label"])
+    A(v["check_line"]["ratio"] == 1.0 and v["check_line"]["len_pt"] == 72.0,
+      f"ruler measured: {v['check_line']}")
+    vn = v["view_notes"]
+    A(len(vn) == 1 and vn[0]["title"] == "DEMO PLAN - FLOOR 1"
+      and vn[0]["ref"] == "AD2.10", f"view title read: {vn}")
+    # the ref's digits never leak into the note ("AD2.10" + "1/4\"" once
+    # read as ten-and-a-quarter inches — the per-line law)
+    A(abs(vn[0]["ppf"] - 18.0) < 1e-6, f"note value exact: {vn[0]}")
+    doc.close()
+    # the half-size print CALIBRATES CORRECTLY (ratio known), not refused
+    p2 = _cad_sheet(os.path.join(TMP, "cad_half.pdf"), shrink=0.5)
+    doc = _open(p2)
+    v2 = setscale.sheet_verdict(doc[0])
+    A(v2["status"] == "PASS" and abs(v2["pt_per_ft"] - 9.0) < 1e-6,
+      f"half print calibrated via the ruler: {v2['reasons']}")
+    A(v2["check_line"]["ratio"] == 0.5, v2["check_line"])
+    A("0.5x print" in v2["reasons"][0], v2["reasons"])
+    doc.close()
+    # note WITHOUT the ruler: refuses and says exactly what is missing
+    p3 = _cad_sheet(os.path.join(TMP, "cad_noruler.pdf"), ruler=False)
+    doc = _open(p3)
+    v3 = setscale.sheet_verdict(doc[0])
+    A(v3["status"] == "REFUSED"
+      and "no print-check line" in v3["reasons"][0], v3["reasons"])
+    doc.close()
+    # two views declaring DIFFERENT scales: surfaced, never picked from
+    p4 = _cad_sheet(os.path.join(TMP, "cad_two.pdf"),
+                    second_view='1/2" = 1\'-0"')
+    doc = _open(p4)
+    v4 = setscale.sheet_verdict(doc[0])
+    A(v4["status"] == "REFUSED"
+      and "DIFFERENT scales" in v4["reasons"][0], v4["reasons"])
+    A(len(v4["view_notes"]) == 2, v4["view_notes"])
+    doc.close()
+    # deterministic
+    doc = _open(p)
+    A(setscale.sheet_verdict(doc[0]) == v, "deterministic")
+    doc.close()
+
+
+def test_print_check_reconciles_witnesses():
+    # witnesses + note + ruler all present on a half print: the ratio
+    # EXPLAINS the disagreement and the sheet passes at the measured scale
+    ppf = 9.0                                   # drawn at half of 1/4"
+    dims = [(ppf * ft, f"{ft}'-0\"") for ft in (10, 12, 14, 16, 20)]
+    p = _sheet(os.path.join(TMP, "half_ruled.pdf"), dims,
+               note='1/4" = 1\'-0"')
+    doc = fitz.open(p)
+    page = doc[0]
+    page.insert_text((30, 560), "THIS LINE IS 1 INCH LONG WHEN PRINTED "
+                                "TO FULL SCALE", fontsize=6, rotate=90)
+    page.draw_line((40, 560), (40, 560 - 36))   # the ruler shrank too
+    doc.saveIncr()
+    v = setscale.sheet_verdict(doc[0])
+    A(v["status"] == "PASS" and abs(v["pt_per_ft"] - 9.0) < 0.01,
+      f"the ruler explains the half print: {v['reasons']}")
+    A("0.5" in v["reasons"][0], v["reasons"])
+    doc.close()
+    # but a note x ratio that STILL disagrees with witnesses refuses
+    p2 = _sheet(os.path.join(TMP, "conflict.pdf"), dims,
+                note='1/8" = 1\'-0"')           # note says 9 @ full size
+    doc = fitz.open(p2)
+    page = doc[0]
+    page.insert_text((30, 560), "THIS LINE IS 1 INCH LONG WHEN PRINTED "
+                                "TO FULL SCALE", fontsize=6, rotate=90)
+    page.draw_line((40, 560), (40, 560 - 36))   # ...yet ruler says half
+    doc.saveIncr()
+    v2 = setscale.sheet_verdict(doc[0])
+    A(v2["status"] == "REFUSED"
+      and "conflicting evidence" in v2["reasons"][0], v2["reasons"])
+    doc.close()
+
+
 # --------------------------------------------------------------------------- #
 
 def main():
@@ -248,6 +361,12 @@ def main():
                                        "a note; circles never doors"),
         (test_set_verdicts_and_determinism, "set-level verdicts, notes, "
                                             "labels, determinism"),
+        (test_view_title_and_print_check, "view-title scales + the print-"
+                                          "check ruler (the CAD-sheet "
+                                          "conventions)"),
+        (test_print_check_reconciles_witnesses, "the ruler explains a "
+                                                "reduced print; conflicts "
+                                                "still refuse"),
     ]
     for fn, label in tests:
         fn()

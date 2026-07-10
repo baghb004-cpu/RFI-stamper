@@ -127,9 +127,17 @@ run; the `*_report.txt` must end in PASS).
                               dimension lines give pt/ft hypotheses; PASS
                               needs >=5 agreeing witnesses (outliers NAMED)
                               plus an independent corroborator (door swings
-                              on standard leaf sizes or an agreeing title-
-                              block scale note); a disagreeing note refuses
-                              with the exact ratio (half-size print);
+                              on standard leaf sizes or an agreeing scale
+                              note); reads the CAD-sheet conventions too:
+                              view-title bars (bubble + name + ref + that
+                              view's scale) and the margin PRINT-CHECK
+                              ruler ("this line is 1 inch when printed
+                              full scale") — note x measured print ratio
+                              calibrates reduced prints correctly and
+                              forms its own two-family PASS on dimension-
+                              poor sheets; an UNexplained disagreeing note
+                              still refuses with the exact ratio; views at
+                              different scales surface, never picked from;
                               per-sheet verdicts, never inherited
     rfi_stamper/reedcount.py  the Reed Count: fixture-symbol auto-count on
                               vector sheets at a VERIFIED scale — strip long
@@ -531,6 +539,14 @@ were proven on real export files. GUI constructs under xvfb.
   tokens preceded by "=" are skipped.  PASS requires TWO evidence
   families (dimension self-agreement + doors or note): a half-size print
   is perfectly self-consistent, so self-agreement alone must refuse.
+  Scale notes match LINE BY LINE: `\s` crossing a newline lets the regex
+  steal digits from the line above (the sheet ref "AD2.10" above
+  `1/4" = 1'-0"` once read as ten-and-a-quarter inches).  Rotated margin
+  text keeps a usable bbox via get_text("blocks"), not words.  The
+  print-check ruler measures PRINT scale, not drawing scale — note x
+  ratio is the expected measurement, so a reduced print with a ruler
+  CALIBRATES instead of refusing, and only an UNexplained note
+  disagreement refuses.
 - Reed Count laws: principal-axis canonicalization is UNSTABLE for
   symmetric shapes (a square's axis is arbitrary) — pose search is a brute
   24-rotation x flip enumeration, and raw grid IoU is brittle to one-cell

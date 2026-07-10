@@ -1093,6 +1093,8 @@ class MarkupTab(ttk.Frame):
                 ev += f", {ok}/{len(v['door_checks'])} doors"
             if v.get("note") and v["note"].get("ppf"):
                 ev += ", note"
+            if v.get("check_line"):
+                ev += f", print-check {v['check_line']['ratio']}x"
             tree.insert("", "end", iid=str(v["page"]),
                         values=(v["page"], v["status"], v["label"] or "—", ev))
         tree_frame.pack(fill="both", expand=True)
@@ -1113,6 +1115,14 @@ class MarkupTab(ttk.Frame):
                 lines.append(f"door: {d['leaf_in']}\" leaf "
                              f"({'ok' if d['ok'] else 'OFF-STANDARD'}, "
                              f"nearest {d['nearest_std_in']}\")")
+            for vn in v.get("view_notes", []):
+                lines.append(f"view: {vn['title'] or vn['ref'] or '?'} "
+                             f"declares {vn['label']}")
+            cl = v.get("check_line")
+            if cl:
+                lines.append(f"print-check ruler: {cl['len_pt']} pt for "
+                             f"{cl['declared_in']:g}\" declared = "
+                             f"{cl['ratio']}x print size")
             detail.configure(state="normal")
             detail.delete("1.0", "end")
             detail.insert("1.0", "\n".join(lines))

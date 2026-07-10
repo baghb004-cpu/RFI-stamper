@@ -213,6 +213,107 @@ _NOTE_ARCH = re.compile(
     r"(\d+(?:\s+\d+/\d+)?(?:/\d+)?)\s*[\"”]\s*=\s*1\s*['’]\s*-?\s*0?[\"”]?")
 _NOTE_ENG = re.compile(r"1\s*[\"”]\s*=\s*(\d+(?:\.\d+)?)\s*['’]")
 
+# the margin print-check ruler ("THIS LINE IS 1 INCH LONG WHEN PRINTED
+# TO FULL SCALE" and kin) — CAD sheets carry it exactly so a reader can
+# tell a reduced print from a full-size one
+_CHECK_RE = re.compile(
+    r"THIS\s+(?:LINE|BAR)\s+(?:IS|MEASURES)\s+(ONE|\d+(?:\s+\d+/\d+)?"
+    r"(?:/\d+)?)\s*(?:[\"”]|IN(?:CH(?:ES)?)?\.?)?[\s\S]{0,40}?"
+    r"(?:PRINTED|PLOTTED|FULL\s+SCALE|ACTUAL\s+SIZE)", re.IGNORECASE)
+# view-title sheet references ("AD2.10", "P-101", "A5.1") on the scale line
+_VIEW_REF = re.compile(r"^[A-Z]{1,3}[-.]?\d[\d.]*$")
+
+
+def _note_in(text: str):
+    """First scale note in ``text`` -> (label, ppf) or None.
+
+    Matched LINE BY LINE: a scale note never wraps, and `\\s` crossing a
+    newline lets the regex steal digits from the line above ("AD2.10"
+    + "1/4\" = 1'-0\"" once read as ten-and-a-quarter inches)."""
+    for line in text.splitlines():
+        m = _NOTE_ARCH.search(line)
+        if m:
+            v = _num(m.group(1))
+            if v:
+                return (m.group(0).strip(), v * 72.0)
+        m = _NOTE_ENG.search(line)
+        if m:
+            v = _num(m.group(1))
+            if v:
+                return (m.group(0).strip(), 72.0 / float(v))
+    return None
+
+
+def _view_titles(page) -> list:
+    """View-title bars -> [{"title", "ref", "label", "ppf"}].
+
+    The convention CAD sheets draw under every viewport: a detail bubble
+    + view name, underlined, with the sheet reference and THAT VIEW'S
+    scale on the line below.  Blocks (not words) so the bubble number,
+    title and scale line keep their grouping."""
+    blocks = [(fitz.Rect(b[:4]), b[4]) for b in page.get_text("blocks")
+              if isinstance(b[4], str)]
+    out = []
+    for rect, text in blocks:
+        got = _note_in(text)
+        if got is None:
+            continue
+        label, ppf = got
+        ref = next((w for line in text.splitlines()
+                    for w in line.split()
+                    if _VIEW_REF.match(w.strip().upper())), "")
+        title = ""
+        for orect, otext in blocks:
+            if otext is text or _note_in(otext):
+                continue
+            letters = [ch for ch in otext if ch.isalpha()]
+            if len(letters) < 4:
+                continue
+            if sum(ch.isupper() for ch in letters) < 0.6 * len(letters):
+                continue
+            gap = rect.y0 - orect.y1
+            if -6 <= gap <= 40 and orect.x1 > rect.x0 and orect.x0 < rect.x1:
+                lines = [ln.strip() for ln in otext.splitlines()
+                         if len(ln.strip()) > 2]
+                if lines:
+                    title = lines[-1]
+                    break
+        out.append({"title": title, "ref": ref, "label": label,
+                    "ppf": round(ppf, 6)})
+    return out
+
+
+def _check_line(page, segs) -> dict | None:
+    """The print-check ruler: declared-length margin line, measured.
+
+    Finds the check phrase (as a block — rotated margin text keeps its
+    bbox that way), takes the nearest stroked segment of plausible
+    length, and returns ``{"declared_in", "len_pt", "ratio"}`` where
+    ratio 1.0 = printed full size and 0.5 = the classic half-size set.
+    The single strongest witness a sheet can carry for PRINT scale."""
+    for b in page.get_text("blocks"):
+        if not isinstance(b[4], str):
+            continue
+        m = _CHECK_RE.search(" ".join(b[4].upper().split()))
+        if not m:
+            continue
+        declared = 1.0 if m.group(1) == "ONE" else (_num(m.group(1)) or 1.0)
+        rect = fitz.Rect(b[:4])
+        best = None
+        for p0, p1, ln in segs:
+            if not (0.2 * 72 * declared <= ln <= 2.5 * 72 * declared):
+                continue
+            mx, my = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
+            gap = max(rect.x0 - mx, mx - rect.x1, 0) \
+                + max(rect.y0 - my, my - rect.y1, 0)
+            if gap <= 80 and (best is None or gap < best[0]):
+                best = (gap, ln)
+        if best is None:
+            return None
+        return {"declared_in": declared, "len_pt": round(best[1], 3),
+                "ratio": round(best[1] / (72.0 * declared), 4)}
+    return None
+
 
 def _scale_note(page) -> dict | None:
     """Title-block scale note -> {"label", "ppf"} (None when absent).
@@ -221,15 +322,15 @@ def _scale_note(page) -> dict | None:
     ``ppf None`` and both labels — ambiguity is surfaced, never picked
     from."""
     found = {}
-    text = page.get_text()
-    for m in _NOTE_ARCH.finditer(text):
-        v = _num(m.group(1))
-        if v:
-            found[round(v * 72.0, 6)] = m.group(0).strip()
-    for m in _NOTE_ENG.finditer(text):
-        v = _num(m.group(1))
-        if v:
-            found[round(72.0 / float(v), 6)] = m.group(0).strip()
+    for line in page.get_text().splitlines():   # notes never wrap; see
+        for m in _NOTE_ARCH.finditer(line):     # the _note_in gotcha
+            v = _num(m.group(1))
+            if v:
+                found[round(v * 72.0, 6)] = m.group(0).strip()
+        for m in _NOTE_ENG.finditer(line):
+            v = _num(m.group(1))
+            if v:
+                found[round(72.0 / float(v), 6)] = m.group(0).strip()
     if not found:
         return None
     if len(found) > 1:
@@ -251,79 +352,160 @@ def sheet_verdict(page, min_witnesses: int = MIN_WITNESSES,
     """Run the certainty contract over one page.
 
     Returns ``{"status": "PASS"|"REFUSED", "pt_per_ft", "label",
-    "reasons", "witnesses", "outliers", "door_checks", "note"}``."""
+    "reasons", "witnesses", "outliers", "door_checks", "note",
+    "view_notes", "check_line"}``.
+
+    Scale evidence comes from up to four families: dimension witnesses,
+    door openings, the declared scale note (view-title bars preferred
+    over the loose title-block match), and the margin print-check ruler.
+    The print-check line converts a declared note into an EXPECTED
+    measurement (note x print ratio), which both explains reduced
+    prints (calibrating them correctly instead of refusing) and — when
+    a sheet carries too few dimensions — forms its own two-family PASS:
+    the declared note verified by the physically measured check line."""
     segs = _segments(page)
     hyps = _dim_hypotheses(page, segs=segs)
-    note = _scale_note(page)
+    views = _view_titles(page)
+    check = _check_line(page, segs)
+    if views:
+        vals = sorted({v["ppf"] for v in views})
+        if len(vals) == 1:
+            note = {"label": views[0]["label"], "ppf": vals[0]}
+        else:                       # views at different scales: surfaced,
+            note = {"label": " / ".join(       # never picked from
+                f"{v['title'] or v['ref'] or 'view'}: {v['label']}"
+                for v in views), "ppf": None}
+    else:
+        note = _scale_note(page)
     verdict = {"status": "REFUSED", "pt_per_ft": None, "label": None,
                "reasons": [], "witnesses": [], "outliers": [],
-               "door_checks": [], "note": note}
+               "door_checks": [], "note": note, "view_notes": views,
+               "check_line": check}
+    # the note's EXPECTED measurement on this print (note x print ratio)
+    expected = None
+    if note is not None and note["ppf"] is not None:
+        expected = note["ppf"] * (check["ratio"] if check else 1.0)
 
     def refuse(reason):
         verdict["reasons"].append(reason)
         return verdict
 
+    def check_doors(ppf):
+        doors_ok = 0
+        verdict["door_checks"] = []
+        for c in _door_candidates(page, segs=segs):
+            leaf_in = c["r_pt"] / ppf * 12.0
+            std = min(STD_LEAF_IN, key=lambda s: abs(s - leaf_in))
+            ok = abs(leaf_in - std) <= DOOR_TOL_IN
+            doors_ok += ok
+            verdict["door_checks"].append(
+                {"r_pt": round(c["r_pt"], 2), "leaf_in": round(leaf_in, 2),
+                 "nearest_std_in": std, "ok": ok})
+        return doors_ok, len(verdict["door_checks"])
+
+    def passed(ppf, reason):
+        verdict["status"] = "PASS"
+        verdict["pt_per_ft"] = ppf
+        verdict["label"] = scale_label(ppf)
+        verdict["reasons"].append(reason)
+        return verdict
+
+    if hyps:
+        med = statistics.median(h["ppf"] for h in hyps)
+        for h in hyps:
+            if abs(h["ppf"] / med - 1.0) <= WITNESS_TOL:
+                verdict["witnesses"].append(h)
+            else:
+                o = dict(h)
+                o["implied_ratio"] = round(h["ppf"] / med, 4)
+                verdict["outliers"].append(o)
+
+    if len(verdict["witnesses"]) >= min_witnesses:
+        # the witnessed path: dimensions measure the scale directly
+        ppf = statistics.median(h["ppf"] for h in verdict["witnesses"])
+        doors_ok, n_doors = check_doors(ppf)
+        note_agrees = None
+        if expected is not None:
+            ratio = ppf / expected
+            note_agrees = abs(ratio - 1.0) <= NOTE_TOL
+            note["measured_ratio"] = round(ratio, 4)
+            if not note_agrees:
+                if check:
+                    return refuse(
+                        f"dimensions measure {ppf:.3f} pt/ft but the "
+                        f"declared note ({note['label']}) x the print-"
+                        f"check ratio ({check['ratio']}) expects "
+                        f"{expected:.3f} — conflicting evidence")
+                return refuse(
+                    f"measured scale is {ratio:.3f}x the title-block note "
+                    f"({note['label']}) — printed at reduced/enlarged "
+                    "size? Calibrating to this sheet would mismeasure "
+                    "everything")
+        door_gate = (n_doors > 0 and doors_ok >= min(min_doors, n_doors)
+                     and doors_ok * 2 >= n_doors)
+        if not door_gate and note_agrees is not True:
+            if n_doors:
+                return refuse(
+                    f"door openings do not corroborate ({doors_ok} of "
+                    f"{n_doors} land on standard leaf sizes) and no "
+                    "agreeing scale note")
+            return refuse(
+                "dimensions self-agree but nothing independent "
+                "corroborates (no door swings found, no scale note, no "
+                "print-check line) — a reduced print is self-consistent "
+                "too, so this refuses")
+        return passed(ppf, f"{len(verdict['witnesses'])} dimension "
+                           f"witnesses agree at {ppf:.3f} pt/ft"
+                      + (f"; {doors_ok}/{n_doors} door openings "
+                         "corroborate" if n_doors else "")
+                      + ((f"; note x print-check ({check['ratio']}x) "
+                          "agrees" if check else "; title-block note "
+                          "agrees") if note_agrees else ""))
+
+    if expected is not None and check is not None:
+        # the declared path: the view-title/title-block note, verified by
+        # the physically measured print-check ruler — two independent
+        # families even on a dimension-poor sheet.  Any dimensions that
+        # DO exist must not contradict it.
+        if hyps:
+            med = statistics.median(h["ppf"] for h in hyps)
+            if abs(med / expected - 1.0) > 0.02:
+                return refuse(
+                    f"the declared note x print-check expects "
+                    f"{expected:.3f} pt/ft but the sheet's few "
+                    f"dimensions measure {med:.3f} — conflicting "
+                    "evidence, calibrate by hand")
+        doors_ok, n_doors = check_doors(expected)
+        if n_doors and doors_ok * 2 < n_doors:
+            return refuse(
+                f"the declared note x print-check expects "
+                f"{expected:.3f} pt/ft but {n_doors - doors_ok} of "
+                f"{n_doors} door openings land off standard sizes at "
+                "that scale")
+        return passed(expected, (
+            f"declared scale ({note['label']}) verified by the print-"
+            f"check ruler: measured {check['len_pt']} pt for "
+            f"{check['declared_in']:g}\" ({check['ratio']}x print)"
+            + (f"; {len(hyps)} dimension(s) consistent" if hyps else "")
+            + (f"; {doors_ok}/{n_doors} door openings corroborate"
+               if n_doors else "")))
+
     if not hyps:
+        tail = ""
+        if expected is not None:
+            tail = ("; a scale note exists but no print-check line "
+                    "verifies the print size")
+        elif note is not None and note["ppf"] is None:
+            tail = (f"; views declare DIFFERENT scales ({note['label']}) "
+                    "— calibrate per region by hand")
         return refuse("no dimension witnesses found (scanned or "
-                      "dimension-free sheet)")
-    med = statistics.median(h["ppf"] for h in hyps)
-    for h in hyps:
-        if abs(h["ppf"] / med - 1.0) <= WITNESS_TOL:
-            verdict["witnesses"].append(h)
-        else:
-            o = dict(h)
-            o["implied_ratio"] = round(h["ppf"] / med, 4)
-            verdict["outliers"].append(o)
-    if len(verdict["witnesses"]) < min_witnesses:
-        return refuse(f"only {len(verdict['witnesses'])} agreeing dimension "
-                      f"witness(es) — need {min_witnesses}")
-    ppf = statistics.median(h["ppf"] for h in verdict["witnesses"])
-
-    doors_ok = 0
-    for c in _door_candidates(page, segs=segs):
-        leaf_in = c["r_pt"] / ppf * 12.0
-        std = min(STD_LEAF_IN, key=lambda s: abs(s - leaf_in))
-        ok = abs(leaf_in - std) <= DOOR_TOL_IN
-        doors_ok += ok
-        verdict["door_checks"].append(
-            {"r_pt": round(c["r_pt"], 2), "leaf_in": round(leaf_in, 2),
-             "nearest_std_in": std, "ok": ok})
-    n_doors = len(verdict["door_checks"])
-
-    note_agrees = None
-    if note is not None and note["ppf"] is not None:
-        ratio = ppf / note["ppf"]
-        note_agrees = abs(ratio - 1.0) <= NOTE_TOL
-        note["measured_ratio"] = round(ratio, 4)
-        if not note_agrees:
-            return refuse(
-                f"measured scale is {ratio:.3f}x the title-block note "
-                f"({note['label']}) — printed at reduced/enlarged size? "
-                "Calibrating to this sheet would mismeasure everything")
-
-    door_gate = (n_doors > 0 and doors_ok >= min(min_doors, n_doors)
-                 and doors_ok * 2 >= n_doors)
-    if not door_gate and note_agrees is not True:
-        if n_doors:
-            return refuse(
-                f"door openings do not corroborate ({doors_ok} of "
-                f"{n_doors} land on standard leaf sizes) and no agreeing "
-                "scale note")
-        return refuse(
-            "dimensions self-agree but nothing independent corroborates "
-            "(no door swings found, no title-block scale note) — a "
-            "reduced print is self-consistent too, so this refuses")
-
-    verdict["status"] = "PASS"
-    verdict["pt_per_ft"] = ppf
-    verdict["label"] = scale_label(ppf)
-    verdict["reasons"].append(
-        f"{len(verdict['witnesses'])} dimension witnesses agree at "
-        f"{ppf:.3f} pt/ft"
-        + (f"; {doors_ok}/{n_doors} door openings corroborate"
-           if n_doors else "")
-        + ("; title-block note agrees" if note_agrees else ""))
-    return verdict
+                      "dimension-free sheet)" + tail)
+    return refuse(f"only {len(verdict['witnesses'])} agreeing dimension "
+                  f"witness(es) — need {min_witnesses}"
+                  + ("; a scale note exists but no print-check line "
+                     "verifies the print size" if (expected is not None
+                                                   and check is None)
+                     else ""))
 
 
 def set_verdicts(path: str, min_witnesses: int = MIN_WITNESSES,

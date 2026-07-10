@@ -1688,6 +1688,44 @@ tablet methodology the owner works with daily, applied to Fieldstitch.
   honest stage light, advisor dialog verdict, Tie-In one-tap export
   writing the dated Bowline folder with redirected prefs).
 
+## Round 43 (SHIPPED, v5.9.0): the Story Pole reads the CAD-sheet conventions
+
+Owner request (screenshot of a CAD-produced sheet): teach the scaling
+engine the two artifacts such sheets carry — the view-title bar and the
+margin print-check ruler.
+
+- **View-title bars** (`_view_titles`): the convention under every
+  viewport — detail bubble + view name, underlined, with the sheet ref
+  and THAT VIEW'S scale below ("AD2.10  1/4\" = 1'-0\"").  Parsed from
+  text BLOCKS (grouping survives); the title is the nearest mostly-
+  uppercase block above.  One distinct scale -> the sheet's note (with
+  the view named in the verdict); views at DIFFERENT scales surface
+  both titles and refuse — never picked from.
+- **The print-check ruler** (`_check_line`): "THIS LINE IS 1 INCH LONG
+  WHEN PRINTED TO FULL SCALE" + the bracket line beside it.  The phrase
+  is found as a block (rotated margin text keeps its bbox that way),
+  the nearest plausible-length segment is measured, and ratio =
+  measured / declared.  This is the single strongest PRINT-scale
+  witness a sheet can carry.
+- **Contract integration**: expected = note x print ratio.  A reduced
+  print with a ruler now CALIBRATES CORRECTLY (PASS at the measured
+  scale, ratio named) instead of refusing; only an UNexplained note
+  disagreement still refuses with the exact ratio.  On dimension-poor
+  sheets (the owner's demo plan: a title bar, a ruler, no dims) the
+  declared note verified by the physically measured ruler forms its own
+  two-family PASS — any dimensions or doors that DO exist must not
+  contradict it.  A note with NO ruler and no witnesses still refuses,
+  saying exactly what is missing.
+- Gotcha bought here: scale-note regexes must match LINE BY LINE —
+  `\s` crossing a newline let the sheet ref "AD2.10" above the note
+  donate its digits, reading ten-and-a-quarter inches per foot.
+- **Tests**: test_storypole.py grew to 41 checks — the CAD-sheet family
+  (full-size PASS at 18 pt/ft, half-print PASS at 9 with 0.5x named,
+  no-ruler refusal, two-view refusal, ref-digit non-leak) and the
+  reconciliation family (ruler explains a reduced print's witnesses;
+  note x ratio conflicting with witnesses still refuses).  GUI verdict
+  dialog shows view declarations + the measured ruler.
+
 ## Roadmap (still open)
 - **Owner smoke on real Windows**: the Ropes punch renderer (alpha +
   transparentcolor + click-through) joins the standing drag-drop and

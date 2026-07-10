@@ -365,7 +365,12 @@ when at least five independent dimensions agree AND something independent
 corroborates them — door openings landing on standard leaf sizes, or the
 title-block scale note; a half-size print is refused with the exact ratio
 instead of silently mismeasuring, and a mistyped dimension is named, not
-averaged in) · **fixture auto-count** (the Reed Count: plumbing fixture
+averaged in; it also reads the conventions CAD sheets carry — each
+viewport's title-bar scale and the margin "this line is 1 inch when
+printed at full scale" ruler, which it physically measures: a half-size
+print with that ruler calibrates correctly with the ratio named, and a
+dimension-poor sheet passes on the declared scale verified by the
+measured ruler) · **fixture auto-count** (the Reed Count: plumbing fixture
 symbols recognized on vector sheets — rotated, mirrored, any scale — and
 counted per sheet, with a hard real-size sanity gate so a water-closet
 shape at an impossible size never counts; look-alike conventions are
