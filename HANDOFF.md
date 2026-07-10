@@ -1446,6 +1446,18 @@ proposals · the name).
 
 ## Roadmap (still open)
 
+- **SETSCAN_PLAN.md (PLANNED, owner-requested, staged v5.3-v5.6)** —
+  reading the drawing set: the Chalk Mark (model-number checkbox marking
+  inside Swatchbook builds, certainty-gated, report-only first), the
+  Story Pole (dimension-anchored autoscale accepted only when independent
+  witnesses agree — other dimensions, standard door-opening widths, the
+  title-block scale note), the Reed Count (fixture-symbol library +
+  auto-count over vector linework, size-sane via the verified scale,
+  unknown shapes surfaced for human labeling), and the Cut Ticket
+  set-scan (fixture tags + the legend-sheet schedule table harvested into
+  preliminary pull-list rows with pre-filled callouts — proposals only).
+  Owner still to answer the plan's open questions (mark style, raster
+  scope, symbol-learning consent, names) before phases ship.
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
 - **Richer extrusion**: door/window gap detection, per-layer wall heights.
