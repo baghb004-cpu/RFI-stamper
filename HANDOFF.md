@@ -62,6 +62,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Swatchbook** | plumbing cut-sheet submittal builder (swatchbook.py) | a tailor's swatchbook is the bound book of cloth samples handed over for approval — a submittal packet is exactly that: product samples bound for the architect's sign-off |
 | **The Cut Ticket** | model-driven pull list feeding the Swatchbook (cutticket.py) | the garment-trade production order that travels with a cut of cloth telling the shop what to make — the order the drawing writes for the cut sheets |
 | **The Chalk Mark** | certainty-gated model-number checkbox marking inside Swatchbook builds (swatchbook.py) | a tailor's chalk mark tells the shop exactly where to cut — one small, deliberate mark, never a guess |
+| **The Story Pole** | dimension-anchored witnessed autoscale (setscale.py) | the carpenter's rod marked with known lengths, used to transfer and VERIFY measurements — never trusted from one mark alone |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1490,19 +1491,65 @@ vector-first).
   seed-gated reference report) + test_swatchbook widget-bake regression
   (353 checks total).
 
+## Round 38 (SHIPPED, v5.4.0): the Story Pole — witnessed autoscale
+
+SETSCAN Phase 1.  Derives each sheet's true scale (pt per real foot)
+from its own dimensions and accepts it only when independent witnesses
+agree — the owner's "100% absolutely certain" ask, including the named
+door-opening cross-check.
+
+- **Engine** (setscale.py): dimension strings (ft-in grammar via
+  ``draft.parse_ftin``, word-joined up to 3) pair with their dimension
+  line — the nearest segment whose MIDDLE band contains the text's
+  projection (ticks/extension lines sit near the ends and self-reject).
+  Each pair is one pt/ft hypothesis.  The certainty contract: >=5
+  witnesses within ±0.5 % of the median (outliers NAMED with their
+  implied ratio — a mistyped dimension is found, not averaged in), PLUS
+  an independent second family of evidence: door swings (Kåsa circle fit
+  over curve samples + hinge-anchored leaf line; leaf must land on a
+  standard size 2'-0"…4'-0" in 2" steps) or an agreeing title-block
+  scale note (arch + engineering forms).  A DISAGREEING note refuses
+  with the exact ratio — the printed-half-size set is caught, not
+  mismeasured.  Self-agreement alone refuses (a reduced print is
+  self-consistent too).  Per-sheet verdicts (``set_verdicts``), never
+  inherited; ambiguous multi-note sheets surface both labels.
+- **GUI**: "Auto scale — the Story Pole…" in the markup tab's scale
+  menu → run_bg over the whole set → verdict table (page / verdict /
+  scale / evidence) with per-sheet detail (witnesses, named outliers,
+  door checks); Apply calibrates ONLY the PASS pages into the existing
+  per-sheet ScaleCal memory — REFUSED sheets keep whatever the human
+  set.
+- **Tests**: tests/test_storypole.py (26 checks — Loft plate at a known
+  ladder scale verifies to the exact pt/ft with doors at 36"/32" and an
+  agreeing note; poisoned dimension outvoted AND named; half-size print
+  refused with "0.500x"; blank/thin/uncorroborated/off-standard-door
+  refusals; doors corroborate without a note; a full circle is never a
+  door; engineering note form; determinism) + a construct block driving
+  the dialog to an applied calibration.
+
 ## Roadmap (still open)
 
-- **SETSCAN_PLAN.md (owner-requested, staged; Phase 4 SHIPPED v5.3.0)** —
-  remaining: the Story Pole (dimension-anchored autoscale accepted only
-  when independent witnesses agree — other dimensions, standard
-  door-opening widths, the title-block scale note), the Reed Count
-  (fixture-symbol library + auto-count over vector linework, size-sane
-  via the verified scale, unknown shapes surfaced for human labeling),
-  and the Cut Ticket set-scan (fixture tags + the legend-sheet schedule
-  table harvested into preliminary pull-list rows with pre-filled
-  callouts — proposals only).  Chalk Mark shipped on the standing
-  defaults; owner may still rename / change mark style (plan's open
-  questions).
+- **SETSCAN_PLAN.md (owner-requested, staged; Phases 4+1 SHIPPED
+  v5.3.0/v5.4.0)** — remaining: the Reed Count (fixture-symbol library +
+  auto-count over vector linework, size-sane via the verified scale,
+  unknown shapes surfaced for human labeling), and the Cut Ticket
+  set-scan (fixture tags + the legend-sheet schedule table harvested
+  into preliminary pull-list rows with pre-filled callouts — proposals
+  only).
+- **Owner-confirmed next campaign (2026-07-10)** — four recommendations
+  locked by the owner: (1) the training mode — hands-on click-to-advance
+  steps with a per-step "Show me" animated fallback; (2) Training Center
+  + first-run prompt, per-section courses with progress tracking; (3)
+  full-app memory palette (one consistent low-saturation anchor hue per
+  section, calm neutrals, accent only where action is needed); (4) the
+  Fieldstitch staged workflow board (Job → Set Up → Points → Stake/QA →
+  Export as big touch-friendly stage tiles) + station-setup geometry
+  advisor (good/bad triangle check, re-check-backsight reminders) + XLSX
+  coordinates in the robotic-total-station export kit.  Inspiration
+  seed: an uploaded RTS training deck — structure and pedagogy only
+  (lesson roadmaps, "You Try It!" checkpoints, correct-vs-incorrect
+  reviews), never its content or vendor names.  Also owner-requested:
+  a dead-simple first-run connect wizard (folders, formats, kits).
 - **Scan/point-cloud viewing, machine control, GNSS**: out of scope for an
   offline tkinter app — do not attempt; note in docs if asked.
 - **Richer extrusion**: door/window gap detection, per-layer wall heights.

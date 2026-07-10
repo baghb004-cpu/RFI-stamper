@@ -117,6 +117,15 @@ run; the `*_report.txt` must end in PASS).
                               checkbox marking on packet pages (off/
                               report/mark — one row, one box, pixel-
                               empty, else skip with the reason)
+    rfi_stamper/setscale.py   the Story Pole: dimension-anchored autoscale,
+                              witnessed — dim strings paired with their
+                              dimension lines give pt/ft hypotheses; PASS
+                              needs >=5 agreeing witnesses (outliers NAMED)
+                              plus an independent corroborator (door swings
+                              on standard leaf sizes or an agreeing title-
+                              block scale note); a disagreeing note refuses
+                              with the exact ratio (half-size print);
+                              per-sheet verdicts, never inherited
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
                               header suffix, Designer Pickup Sheet PDF
     rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
@@ -482,6 +491,15 @@ were proven on real export files. GUI constructs under xvfb.
   never-restamp guard refuses any component carrying tag-shaped text in
   page 1's top-right corner region; and a gap is NEVER silently
   substituted (ambiguous alias resolution returns None on purpose).
+- Story Pole laws: a dimension string pairs with the nearest segment whose
+  MIDDLE band contains the text's projection — ticks and extension lines
+  sit near the ends, so the band test alone rejects them.  A single-bezier
+  quarter arc yields too few circle-fit samples at 3 t-values — sample 5
+  per curve or small doors vanish.  The `= 1'-0"` tail of a scale note
+  parses as a legit dimension and lands in the outlier list as debris —
+  tokens preceded by "=" are skipped.  PASS requires TWO evidence
+  families (dimension self-agreement + doors or note): a half-size print
+  is perfectly self-consistent, so self-agreement alone must refuse.
 - Chalk Mark laws: many manufacturer sheets are FILLABLE FORMS whose
   checkboxes exist only as widget annotations — `show_pdf_page` embeds
   page content only, so `build_packet` BAKES annots+widgets into the

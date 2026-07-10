@@ -445,6 +445,8 @@ class MarkupTab(ttk.Frame):
         menu = tk.Menu(self.scale_btn, tearoff=0)
         menu.add_command(label="Calibrate from two points…",
                          command=lambda: self.set_tool("calibrate"))
+        menu.add_command(label="Auto scale — the Story Pole…",
+                         command=self.story_pole_dialog)
         menu.add_checkbutton(label="Apply scale to ALL pages",
                              variable=self.scale_all_pages)
         menu.add_separator()
@@ -1038,6 +1040,106 @@ class MarkupTab(ttk.Frame):
             self.store.remove(mid)
         self.selection.clear()
         self.after_change()
+
+    # ========================================================== story pole
+    def story_pole_dialog(self):
+        """Witnessed autoscale over the whole set (setscale.set_verdicts).
+
+        Shows every sheet's verdict with its evidence; Apply calibrates
+        ONLY the PASS pages — a REFUSED sheet keeps whatever the human
+        set, never a guess."""
+        if not self.viewer.path:
+            messagebox.showinfo("Story Pole", "Open a PDF first.")
+            return
+        path = self.viewer.path
+        self.status.set("Story Pole: measuring the set…", "info")
+
+        def work():
+            from .. import setscale
+            return setscale.set_verdicts(path)
+
+        def done(verdicts, err):
+            if err:
+                self.status.set(f"Story Pole failed: {err}", "err")
+                return
+            if self.viewer.path != path:
+                return                      # a different PDF was opened since
+            self._story_pole_results(verdicts)
+
+        run_bg(self, work, done)
+
+    def _story_pole_results(self, verdicts):
+        dlg = tk.Toplevel(self)
+        dlg.title("The Story Pole — witnessed autoscale")
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+        tree_frame, tree = make_tree(
+            frm, self.theme,
+            [("page", "Page"), ("verdict", "Verdict"),
+             ("scale", "Scale"), ("evidence", "Evidence")],
+            [46, 80, 120, 240],
+            height=min(12, max(4, len(verdicts))))
+        for v in verdicts:
+            ev = (f"{len(v['witnesses'])} witnesses" if v["witnesses"]
+                  else "—")
+            if v["door_checks"]:
+                ok = sum(1 for d in v["door_checks"] if d["ok"])
+                ev += f", {ok}/{len(v['door_checks'])} doors"
+            if v.get("note") and v["note"].get("ppf"):
+                ev += ", note"
+            tree.insert("", "end", iid=str(v["page"]),
+                        values=(v["page"], v["status"], v["label"] or "—", ev))
+        tree_frame.pack(fill="both", expand=True)
+        detail = tk.Text(frm, height=7, width=64, wrap="word",
+                         state="disabled")
+        detail.pack(fill="x", pady=(8, 0))
+
+        def show_detail(_e=None):
+            sel = tree.selection()
+            if not sel:
+                return
+            v = next(x for x in verdicts if x["page"] == int(sel[0]))
+            lines = list(v["reasons"])
+            for o in v["outliers"]:
+                lines.append(f"outlier: {o['text']} measures "
+                             f"{o['implied_ratio']}x the consensus")
+            for d in v["door_checks"]:
+                lines.append(f"door: {d['leaf_in']}\" leaf "
+                             f"({'ok' if d['ok'] else 'OFF-STANDARD'}, "
+                             f"nearest {d['nearest_std_in']}\")")
+            detail.configure(state="normal")
+            detail.delete("1.0", "end")
+            detail.insert("1.0", "\n".join(lines))
+            detail.configure(state="disabled")
+
+        tree.bind("<<TreeviewSelect>>", show_detail)
+        passing = [v for v in verdicts if v["status"] == "PASS"]
+
+        def apply():
+            for v in passing:
+                self.cals[v["page"]] = measure.ScaleCal(
+                    real_per_pt=1.0 / v["pt_per_ft"], unit="ft")
+            self._save_cal()
+            self._show_cal()
+            self._recompute_measures()
+            self.after_change()
+            self.status.set(
+                f"Story Pole: calibrated {len(passing)} PASS sheet(s); "
+                f"{len(verdicts) - len(passing)} refused (unchanged)", "ok")
+            dlg.destroy()
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(8, 0))
+        ttk.Button(btns, text=f"Apply {len(passing)} PASS scale(s)",
+                   style="Accent.TButton", command=apply,
+                   state=("normal" if passing else "disabled")
+                   ).pack(side="left")
+        ttk.Button(btns, text="Close", command=dlg.destroy).pack(side="right")
+        if verdicts:
+            tree.selection_set(str(verdicts[0]["page"]))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     # ============================================================ multiply
     def multiply_dialog(self):

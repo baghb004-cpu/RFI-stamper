@@ -251,6 +251,42 @@ def main():
     mk_tab._use_scale('1/4" = 1\'-0"', (1 / 0.25) / 72.0, "ft-in")
     assert mk_tab.cal_for(2) is not None and mk_tab.cal_for(1) is None
 
+    # the Story Pole: witnessed autoscale calibrates PASS sheets only
+    from rfi_stamper import draft as _dr
+    _sm = _dr.DraftModel()
+    _sw = _sm.add("wall", [(0, 0), (40, 0)], wtype="stud4")
+    _sm.add("wall", [(0, 0), (0, 30)], wtype="stud4")
+    for pts in ([(0, 0), (40, 0), (20, -4)], [(0, 0), (0, 30), (-4, 15)],
+                [(0, 0), (12, 0), (6, -8)], [(12, 0), (40, 0), (26, -8)],
+                [(0, 30), (40, 30), (20, 34)]):
+        _sm.add("dim", pts)
+    _sm.add("door", [], host=_sw.id, t=0.3, width_in=36.0)
+    _plate = os.path.join(tmp, "storypole_plate.pdf")
+    _dr.plate_pdf(_sm, _plate)
+    mk_tab.open_pdf(_plate)
+    root.update()
+    mk_tab.story_pole_dialog()
+    import time as _tsp
+    import tkinter as _tksp
+    from tkinter import ttk as _ttksp
+    _dlg = None
+    for _ in range(200):
+        root.update()
+        _dlg = next((w for w in mk_tab.winfo_children()
+                     if isinstance(w, _tksp.Toplevel)), None)
+        if _dlg is not None:
+            break
+        _tsp.sleep(0.05)
+    assert _dlg is not None, "Story Pole verdict dialog should appear"
+    _apply = [w for w in _dlg.winfo_children()[0].winfo_children()[-1]
+              .winfo_children() if isinstance(w, _ttksp.Button)][0]
+    assert "1 PASS" in _apply.cget("text"), _apply.cget("text")
+    _apply.invoke()
+    root.update()
+    assert mk_tab.cal_for(1) is not None, "PASS sheet calibrated"
+    assert abs(mk_tab.cal_for(1).real_per_pt * 9.0 - 1.0) < 0.01, \
+        "1/8\" plate -> 9 pt/ft"
+
     # home routing: one PDF -> plan viewing; several -> combine list
     before = len(app.projsec.merge.items)
     app.route_paths([pdf, pdf])

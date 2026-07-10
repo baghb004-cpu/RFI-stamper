@@ -1,7 +1,7 @@
 # SETSCAN_PLAN.md — reading the drawing set (scale · symbols · tags · marks)
 
-**Status:** IN FLIGHT — Phase 4 (the Chalk Mark) SHIPPED v5.3.0; Phases
-1–3 planned, not yet built. Same discipline that shipped the Tracer
+**Status:** IN FLIGHT — Phase 4 (the Chalk Mark) SHIPPED v5.3.0; Phase 1
+(the Story Pole) SHIPPED v5.4.0; Phases 2–3 planned, not yet built. Same discipline that shipped the Tracer
 (OCR_PLAN), minipdf (MINIPDF_PLAN) and the BUILDOUT campaign: research →
 staged build behind tests → prove → ship, one phase = one round = one
 version. README documents only shipped features and is updated as each
@@ -41,8 +41,10 @@ phase lands.
 ---
 
 ## Phase 1 — the Story Pole: dimension-anchored autoscale, witnessed
-*(module `rfi_stamper/setscale.py` — a story pole is the carpenter's rod
-marked with known lengths, used to transfer and VERIFY measurements)*
+**SHIPPED v5.4.0** *(module `rfi_stamper/setscale.py` — a story pole is the
+carpenter's rod marked with known lengths, used to transfer and VERIFY
+measurements.  Built to this plan; grid-module witness deferred as planned
+(optional corroborator); scanned-set reading stays a Tracer stretch goal.)*
 
 **Goal:** derive each sheet's true scale (pt per real foot) from its own
 dimensions, and accept it only when independent witnesses agree.
@@ -179,7 +181,7 @@ and mark the checkbox beside it.
 | Phase | Name | Version | Depends on |
 |---|---|---|---|
 | 4 | the Chalk Mark (checkbox marking) — **SHIPPED** | v5.3.0 | Swatchbook (shipped) |
-| 1 | the Story Pole (witnessed autoscale) | v5.4.0 | — |
+| 1 | the Story Pole (witnessed autoscale) — **SHIPPED** | v5.4.0 | — |
 | 2 | the Reed Count (symbol counting) | v5.5.0 | 1 (size sanity) |
 | 3 | the Cut Ticket set-scan (tags → schedule) | v5.6.0 | 2 (symbol context), Swatchbook |
 

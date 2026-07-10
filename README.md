@@ -329,7 +329,13 @@ also works by click-to-browse) ·
 **auto-hyperlinking** — every sheet reference in a set becomes a native
 clickable jump that works in any viewer, plus a bookmark index per sheet ·
 revision compare with FFT auto-align · calibrated measurements with per-sheet
-scale memory · auto-numbered punch dots · batch stamping · a submittal-log
+scale memory — including **witnessed auto-scale** (the Story Pole: every
+sheet's scale is derived from its own dimension strings and accepted only
+when at least five independent dimensions agree AND something independent
+corroborates them — door openings landing on standard leaf sizes, or the
+title-block scale note; a half-size print is refused with the exact ratio
+instead of silently mismeasuring, and a mistyped dimension is named, not
+averaged in) · auto-numbered punch dots · batch stamping · a submittal-log
 parser · **IFC import** (the Draw-In — walls, slabs and columns from an open
 building-model exchange file straight into the 3D viewer, with an honest
 coverage report of anything skipped) · **cut-sheet submittals** (the
@@ -353,7 +359,7 @@ Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (62 scripts)
+    python tests/run_all.py          # full test suite (63 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,
