@@ -16,10 +16,11 @@ from types import SimpleNamespace
 
 import fitz
 import numpy as np
-from pypdf import PdfReader, PdfWriter
-from pypdf.generic import RectangleObject
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from rfi_stamper.minipdf.io import (                     # noqa: E402
+    Reader as PdfReader, Writer as PdfWriter)
 
 from rfi_stamper import layout, stamp, verify           # noqa: E402
 from rfi_stamper.minipdf.metrics import stringWidth     # noqa: E402
@@ -46,12 +47,11 @@ def _make_inset_plan(path, rotate):
     doc.close()
     r = PdfReader(raw)
     w = PdfWriter()
-    p = r.pages[0]
-    p.mediabox = RectangleObject([0, 0, 1000, 800])
-    p.cropbox = RectangleObject([cx0, cy0, cx1, cy1])
+    wp = w.add_page(r.pages[0])
+    wp.dict["/MediaBox"] = [0, 0, 1000, 800]
+    wp.dict["/CropBox"] = [cx0, cy0, cx1, cy1]
     if rotate:
-        p.rotate(rotate)
-    w.add_page(p)
+        wp.rotate(rotate)
     with open(path, "wb") as fh:
         w.write(fh)
     os.remove(raw)

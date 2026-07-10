@@ -1,4 +1,4 @@
-"""Printable field forms & project report PDFs (offline, minipdf + pypdf).
+"""Printable field forms & project report PDFs (offline, all-minipdf).
 
 Two capabilities, both sharing the toolkit's visual identity (red accent
 RGB 0.84, 0.06, 0.06, generous whitespace, "Page X of Y" footers):
@@ -31,7 +31,6 @@ import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 
-from pypdf import PdfReader, PdfWriter
 from .minipdf import colors
 from .minipdf.canvas import Canvas as _Canvas
 from .minipdf.flow import wrap_text as _wrap_text
@@ -703,8 +702,10 @@ def project_snapshot_pdf(project, out_path: str,
 
     Returns ``{"out_path": ..., "pages": int}``.
     """
-    writer = PdfWriter()
-    kpi_reader = PdfReader(io.BytesIO(_snapshot_page1(project, title)))
+    from .merge import _io
+    Reader, Writer = _io()
+    writer = Writer()
+    kpi_reader = Reader(io.BytesIO(_snapshot_page1(project, title)))
     for page in kpi_reader.pages:
         writer.add_page(page)
 
@@ -714,7 +715,7 @@ def project_snapshot_pdf(project, out_path: str,
             part = os.path.join(tdir, f"section_{i:02d}.pdf")
             table_pdf(part, headers, rows, title=sec_title,
                       subtitle=sec_sub, log=lambda *a, **k: None)
-            for page in PdfReader(part).pages:
+            for page in Reader(part).pages:
                 writer.add_page(page)
         pages = len(writer.pages)
         _atomic_write_writer(writer, out_path)

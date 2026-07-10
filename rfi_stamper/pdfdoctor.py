@@ -1,4 +1,4 @@
-"""Offline PDF repair / optimization engine (fitz + pypdf).
+"""Offline PDF repair / optimization engine (fitz + the Shuttle).
 
 Diagnose the problems that plague plan-set PDFs and apply safe, fully offline
 fixes: decrypt owner-locked files, rebuild damaged cross-reference tables,
@@ -24,10 +24,7 @@ from dataclasses import dataclass
 
 import fitz
 
-try:                                            # pypdf is a hard dependency;
-    from pypdf import PdfReader                 # guard anyway so diagnose never
-except Exception:                               # dies on an import hiccup.
-    PdfReader = None                            # type: ignore[assignment]
+from .minipdf.parse import read_pdf as _read_pdf
 
 
 # ------------------------------------------------------------- thresholds ---
@@ -235,13 +232,13 @@ def _is_linearized(path: str) -> bool:
 def is_encrypted(path: str) -> bool:
     """True if the file has any encryption applied -- including owner-only
     locks that carry an empty user password (fitz silently opens those, so we
-    cross-check with pypdf, which still reports them as encrypted)."""
-    if PdfReader is not None:
-        try:
-            if PdfReader(path).is_encrypted:
-                return True
-        except Exception:
-            pass
+    cross-check the trailer with the Shuttle's own reader -- the trailer's
+    /Encrypt never lies)."""
+    try:
+        if _read_pdf(path).is_encrypted:
+            return True
+    except Exception:
+        pass
     try:
         doc = fitz.open(path)
     except Exception:

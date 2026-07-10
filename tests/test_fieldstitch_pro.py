@@ -27,7 +27,7 @@ Exercises:
 * as-staked pairing ladder ('1' must NOT match '1001'), frame-hash gate,
   commit statuses (latest governs, VERIFIED never bulk-downgraded)
 * check shots + brackets (failed closing check flags the bracket)
-* As-Staked Ledger PDF (opens in pypdf, page count matches) + _qa.csv
+* As-Staked Ledger PDF (opens in the Shuttle, page count matches) + _qa.csv
 * walking-route sort: beats identity ordering, order-only (numbers and the
   job's point list never mutate), elevation-band grouping
 
@@ -809,7 +809,7 @@ def test_ledger(tmp):
     assert s["near"] + s["failed"] == 1
     assert abs(s["max_hd"] - 0.030) < 1e-6, s
     assert s["rms_hd"] > 0
-    from pypdf import PdfReader
+    from rfi_stamper.minipdf.io import Reader as PdfReader
     reader = PdfReader(out)
     assert len(reader.pages) == res["pages"] >= 1, (len(reader.pages), res)
 

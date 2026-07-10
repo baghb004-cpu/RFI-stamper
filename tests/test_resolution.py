@@ -23,7 +23,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz                                           # noqa: E402
-from pypdf import PdfReader, PdfWriter               # noqa: E402
+from rfi_stamper.minipdf.io import (                  # noqa: E402
+    Reader as PdfReader, Writer as PdfWriter)
 from rfi_stamper.minipdf.pagesizes import letter     # noqa: E402
 from rfi_stamper.minipdf import canvas               # noqa: E402
 
@@ -66,9 +67,7 @@ def make_plan(path):
     b2.seek(0)
     w = PdfWriter()
     w.add_page(PdfReader(b1).pages[0])
-    p2 = PdfReader(b2).pages[0]
-    p2.rotate(90)
-    w.add_page(p2)
+    w.add_page(PdfReader(b2).pages[0]).rotate(90)
     with open(path, "wb") as f:
         w.write(f)
 

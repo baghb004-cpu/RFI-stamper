@@ -891,7 +891,7 @@ def main():
     # plate PDF is a real one-page PDF at the chosen sheet size
     plate = os.path.join(tmp, "plate.pdf")
     res = draft_mod.plate_pdf(loft.model, plate, sheet="ARCH D")
-    from pypdf import PdfReader
+    from rfi_stamper.minipdf.io import Reader as PdfReader
     rd = PdfReader(plate)
     assert len(rd.pages) == 1
     assert abs(float(rd.pages[0].mediabox.width) - 36 * 72) < 1.0, res

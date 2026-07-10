@@ -6,7 +6,7 @@ legitimately blank (a spacer / blank middle sheet), so auto_fix silently
 discarded valid fixes.  The guard must flag content-LOSS only -- a page that
 went from non-blank to blank -- not absolute blankness.
 
-Bug #35: merge_pdfs / split_pdf / rotate_pdf raised an unhandled pypdf
+Bug #35: merge_pdfs / split_pdf / rotate_pdf raised an unhandled backend
 FileNotDecryptedError on password-protected input; they must now raise a clean
 ValueError telling the user to unlock the file first.
 """
@@ -19,7 +19,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz
-from pypdf import PdfReader
+from rfi_stamper.minipdf.io import Reader as PdfReader
 
 from rfi_stamper import pdfdoctor as doctor
 from rfi_stamper.merge import (MergeItem, merge_pdfs, pdf_page_count,
@@ -124,7 +124,7 @@ def test_merge_owner_locked_ok(tmp):
 
 def test_password_protected_raises_clean(tmp):
     """A real user password we don't have -> clean ValueError, not a raw
-    pypdf FileNotDecryptedError, from all three entry points."""
+    decryption error, from all three entry points."""
     src = _make_locked(os.path.join(tmp, "userlock.pdf"), user_pw="realpass")
     out = os.path.join(tmp, "should_not_exist.pdf")
     _expect_value_error(merge_pdfs, [MergeItem(src)], out, log=quiet)

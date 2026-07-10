@@ -1,8 +1,14 @@
-"""PDF combine / split / rotate engine (pypdf-based).
+"""PDF combine / split / rotate engine (the Shuttle).
 
 Pure page-level surgery: no rendering, no content rewriting.  Page boxes,
 annotations and other page-level resources travel with each page untouched;
 rotation is applied via the page /Rotate entry only.
+
+The PDF I/O backend is selectable by the ``PLOOM_PDF_IO`` env var: the
+default is Planloom's own from-scratch reader/writer (``mini``, the
+Shuttle); ``PLOOM_PDF_IO=pypdf`` opts back into the retired library as a
+dev-box parity oracle (no longer a shipped dependency) — the same
+retirement pattern as reportlab.
 """
 from __future__ import annotations
 
@@ -10,7 +16,14 @@ import os
 import re
 from dataclasses import dataclass
 
-from pypdf import PdfReader, PdfWriter
+
+def _io():
+    """(ReaderClass, WriterClass) for the selected PDF I/O backend."""
+    if os.environ.get("PLOOM_PDF_IO", "mini").lower() == "pypdf":
+        from pypdf import PdfReader, PdfWriter
+        return PdfReader, PdfWriter
+    from .minipdf.io import Reader, Writer
+    return Reader, Writer
 
 # re.ASCII: only 0-9 count as digits (unicode digits like "١" or "１" are
 # rejected rather than silently accepted).
@@ -25,14 +38,15 @@ class MergeItem:
     bookmark: str = ""     # outline title; "" -> file stem
 
 
-def _open(path: str) -> PdfReader:
-    """Open a PdfReader, transparently unlocking blank-password encryption.
+def _open(path: str):
+    """Open a reader, transparently unlocking blank-password encryption.
 
-    Password-protected inputs otherwise raise ``FileNotDecryptedError`` deep in
-    pypdf when pages are touched; here we try the empty password (the common
-    "owner-locked, no user password" case) and, failing that, raise a clean
-    ``ValueError`` the caller can surface to the user."""
-    r = PdfReader(path)
+    Password-protected inputs otherwise fail deep in the backend when pages
+    are touched; here we try the empty password (the common "owner-locked,
+    no user password" case) and, failing that, raise a clean ``ValueError``
+    the caller can surface to the user."""
+    Reader, _ = _io()
+    r = Reader(path)
     if r.is_encrypted:
         try:
             ok = r.decrypt("")          # PasswordType.NOT_DECRYPTED == 0
@@ -90,10 +104,10 @@ def _check_rotation(rotation: int) -> int:
 def _atomic_write(writer, out_path: str) -> None:
     """Write beside out_path, fsync, then atomically replace: a killed process
     or crash can never leave a truncated PDF at the final path."""
-    # Deliver clean, reproducible bytes: drop the /Info dictionary pypdf would
-    # otherwise stamp with a /Producer — this is the one choke point for every
-    # merge/split/rotate output and the project snapshot (same policy as
-    # stamp.stamp_pdf; an NDA posture leaks no tool names or wall-clock dates).
+    # Deliver clean, reproducible bytes: the mini writer structurally cannot
+    # emit /Info; the pypdf ORACLE path would stamp a /Producer, so the
+    # metadata dance survives only for it (same policy as stamp.stamp_pdf —
+    # an NDA posture leaks no tool names or wall-clock dates).
     try:
         writer.metadata = None
     except Exception:                        # older pypdf without the setter
@@ -111,7 +125,8 @@ def merge_pdfs(items: list[MergeItem], out_path: str, bookmarks: bool = True,
     """Append selected pages of each item, in order, into one PDF."""
     if not items:
         raise ValueError("no input files given")
-    writer = PdfWriter()
+    _, Writer = _io()
+    writer = Writer()
     total = 0
     marks: list[tuple[str, int]] = []   # (title, 0-based first page in output)
     for it in items:
@@ -155,11 +170,12 @@ def split_pdf(path: str, out_dir: str, ranges: str = "", every: int = 0,
             raise ValueError("ranges spec selected nothing")
     else:
         parts = [list(range(i, min(i + every, n + 1))) for i in range(1, n + 1, every)]
+    _, Writer = _io()
     stem = prefix or os.path.splitext(os.path.basename(path))[0]
     os.makedirs(out_dir, exist_ok=True)
     paths: list[str] = []
     for i, nums in enumerate(parts, 1):
-        writer = PdfWriter()
+        writer = Writer()
         for pn in nums:
             writer.add_page(reader.pages[pn - 1])
         out = os.path.join(out_dir, f"{stem}_part{i:02d}.pdf")
@@ -175,7 +191,8 @@ def rotate_pdf(path: str, out_path: str, rotation: int, pages: str = "",
     rot = _check_rotation(rotation)
     reader = _open(path)
     targets = set(parse_page_range(pages, len(reader.pages)))
-    writer = PdfWriter()
+    _, Writer = _io()
+    writer = Writer()
     for i, page in enumerate(reader.pages, 1):
         added = writer.add_page(page)
         if rot and i in targets:

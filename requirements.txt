@@ -1,5 +1,4 @@
 pymupdf>=1.24
-pypdf>=4.0
 numpy>=1.24
 # PDF *generation* (stamp overlays, plates, tables, forms, reports) is
 # Planloom's own built-in engine (minipdf): pure Python + stdlib, no

@@ -4,8 +4,6 @@ from __future__ import annotations
 import io
 import os
 
-from pypdf import PdfReader, PdfWriter, Transformation
-
 from .layout import (BORDER, F_BOD, F_HDR, GAP, L_BOD, L_HDR, PAD, RED,
                      S_BOD, S_HDR, layout_entries)
 
@@ -47,10 +45,51 @@ def draw_box(c, x, ytop, w, entries):
     return h
 
 
+def _draw_page_overlay(boxes, view_w, view_h) -> io.BytesIO:
+    """One page's note boxes -> a single-page overlay PDF buffer."""
+    buf = io.BytesIO()
+    c = _new_canvas(buf, (view_w, view_h))
+    for b in boxes:
+        draw_box(c, b["x"], b["ytop"], b["w"], b["entries"])
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def _draw_appendix(appendix, vw, vh) -> io.BytesIO:
+    """The labeled appendix pages (unplaceable notes) -> a PDF buffer."""
+    buf = io.BytesIO()
+    c = _new_canvas(buf, (vw, vh))
+    margin, col_w = 60.0, min(430.0, vw * 0.42)
+    x, ytop = margin, vh - margin
+    c.setFont(F_HDR, 13)
+    c.setFillColorRGB(*RED)
+    c.drawString(x, ytop, "RFI NOTES — NO CLEAR SPACE FOUND ON SHEET")
+    ytop -= 26
+    for title, entries in appendix:
+        h, _ = layout_entries(entries, col_w)
+        if ytop - h - 24 < margin:
+            if x + 2 * col_w + 40 < vw:
+                x += col_w + 40
+                ytop = vh - margin - 26
+            else:
+                c.showPage()
+                x, ytop = margin, vh - margin
+        c.setFont(F_HDR, 10.5)
+        c.setFillColorRGB(*RED)
+        c.drawString(x, ytop, title)
+        ytop -= 6
+        draw_box(c, x, ytop, col_w, entries)
+        ytop -= h + 26
+    c.save()
+    buf.seek(0)
+    return buf
+
+
 def _viewer_to_media(rotation, crop_w, crop_h, crop_x0, crop_y0):
-    """Transformation mapping an overlay drawn in viewer space onto the page's
-    unrotated PDF user space, so the page /Rotate re-displays it upright and it
-    lands inside the visible CropBox.
+    """pypdf ``Transformation`` mapping viewer space onto the page's unrotated
+    PDF user space (the ORACLE path only — the mini backend uses the closed-
+    form CTM table in ``minipdf.pagemerge.overlay_ctm``, the same math).
 
     The overlay/finder work in the rendered viewer window, which fitz produces
     from the CropBox -- so the anchor is the CropBox, NOT the MediaBox. When a
@@ -63,6 +102,7 @@ def _viewer_to_media(rotation, crop_w, crop_h, crop_x0, crop_y0):
     The 90-degree case is field-verified on rotated Arch-E1 plan sets; every
     stamped page is pixel-diff verified afterwards, so a nonconforming producer
     fails loudly instead of shipping a bad overlay."""
+    from pypdf import Transformation
     r = rotation % 360
     if r == 90:
         op = Transformation().rotate(90).translate(tx=crop_w, ty=0)
@@ -77,74 +117,76 @@ def _viewer_to_media(rotation, crop_w, crop_h, crop_x0, crop_y0):
     return op
 
 
+def _atomic_write_bytes(write_fn, out_path):
+    """atomic write: never leave a truncated overlay at the final path"""
+    tmp = out_path + ".part"
+    with open(tmp, "wb") as f:
+        write_fn(f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, out_path)
+
+
 def stamp_pdf(plan_path, out_path, placements, index, appendix=None):
     """placements: {page_no: [ {x, ytop, w, entries}, ... ]}
-    appendix: optional list of (title, entries) rendered as extra pages."""
+    appendix: optional list of (title, entries) rendered as extra pages.
+
+    Backend per ``PLOOM_PDF_IO``: the Shuttle (``mini``, default) composites
+    the overlay by wrapping the untouched plan content streams in a q/Q
+    array with one closed-form CTM — plan content is never decoded;
+    ``pypdf`` keeps the retired library as a dev-box parity oracle."""
+    if os.environ.get("PLOOM_PDF_IO", "mini").lower() == "pypdf":
+        return _stamp_pypdf(plan_path, out_path, placements, index, appendix)
+
+    from .minipdf.io import Reader, Writer, add_overlay
+    reader = Reader(plan_path)
+    writer = Writer()
+    for i, page in enumerate(reader.pages, start=1):
+        wp = writer.add_page(page)
+        boxes = placements.get(i)
+        if boxes:
+            info = index.info(i)
+            ov = Reader(_draw_page_overlay(boxes, info.view_w, info.view_h))
+            # Anchor on the CropBox (what the viewer/finder actually render),
+            # read straight from this page so a trimmed CropBox lands right.
+            cb = page.cropbox
+            add_overlay(writer, wp, ov, info.rotation,
+                        (cb.left, cb.bottom, cb.width, cb.height))
+    if appendix:
+        first = index.info(1)
+        ax = Reader(_draw_appendix(appendix, first.view_w, first.view_h))
+        for p in ax.pages:
+            writer.add_page(p)
+    _atomic_write_bytes(writer.write, out_path)
+
+
+def _stamp_pypdf(plan_path, out_path, placements, index, appendix):
+    """The retired-oracle path (byte-for-byte the pre-v5 behavior)."""
+    from pypdf import PdfReader, PdfWriter
     reader = PdfReader(plan_path)
     writer = PdfWriter()
     for i, page in enumerate(reader.pages, start=1):
         boxes = placements.get(i)
         if boxes:
             info = index.info(i)
-            buf = io.BytesIO()
-            c = _new_canvas(buf, (info.view_w, info.view_h))
-            for b in boxes:
-                draw_box(c, b["x"], b["ytop"], b["w"], b["entries"])
-            c.save()
-            buf.seek(0)
+            buf = _draw_page_overlay(boxes, info.view_w, info.view_h)
             ov = PdfReader(buf).pages[0]
-            # Anchor on the CropBox (what the viewer/finder actually render),
-            # read straight from this page so a trimmed CropBox lands correctly.
             cb = page.cropbox
-            op = _viewer_to_media(info.rotation, float(cb.width), float(cb.height),
-                                  float(cb.left), float(cb.bottom))
+            op = _viewer_to_media(info.rotation, float(cb.width),
+                                  float(cb.height), float(cb.left),
+                                  float(cb.bottom))
             page.merge_transformed_page(ov, op, expand=False)
         writer.add_page(page)
-
     if appendix:
         first = index.info(1)
-        vw, vh = first.view_w, first.view_h
-        buf = io.BytesIO()
-        c = _new_canvas(buf, (vw, vh))
-        margin, col_w = 60.0, min(430.0, vw * 0.42)
-        x, ytop = margin, vh - margin
-        c.setFont(F_HDR, 13)
-        c.setFillColorRGB(*RED)
-        c.drawString(x, ytop, "RFI NOTES \u2014 NO CLEAR SPACE FOUND ON SHEET")
-        ytop -= 26
-        for title, entries in appendix:
-            h, _ = layout_entries(entries, col_w)
-            if ytop - h - 24 < margin:
-                if x + 2 * col_w + 40 < vw:
-                    x += col_w + 40
-                    ytop = vh - margin - 26
-                else:
-                    c.showPage()
-                    x, ytop = margin, vh - margin
-            c.setFont(F_HDR, 10.5)
-            c.setFillColorRGB(*RED)
-            c.drawString(x, ytop, title)
-            ytop -= 6
-            draw_box(c, x, ytop, col_w, entries)
-            ytop -= h + 26
-        c.save()
-        buf.seek(0)
+        buf = _draw_appendix(appendix, first.view_w, first.view_h)
         for p in PdfReader(buf).pages:
             writer.add_page(p)
-
-    # Deliver clean, reproducible bytes: drop the /Info dictionary pypdf would
-    # otherwise stamp with a /Producer and wall-clock dates.  That removes an
-    # NDA metadata leak and makes the merged output byte-deterministic (pypdf's
-    # /ID is content-derived), matching the from-scratch writer's own policy.
+    # the oracle library would stamp /Info with a /Producer and wall-clock
+    # dates — an NDA metadata leak; drop it (the mini writer structurally
+    # cannot emit /Info at all)
     try:
         writer.metadata = None
     except Exception:                        # older pypdf without the setter
         pass
-
-    # atomic write: never leave a truncated overlay at the final path
-    tmp = out_path + ".part"
-    with open(tmp, "wb") as f:
-        writer.write(f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, out_path)
+    _atomic_write_bytes(writer.write, out_path)

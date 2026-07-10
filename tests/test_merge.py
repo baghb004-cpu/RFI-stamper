@@ -8,7 +8,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz
-from pypdf import PdfReader
+from rfi_stamper.minipdf.io import Reader as PdfReader
 from rfi_stamper.minipdf.pagesizes import A4, landscape, letter
 from rfi_stamper.minipdf import canvas
 
@@ -90,14 +90,18 @@ def test_merge(tmp):
     rots = [int(p.get("/Rotate") or 0) for p in r.pages]
     assert rots == [0, 0, 0, 90, 90, 0], rots
     # outline: one entry per source, pointing at its first included page
-    ol = [d for d in r.outline if not isinstance(d, list)]
-    got = [(d.title, r.get_destination_page_number(d)) for d in ol]
-    assert got == [("alpha", 0), ("bravo", 3), ("Charlie p2", 5)], got
+    # (asserted through fitz -- an independent parser -- 1-based pages)
+    d = fitz.open(out)
+    got = d.get_toc()
+    d.close()
+    assert got == [[1, "alpha", 1], [1, "bravo", 4], [1, "Charlie p2", 6]], got
 
     # no bookmarks when disabled
     out2 = os.path.join(tmp, "merged_nobm.pdf")
     merge_pdfs([MergeItem(a, pages="1")], out2, bookmarks=False, log=quiet)
-    assert PdfReader(out2).outline == []
+    d = fitz.open(out2)
+    assert d.get_toc() == []
+    d.close()
 
     # delivered files are metadata-clean: no tool name, no wall-clock dates
     with open(out, "rb") as f:
@@ -168,10 +172,11 @@ def test_annotation_preserved(tmp):
     assert len(r.pages) == 3
     annots = r.pages[0].get("/Annots")
     assert annots, "annotation lost in merge"
-    kinds = [a.get_object().get("/Subtype") for a in annots]
+    objs = [r.resolve(a) for a in annots]
+    kinds = [o.get("/Subtype") for o in objs]
     assert "/Text" in kinds, kinds
-    contents = [str(a.get_object().get("/Contents", "")) for a in annots]
-    assert any("reviewer note" in s for s in contents), contents
+    contents = [o.get("/Contents", b"") for o in objs]
+    assert any(b"reviewer note" in c for c in contents), contents
     print("  annotation preservation OK")
 
 

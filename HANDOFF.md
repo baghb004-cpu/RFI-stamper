@@ -6,14 +6,15 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v4.18.0, offline construction workspace; Python package
+- Product: **Planloom** v5.0.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
-  App Integrations, Ground Truth. Runtime deps: pymupdf + pypdf + numpy +
-  stdlib — the OCR (Tracer, with a human review deck and a touching-glyph
-  lattice), PDF writer (minipdf), drag-drop, voice, KB, 3D raster, clash,
-  vector-diff, CPM and IFC-import engines are all Planloom's own.
-- 58 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  App Integrations, Ground Truth. Runtime deps: **pymupdf + numpy + stdlib**
+  (pypdf retired at v5.0.0) — the OCR (Tracer, with a human review deck and
+  a touching-glyph lattice), PDF writer AND reader/merger (minipdf + the
+  Shuttle), drag-drop, voice, KB, 3D raster, clash, vector-diff, CPM and
+  IFC-import engines are all Planloom's own.
+- 59 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -57,6 +58,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Slipsheet** | vector drawing-revision diff + redline PDF (drawdiff.py) | slip-sheeting two vellums on a light table — the reviewer's oldest compare |
 | **The Tautline** | CPM scheduler over the project store (cpm.py) | the taut-line hitch; the critical path is the one chain with no slack |
 | **The Draw-In** | IFC/STEP building-model import (ifclite.py) | drawing-in: threading prepared warp — someone else's work — into your own loom |
+| **The Shuttle** | from-scratch PDF reader/merger (minipdf parse/graph/pagemerge/io) | the loom piece that carries the thread back and forth — as this carries pages between documents |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1248,6 +1250,63 @@ never crash on unknown entities, coverage stats instead of silence.
   the free Name; georeferencing; non-uniform transforms; writing IFC —
   ever).  58 suites green twice.  NEXT: Phase J — the pypdf retirement
   (bo_F.md), v5.0.0.
+
+## Round 34 (SHIPPED, v5.0.0): BUILDOUT Phase J — the Shuttle (pypdf retired)
+
+The reader + page-surgery half of PDF, from scratch — pypdf leaves the
+runtime the way reportlab and Tesseract did (staged, oracle-tested,
+demoted to a dev-box parity oracle behind `PLOOM_PDF_IO=pypdf`).
+**Runtime deps are now pymupdf + numpy + stdlib.**  The BUILDOUT campaign
+(A–J) is COMPLETE.
+
+- **minipdf/parse.py — the lenient reader**: string/comment-aware record
+  scanner; recursive-descent parser for the 8 object types (two-token
+  lookahead for `12 0 R`, `#xx` names, octal/EOL string escapes, odd-hex
+  padding, lenient numbers); classic xref parsed TOKENWISE (19/21-byte
+  rows survive; a 1-byte offset shift is absorbed silently), xref streams
+  (W/Index, PNG predictors incl. Paeth), object streams (cached whole on
+  first touch — never O(n²) inflate), /Prev chains newest-first with
+  first-seen-wins + hybrid /XRefStm before /Prev; /Length verified then
+  endstream-scanned; junk-prefix offset retry; full-file scan-rebuild
+  recovery (LAST definition wins) with a `repaired` flag; page tree by
+  /Kids walk (never /Type or /Count) with inheritance, box normalization,
+  crop∩media.  `strict=True` disables ALL recovery — the self-check mode.
+- **minipdf/graph.py — importer + writer**: deep page import with the two
+  load-bearing cuts (/Parent on page-like dicts; refs to /Kids nodes →
+  null; page refs → pagemap or null — a nulled /Dest is a dead link every
+  viewer tolerates), memo-before-recurse (cycle-safe), stream RAW bytes
+  never re-encoded (untouched pages pixel-identical by construction);
+  serializer with sorted keys, hex strings, fmt_num, classic xref,
+  content-hash /ID, structurally NO /Info; outline chain writer; every
+  `write()` strict-self-re-parses before a byte lands.
+- **minipdf/pagemerge.py — the compositor**: /Contents becomes
+  [q] + originals + [Q q CTM cm overlay Q]; the four closed-form CTMs
+  (NOT pypdf's Transformation algebra — its translate is a device-space
+  post-add; the 180°-flip bug lives down that road); overlay fonts
+  imported under fresh /PLFn keys with the rename applied to OUR ops
+  only; page /Resources copied-on-write.  Cross-backend: pixel-identical
+  at 150 dpi, texttrace-identical glyph origins (a few AA pixels differ
+  at 90/240 dpi — renderer cache trivia, documented in CLAUDE.md).
+- **Cutovers**: merge.py / stamp.py / reports.py switch on PLOOM_PDF_IO
+  (default `mini`); pdfdoctor.is_encrypted cross-checks the trailer via
+  the Shuttle (the trailer never lies; fitz hides owner-locks);
+  encryption stays out of the codebase — `decrypt("")` re-saves through
+  fitz (blank/owner passwords open transparently; a user password raises
+  today's exact ValueError).
+- **tests/test_pdfio.py** (161 checks): corpus parity across classic/
+  objstm/incremental containers (fitz always, pypdf when importable);
+  8-fixture byte-surgery quirk battery with exact `repaired` flags;
+  parser + Flate/predictor unit vectors; the four CTMs; writer
+  determinism + strict self-check + no-/Info; merge backend A/B pixel
+  parity; encryption behavior; retirement proof (no module-level pypdf
+  import anywhere in the runtime + requirements clean).  12 test files
+  swept off pypdf (fixture building via the mini writer; outline asserts
+  via fitz.get_toc).  Whole suite proven green with pypdf import-blocked.
+- SKIP list held: no in-house crypto ever; no decoders beyond Flate+PNG
+  predictors (page content is never decoded); no content-stream parsing
+  of plan pages; no linearization; no incremental/xref-stream writing;
+  flat /Kids; PDF 2.0 beyond BOM handling refused.  59 suites green
+  twice.  The feature campaign is complete — next work is owner-directed.
 
 ## Roadmap (still open)
 

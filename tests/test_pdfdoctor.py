@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fitz
 import numpy as np
-from pypdf import PdfReader
+from rfi_stamper.minipdf.io import Reader as PdfReader
 
 from rfi_stamper import pdfdoctor as doctor
 

@@ -833,8 +833,8 @@ def test_package(tmp):
     assert len(rows) == 3
     assert {r["id"] for r in rows} == {job.composed(p) for p in (a, b, c)}
 
-    # the paper sheet: one page, opens in pypdf
-    from pypdf import PdfReader
+    # the paper sheet: one page, opens in the Shuttle
+    from rfi_stamper.minipdf.io import Reader as PdfReader
     reader = PdfReader(os.path.join(out_dir, "L2-MECH_sheet.pdf"))
     assert len(reader.pages) == 1
 

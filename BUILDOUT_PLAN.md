@@ -1,6 +1,6 @@
 # BUILDOUT_PLAN.md — the from-scratch feature campaign (post-v4.9.2)
 
-**Status:** BUILDING — Phases A (v4.10.0) through I (v4.18.0) shipped; next up: Phase J.
+**Status:** COMPLETE — all ten phases shipped: A (v4.10.0) through J (v5.0.0).
 **Owner directive:** every feature on this list gets built, from scratch, with **no code bloat** —
 every line purposeful; honest SKIP lists over speculative generality; smallest correct algorithm wins.
 **Provenance:** synthesized from an 8-agent parallel research pass (per-track dossiers appended as
@@ -32,7 +32,7 @@ research → staged build behind tests → prove → ship. Each phase lands gree
 | dnd router + OLE backend | retired tkinterdnd2 | v4.9 |
 | Heartwood, Squawk Box, Holler, the Weaver, the Loft, Pipewright, the Backcheck, Fieldstitch/fieldpro, the Selvage, extrude, harvest, align, pano, bim3d viewer, fx | from-scratch since birth | v1–v4.3 |
 
-Remaining third-party runtime: **fitz (pymupdf), pypdf, numpy**. Phase J removes pypdf.
+Remaining third-party runtime: **fitz (pymupdf), numpy** — Phase J removed pypdf (v5.0.0).
 fitz (the renderer verify.py stands on) and numpy stay — documented floor, not up for rebuild.
 
 ## 2. The phase plan
@@ -51,7 +51,7 @@ one version. Acceptance gates are per-phase; a phase does not start until the pr
 | **G** | OCR correction-review GUI: the human gate feeding Corrections.promote + per-firm FontProfiles — **SHIPPED v4.16.0** (`gui/review_deck.py` + engine taps) | v4.16.0 | — |
 | **H** | Tracer P5: touching-glyph residual (language-prior DP, merge candidates), honest new eval bar — **SHIPPED v4.17.0** (`tracer/segment.py` lattice + `lexicon` bigram prior; touching tier 3.38% → 0.00%, gen-3 tier added as the tracked residual) | v4.17.0 | G (review data helps) |
 | **I** | IFC-lite import: STEP parser subset → walls/slabs/columns in the world frame, coverage-honest — **SHIPPED v4.18.0** (`rfi_stamper/ifclite.py`, the Draw-In; incl. mapped items, circle/indexed-polycurve profiles, ifczip, viewer hook) | v4.18.0 | B (viewing) |
-| **J** | The pypdf retirement: from-scratch PDF reader/merger behind a flag, pypdf as oracle, then flip — runtime becomes fitz + numpy only | **v5.0.0** | A–I stable |
+| **J** | The pypdf retirement: from-scratch PDF reader/merger behind a flag, pypdf as oracle, then flip — runtime becomes fitz + numpy only — **SHIPPED v5.0.0** (`minipdf/parse.py`+`graph.py`+`pagemerge.py`+`io.py`, the Shuttle; suite green with pypdf uninstalled) | **v5.0.0** | A–I stable |
 
 ## 3. Per-phase acceptance gates (summary — details in each Appendix)
 

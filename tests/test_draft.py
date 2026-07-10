@@ -272,7 +272,7 @@ def test_plate_dxf_png():
     res = plate_pdf(m, out, sheet="ARCH D",
                     meta={"project": "TEST", "drawn_by": "QA"})
     assert os.path.exists(out) and not os.path.exists(out + ".part")
-    from pypdf import PdfReader
+    from rfi_stamper.minipdf.io import Reader as PdfReader
     rd = PdfReader(out)
     assert len(rd.pages) == 1
     w_in, h_in = SHEET_SIZES["ARCH D"]

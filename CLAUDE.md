@@ -55,22 +55,29 @@ run; the `*_report.txt` must end in PASS).
                               split + merge, field + reference parsing
     rfi_stamper/sheets.py     plan-set index: page -> sheet number, geometry
     rfi_stamper/layout.py     note text, box math, empty-rectangle finder, zones
-    rfi_stamper/minipdf/      the from-scratch PDF WRITER (retired reportlab at
-                              v4.8.0): WinAnsi encoding, Core-14 metrics
-                              (oracle-equal to 1e-13), content-stream builder,
-                              byte-exact classic-xref document (no metadata,
-                              content-hash /ID), reportlab-canvas facade
-                              (Bezier/clip/dash, reportlab page semantics),
-                              flow/table layout engine; PLOOM_PDF_ENGINE=
-                              reportlab re-enables the dev-box parity oracle
-    rfi_stamper/stamp.py      minipdf overlay + rotation-general pypdf merge,
-                              appendix pages
+    rfi_stamper/minipdf/      the from-scratch PDF engine.  WRITER (retired
+                              reportlab at v4.8.0): WinAnsi encoding, Core-14
+                              metrics (oracle-equal to 1e-13), content-stream
+                              builder, byte-exact classic-xref document (no
+                              metadata, content-hash /ID), reportlab-canvas
+                              facade, flow/table layout engine.  READER +
+                              page surgery — the Shuttle (retired pypdf at
+                              v5.0.0): parse (lenient lexer/xref/objstm/
+                              recovery + strict self-check mode), graph
+                              (object-graph importer + serializer + page/
+                              outline writer), pagemerge (overlay compositor,
+                              4 closed-form CTMs), io (pypdf-shaped facade).
+                              PLOOM_PDF_ENGINE=reportlab / PLOOM_PDF_IO=pypdf
+                              re-enable the retired libraries as dev-box
+                              parity oracles
+    rfi_stamper/stamp.py      minipdf overlay + rotation-general page merge
+                              (the Shuttle), appendix pages
     rfi_stamper/verify.py     pre/post render pixel-diff verification
     rfi_stamper/pipeline.py   scan -> map -> place -> stamp -> verify -> report
     rfi_stamper/summarize.py  offline extractive cliff-note summarizer
     rfi_stamper/fsutil.py     shared atomic-write primitive (tmp+fsync+replace)
     rfi_stamper/offline_guard.py  process-wide outbound-socket kill-switch
-    rfi_stamper/merge.py      combine / split / rotate engine (pypdf)
+    rfi_stamper/merge.py      combine / split / rotate engine (the Shuttle)
     rfi_stamper/align.py      auto-align + color overlay compare (numpy FFT)
     rfi_stamper/drawdiff.py   the Slipsheet: vector drawing-revision diff —
                               (theta, rho) line buckets + 1-D interval
@@ -398,6 +405,22 @@ were proven on real export files. GUI constructs under xvfb.
   Score WER only through `eval._charset_spaced`: `only_charset` on a spaced
   string strips the spaces (space is outside CHARSET), collapsing the page
   to ONE token and pinning WER at a constant 0%-or-100%.
+- The Shuttle (minipdf reader/writer) laws, each bought with a debugging
+  session: parsed PDF names CARRY their leading slash (`Name("/Root")`) —
+  the first build stripped it and every trailer lookup silently missed;
+  `/Parent` on page-like dicts is CUT on import and any ref to a dict with
+  `/Kids` becomes null (one forgotten cut imports the whole source file
+  behind every page); copied stream RAW bytes are never re-encoded (that is
+  what makes untouched pages pixel-identical for free); every write runs a
+  STRICT self-re-parse (recovery disabled) before bytes land — fitz/pypdf
+  silently rebuild broken xrefs and hide writer bugs; `np.rot90` of an
+  upright raster is NOT pixel-equal to rendering the /Rotate'd page (glyph
+  antialiasing doesn't commute with rotation), and fitz redraws text-annot
+  ICONS viewer-upright — compare same-orientation renders, `annots=False`
+  where icons interfere.  Cross-backend renders can differ by a few AA
+  pixels at some dpis (90/240) while byte-identical at 72/150/300/360 with
+  identical texttrace glyph origins — assert parity at 150 dpi, geometry by
+  texttrace, never chase the renderer's cache trivia.
 - Draw-In (ifclite) import law: a wall's 'Axis' representation can carry
   RepresentationType 'SweptSolid', so the body-selection FALLBACK must
   exclude identifiers 'Axis'/'FootPrint' or it imports stick figures (hit

@@ -473,8 +473,8 @@ def test_markup_bridge():
     n = bc.write_markup_pdf(r, src, out)
     assert n > 0
     assert os.path.exists(out) and not os.path.exists(out + ".part")
-    # pypdf can open it and it carries annotations
-    from pypdf import PdfReader
+    # the Shuttle can open it and it carries annotations
+    from rfi_stamper.minipdf.io import Reader as PdfReader
     rd = PdfReader(out)
     assert len(rd.pages) == 3
     doc = fitz.open(out)
