@@ -1,5 +1,7 @@
 # ROADMAP.md — Planloom: the road to a drawing-driving trade brain
 
+**Status:** COMPLETE — every phase in this file shipped (see the per-section status lines). Later campaigns live in BUILDOUT_PLAN.md (complete), SETSCAN_PLAN.md (complete) and the round notes in HANDOFF.md.
+
 The owner's brief, in one line: **advanced 3D where it earns its keep, a
 self-growing trades-only brain that cannot break out, and the ability to
 type (or talk) to Planloom and have it draw — connect pipe and fittings,

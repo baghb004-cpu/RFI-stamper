@@ -3,6 +3,15 @@
 *A loom weaves threads into a sheet. Planloom weaves your project — RFIs,
 answers, tasks, statuses — straight into the plan sheets.*
 
+> **This README is the whole story** — every shipped feature is described
+> below, in the order you'll meet it. Deeper docs for the curious:
+> `HANDOFF.md` (the build log, round by round, and the naming registry),
+> `CLAUDE.md` (architecture map + hard-won engineering rules), and the
+> completed campaign plans (`OCR_PLAN.md`, `MINIPDF_PLAN.md`,
+> `BUILDOUT_PLAN.md`, `SETSCAN_PLAN.md`, `ROADMAP.md`). The current
+> version lives in `rfi_stamper/__init__.py`; the newest build is always
+> on the `main` branch.
+
 Planloom is a **100% offline** desktop workspace for construction teams,
 built around one core promise: **a designer can pick up a stamped set and
 instantly see each RFI's question, its answer, and whether the fix is done —

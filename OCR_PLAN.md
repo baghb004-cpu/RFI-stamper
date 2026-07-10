@@ -1,5 +1,7 @@
 # OCR_PLAN.md — the Tracer: a from-scratch OCR engine to retire Tesseract
 
+**Status:** COMPLETE — P1–P5 shipped (v4.4.0 → v4.17.0); Tesseract removed at P4 (v4.7.0), the P5 touching-glyph lattice shipped v4.17.0. The tracked residual is gen-3 double-weld photocopies (§8).
+
 **Goal:** remove Planloom's last external binary dependency (Tesseract) and
 replace it with a from-scratch engine in pure **Python + numpy + PyMuPDF
 (fitz)** — no new dependencies, no pretrained models, no cloud, fully offline.
