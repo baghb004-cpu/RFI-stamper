@@ -547,3 +547,119 @@ def reharvest_diff(job, proposals, *, tol_ft: float = DIFF_TOL_FT) -> dict:
     orphaned = [p for k, p in by_key.items() if k not in seen]
     return {"unchanged": unchanged, "drifted": drifted,
             "orphaned": orphaned, "new": new}
+
+
+# ------------------------------------------------- concrete layout (polygons) --
+#
+# The generators below serve the one-click layout package (BATTERBOARD_PLAN.md).
+# Same contract as everything above: PURE, proposals only, world feet with
+# x = Easting / y = Northing, ``provenance (gen, key)`` stable across re-runs.
+# Keys carry the owner and the place (rounded to 0.01 ft), so a corner that
+# does not move keeps its identity when other shapes come and go.
+
+def _place_key(owner, e: float, n: float) -> str:
+    return f"{owner}@{e:.2f},{n:.2f}"
+
+
+def concrete_corners(shapes, *, layer="Work", code="WC", elev=None, z_ref="FF",
+                     probe_ft: float = 0.05) -> list:
+    """Corner points at FACE OF CONCRETE from polygons, not just segments.
+
+    ``shapes`` is ``[(owner, polygon)]`` (walls, columns and other solid
+    concrete; polygons may overlap or abut, the way a wall run is drawn in
+    pieces).  A corner is a place where the boundary of the UNION turns:
+    a vertex buried inside a neighbouring piece, or sitting on a straight
+    shared face, is not a corner and is not proposed
+    (:func:`geom2d.union_corners` measures that).  ``params`` carries
+    ``inside_deg`` (about 90 for an outside corner, about 270 for a
+    re-entrant one) and the owner."""
+    from . import geom2d
+    polys = [list(p) for _o, p in shapes]
+    owners = [o for o, _p in shapes]
+    props = []
+    for c in geom2d.union_corners(polys, probe_ft):
+        x, y = c["pt"]
+        # the owner is the piece that has this corner as a vertex (else the
+        # nearest piece: a crossing of two faces belongs to the first)
+        owner = None
+        best = None
+        for k in c["polys"]:
+            d = min(math.hypot(x - q[0], y - q[1]) for q in polys[k])
+            if best is None or d < best:
+                best, owner = d, owners[k]
+        props.append(_prop(
+            "concrete_corners", _place_key(owner, x, y), e=x, n=y, elev=elev,
+            z_ref=z_ref, desc=f"{code} CORNER", code=code, layer=layer,
+            rule="corners of the union of concrete polygons, at face of concrete",
+            params={"owner": owner, "inside_deg": c["inside_deg"]}))
+    props.sort(key=lambda pr: (-round(pr["n"], 2), round(pr["e"], 2)))
+    return props
+
+
+def round_centers(circles, *, layer="Work", code="RCC", elev=None, z_ref="FF") -> list:
+    """Round column centers.  ``circles`` is ``[(owner, (e, n), radius_ft)]``."""
+    props = []
+    for owner, (x, y), r in circles:
+        props.append(_prop(
+            "round_centers", _place_key(owner, x, y), e=x, n=y, elev=elev, z_ref=z_ref,
+            desc=f"{code} CENTER", code=code, layer=layer, rule="round column centers",
+            params={"owner": owner, "radius_ft": float(r)}))
+    return props
+
+
+def zone_ends(ends, *, layer="Work", code="SWZ", elev=None, z_ref="FF") -> list:
+    """Shear wall end zone ends: where the tied end zone STOPS, on both
+    faces of the wall.  ``ends`` is ``[(owner, face_a, face_b, inward,
+    zone_length_ft)]``: the end (or jamb) face's two corners, the unit
+    vector into the wall, and the zone length.  An end whose zone length
+    is unknown or disputed must simply not be passed in: nothing here
+    picks a length."""
+    props = []
+    for owner, fa, fb, u, z in ends:
+        if not z or z <= 0:
+            raise ValueError(f"zone end {owner!r} has no zone length; an unknown "
+                             "length is never assumed")
+        for tag, p in (("A", fa), ("B", fb)):
+            x, y = p[0] + u[0] * z, p[1] + u[1] * z
+            props.append(_prop(
+                "zone_ends", _place_key(f"{owner}:{tag}", x, y), e=x, n=y, elev=elev,
+                z_ref=z_ref, desc=f"{code} ZONE END", code=code, layer=layer,
+                rule="end of the tied end zone, measured along the wall from its end face",
+                params={"owner": owner, "zone_length_ft": float(z)}))
+    return props
+
+
+def slab_edge_points(owner, corners, radius_points=(), *, layer="Work", code="SEC",
+                     radius_code="RP", elev=None, z_ref="FF") -> list:
+    """Slab edge corners, tangent points and radius points.
+
+    ``corners`` is ``[(e, n, note)]`` and ``radius_points`` is ``[(e, n,
+    radius_ft)]`` (what ``slabread.edge_points`` returns).  The note rides
+    in ``params`` so the caller can hold the ends of a run that has no
+    confirmed edge line."""
+    props = []
+    for x, y, note in corners:
+        props.append(_prop(
+            "slab_edge_points", _place_key(owner, x, y), e=x, n=y, elev=elev, z_ref=z_ref,
+            desc=f"{code} {'TANGENT' if 'tangent' in note else 'CORNER'}", code=code,
+            layer=layer, rule="slab edge corners and tangent points",
+            params={"owner": owner, "note": note}))
+    for x, y, r in radius_points:
+        props.append(_prop(
+            "slab_edge_points", _place_key(f"{owner}:R", x, y), e=x, n=y, elev=elev,
+            z_ref=z_ref, desc=f"{radius_code} R {r:.3f}FT", code=radius_code, layer=layer,
+            rule="radius point of a curved slab edge",
+            params={"owner": owner, "radius_ft": float(r)}))
+    return props
+
+
+def opening_corners(openings, *, layer="Work", code="SOC", elev=None, z_ref="FF") -> list:
+    """Slab opening corners.  ``openings`` is ``[(owner, polygon)]``."""
+    props = []
+    for owner, poly in openings:
+        for x, y in poly:
+            props.append(_prop(
+                "opening_corners", _place_key(owner, x, y), e=x, n=y, elev=elev,
+                z_ref=z_ref, desc=f"{code} CORNER", code=code, layer=layer,
+                rule="slab opening corners", params={"owner": owner}))
+    return props

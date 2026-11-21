@@ -37,8 +37,13 @@ class Names:
             self.load()
 
     def number(self, scope: str, kind: str, e: float, n: float, *,
-               start: int = 1, tol: float = MATCH_FT) -> int:
+               start: int = 1, tol: float = MATCH_FT, counter: str | None = None) -> int:
+        """The number of the thing of this ``kind`` at this place.  Kinds
+        that pass the same ``counter`` draw from ONE number sequence (the
+        before-the-pour and after-the-pour points of a level are looked up
+        apart but never share a number)."""
         key = f"{scope}|{kind}"
+        ckey = f"{scope}|{counter or kind}"
         rows = self.entries.setdefault(key, [])
         best = None
         for row in rows:
@@ -47,8 +52,8 @@ class Names:
                 best = (d, row)
         if best is not None:
             return int(best[1][2])
-        num = max(self.counters.get(key, start - 1), start - 1) + 1
-        self.counters[key] = num
+        num = max(self.counters.get(ckey, start - 1), start - 1) + 1
+        self.counters[ckey] = num
         rows.append([round(float(e), 4), round(float(n), 4), num])
         return num
 
