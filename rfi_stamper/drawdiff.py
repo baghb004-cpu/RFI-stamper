@@ -172,7 +172,7 @@ def _words(pdf_path, page_no):
 # ------------------------------------------------------------------- diff ---
 
 def diff_pages(base_pdf, rev_pdf, base_page: int = 1, rev_page: int = 1,
-               *, align="auto", log=print) -> dict:
+               *, align="auto", log=print, sightline: bool | None = None) -> dict:
     """Diff one page pair.  ``align``: "auto" runs align.auto_align and
     applies it when trustworthy; an AlignResult applies as given; None
     diffs unaligned.  Raises ValueError on raster-only pages (surfaced
@@ -191,10 +191,14 @@ def diff_pages(base_pdf, rev_pdf, base_page: int = 1, rev_page: int = 1,
             f"page sizes differ ({wa:.0f}x{ha:.0f} vs {wb:.0f}x{hb:.0f} pt)"
             " — re-plotted at another size? No scale recovery attempted.")
 
+    # both revisions are read through the Sightline (default on): geometry
+    # that is in the file but not on the plotted sheet is not a difference
     old = extract_segments(base_pdf, base_page, min_len_pt=1.5,
-                           max_segments=MAX_SEGMENTS, log=log)
+                           max_segments=MAX_SEGMENTS, log=log,
+                           sightline=sightline)
     new = extract_segments(rev_pdf, rev_page, min_len_pt=1.5,
-                           max_segments=MAX_SEGMENTS, log=log)
+                           max_segments=MAX_SEGMENTS, log=log,
+                           sightline=sightline)
     if len(old) >= MAX_SEGMENTS or len(new) >= MAX_SEGMENTS:
         warnings.append(
             f"segment cap ({MAX_SEGMENTS}) hit — a one-sided cap can "

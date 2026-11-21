@@ -56,7 +56,8 @@ class Wall2D:
 # -------------------------------------------------------------- extraction --
 
 def extract_segments(pdf_path: str, page_no: int = 1, min_len_pt: float = 6.0,
-                     max_segments: int = 4000, log=print) -> list[Wall2D]:
+                     max_segments: int = 4000, log=print,
+                     sightline: bool | None = None) -> list[Wall2D]:
     """Pull straight segments out of one vector plan page.
 
     'l' items give one segment, 're' rectangles four edges, 'qu' quads four
@@ -68,7 +69,12 @@ def extract_segments(pdf_path: str, page_no: int = 1, min_len_pt: float = 6.0,
 
     Raises ValueError when the page carries no vector linework at all — a
     scanned/raster plan cannot be extruded.
+
+    Geometry is taken through the Sightline (``sightline=None`` follows the
+    default-on switch; ``False`` reads the raw vectors): linework that is in
+    the file but not on the plotted sheet is not a wall.
     """
+    from . import sightline as _sl
     doc = fitz.open(pdf_path)
     try:
         if not 1 <= int(page_no) <= len(doc):
@@ -76,7 +82,8 @@ def extract_segments(pdf_path: str, page_no: int = 1, min_len_pt: float = 6.0,
                              f"(has {len(doc)} page(s))")
         page = doc[int(page_no) - 1]
         raw: list[tuple] = []
-        for path in page.get_drawings():
+        for path in _sl.get_drawings(page, sightline=sightline,
+                                     min_len_pt=float(min_len_pt)):
             for item in path.get("items") or ():
                 op = item[0]
                 if op == "l":

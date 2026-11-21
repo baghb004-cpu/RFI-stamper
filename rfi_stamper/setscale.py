@@ -96,10 +96,20 @@ def _ftin_tokens(page) -> list:
     return keep
 
 
+def _drawings(page) -> list:
+    """The page's vector paths, taken through the Sightline (default on):
+    linework that is in the file but not on the plotted sheet -- hidden
+    under a later fill, clipped away, superseded -- is not a witness to
+    anything.  Strokes under ``MIN_SEG_PT`` are passed through unjudged
+    (the readers below ignore them anyway)."""
+    from . import sightline
+    return sightline.get_drawings(page, min_len_pt=MIN_SEG_PT)
+
+
 def _segments(page) -> list:
     """Stroked line segments -> [(p0, p1, length_pt)]."""
     segs = []
-    for d in page.get_drawings():
+    for d in _drawings(page):
         for it in d["items"]:
             if it[0] == "l":
                 p0, p1 = it[1], it[2]
@@ -149,7 +159,7 @@ def _door_candidates(page, segs=None) -> list:
     line — which is what keeps ordinary decorative arcs out."""
     segs = _segments(page) if segs is None else segs
     out = []
-    for d in page.get_drawings():
+    for d in _drawings(page):
         pts = []
         for it in d["items"]:
             if it[0] == "c":

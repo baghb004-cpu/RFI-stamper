@@ -73,7 +73,10 @@ def _prims_from_page(page) -> list:
         if ln > 0:
             prims.append({"pts": pts, "len": ln})
 
-    for d in page.get_drawings():
+    from . import sightline
+    # through the Sightline (default on): a symbol that is in the file but
+    # not on the plotted sheet is not a fixture to count
+    for d in sightline.get_drawings(page):
         for it in d["items"]:
             if it[0] == "l":
                 add([(it[1].x, it[1].y), (it[2].x, it[2].y)])

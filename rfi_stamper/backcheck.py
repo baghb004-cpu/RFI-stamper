@@ -687,7 +687,10 @@ def _r_noscale(ctx) -> list:
     for i in range(ctx.doc.page_count):
         page = ctx.doc[i]
         try:
-            has_content = bool(page.get_drawings())
+            # through the Sightline (default on): a sheet whose only
+            # linework is hidden is not "a drawing with content"
+            from . import sightline
+            has_content = sightline.has_visible_content(page)
         except Exception:
             has_content = False
         if not has_content:
