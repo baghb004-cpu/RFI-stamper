@@ -1172,6 +1172,87 @@ def stroke_present(rd: Render, a, b, rgb, width_pt: float) -> float:
     return float(got["score"])
 
 
+# ------------------------------------------------------------------- text --
+
+_TEXT_MAT: dict = {}
+
+
+def text_matrix(page):
+    """The matrix that maps ``get_text`` coordinates to VIEWER points on
+    this page.  Depending on the PyMuPDF version, text on a /Rotate page
+    comes back in unrotated media space or already rotated, and the two
+    cannot be told apart by bounds.  So it is measured: the hypothesis
+    under which the word boxes actually sit on ink in a render wins."""
+    if not page.rotation % 360:
+        return fitz.Identity
+    key = _page_key(page, 72)
+    if key is not None and key in _TEXT_MAT:
+        return _TEXT_MAT[key]
+    words_raw = page.get_text("words")[:120]
+    best = page.rotation_matrix
+    if words_raw:
+        pix = page.get_pixmap(dpi=72, colorspace=fitz.csGRAY, alpha=False)
+        g = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+        dark = g < 170
+
+        def score(m):
+            hit = 0
+            for w in words_raw:
+                r = fitz.Rect(w[:4]) * m
+                r.normalize()
+                x0, y0 = max(0, int(r.x0)), max(0, int(r.y0))
+                x1, y1 = min(pix.width, int(r.x1) + 1), min(pix.height, int(r.y1) + 1)
+                if x1 > x0 and y1 > y0 and dark[y0:y1, x0:x1].any():
+                    hit += 1
+            return hit
+
+        if score(fitz.Identity) > score(page.rotation_matrix):
+            best = fitz.Identity
+    if key is not None:
+        _TEXT_MAT[key] = best
+    return best
+
+
+def words(page) -> list:
+    """``get_text("words")`` in viewer points:
+    ``[(x0, y0, x1, y1, text, block, line, word)]``."""
+    m = text_matrix(page)
+    out = []
+    for w in page.get_text("words"):
+        r = fitz.Rect(w[:4]) * m
+        r.normalize()
+        out.append((r.x0, r.y0, r.x1, r.y1, w[4], w[5], w[6], w[7]))
+    return out
+
+
+def text_lines(page) -> list:
+    """Text lines in viewer points: ``[{"bbox", "text", "size", "bold",
+    "dir", "block", "spans"}]`` (``dir`` is the writing direction after
+    the page rotation; ``size`` the largest span size on the line)."""
+    m = text_matrix(page)
+    out = []
+    for bi, blk in enumerate(page.get_text("dict").get("blocks", [])):
+        for ln in blk.get("lines", []):
+            spans = [sp for sp in ln.get("spans", []) if sp.get("text", "").strip()]
+            if not spans:
+                continue
+            r = fitz.Rect(ln["bbox"]) * m
+            r.normalize()
+            dx, dy = ln.get("dir", (1.0, 0.0))
+            d = fitz.Point(dx, dy) * fitz.Matrix(m.a, m.b, m.c, m.d, 0, 0)
+            out.append({
+                "bbox": (r.x0, r.y0, r.x1, r.y1),
+                "text": " ".join(sp["text"].strip() for sp in spans),
+                "size": max(float(sp.get("size", 0.0)) for sp in spans),
+                "bold": any(int(sp.get("flags", 0)) & 16 for sp in spans),
+                "dir": (round(d.x, 6), round(d.y, 6)),
+                "block": bi,
+                "spans": [{"text": sp["text"], "size": float(sp.get("size", 0.0)),
+                           "bold": bool(int(sp.get("flags", 0)) & 16)} for sp in spans],
+            })
+    return out
+
+
 # ----------------------------------------------------------- the drop-in --
 
 _CACHE: dict = {}
