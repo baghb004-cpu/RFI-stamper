@@ -137,9 +137,11 @@ def end_status(sw_end: M.Element, strings) -> tuple:
             if (_same(a, fa) and _same(b, fb)) or (_same(a, fb) and _same(b, fa)):
                 return "string", row
     op = sw_end.attrs.get("opening")
-    if op is not None:
+    if op:
+        op_id = op if isinstance(op, str) else op.id
         for row in strings:
-            if row["centerline"] is op:
+            c = row["centerline"]
+            if c is not None and (c is op or (c.id and c.id == op_id)):
                 return "centerline", row
     return "none", None
 
