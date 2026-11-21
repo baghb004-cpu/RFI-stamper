@@ -34,8 +34,13 @@
 
 ## Getting a beta out to testers
 
-1. A release is cut by pushing a tag that starts with `v`, for example
-   `v5.10.0-beta.1`. Tags containing a dash are marked pre-release.
+0. Every push to the working branch already builds and tests both exes;
+   grab them from that run's Artifacts on the repository's Actions page.
+1. To cut a release: on the repository website, Releases, Draft a new
+   release, type a new tag such as `v5.10.0-beta.1`, target the branch
+   `claude/planloom-session-resume-p10twg`, tick "Set as a pre-release",
+   Publish. (This session's network policy blocks creating tags or
+   releases from the cloud, so this one click is the owner's.)
 2. The Windows build workflow then builds `Planloom.exe` and
    `planloom-cli.exe`, smoke-tests the source and the built exes, and
    attaches the exes, `Planloom-Windows.zip` and `SHA256SUMS.txt` to the

@@ -1792,6 +1792,11 @@ manual picks" ask.
   exe_smoke on a Linux build (CLI stamp + verify PASS, GUI stays up).
 - Test env note: in the cloud container only python3.12 has tkinter;
   python3.13 runs everything except the 6 GUI scripts.
+- The cloud session cannot create tags/releases (proxy blocks tag pushes
+  and release/ref API writes). The workflow therefore also builds on
+  every push to this branch (artifacts only) and attaches on a release
+  published from the website (`release: published`, serialized with the
+  matching tag push by a concurrency group).
 - Next: Phase 1 (the Sightline) after the owner answers Q1-Q5 in the plan.
 
 ## Roadmap (still open)

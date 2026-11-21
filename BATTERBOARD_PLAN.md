@@ -187,7 +187,7 @@ existing Plates title block. All on-plan text placement goes through
 - `run_planloom.bat`: first run builds `.venv` from `requirements.txt`,
   then launches; afterwards it just launches; re-installs only when
   `requirements.txt` changes.
-- `.github/workflows/windows-release.yml` (owner-approved): on a `v*` tag
+- `.github/workflows/windows-release.yml` (owner-approved): on a `v*` tag or a release published from the website (every branch push builds artifacts only)
   it builds both exes on a Windows runner, runs `tests/smoke_test.py` on
   the source and `tests/exe_smoke.py` on the built exes (CLI stamp +
   verify PASS, GUI stays up), then attaches the exes, a zip and SHA256
