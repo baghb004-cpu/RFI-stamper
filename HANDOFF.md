@@ -67,6 +67,11 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 | **The Ropes** | hands-on training mode: spotlight tours + Training Center (gui/ropes.py) | "show you the ropes" — the oldest way a new hand learns the job |
 | **The memory palette** | the evened per-section anchor-hue system (gui/theme.py SECTIONS) | color placed for recall, not decoration — one calm anchor per room of the workspace |
 | **The Tie-In** | connect-once settings: folders + tablet kit -> one-tap everything (gui/tiein.py) | where new plumbing meets the existing system — one fitting, done right, and everything flows |
+| **The Batterboard** | the one-click layout package run: tab in Field Management + CLI twin (BATTERBOARD_PLAN.md) | batter boards are the first thing set on a site: the frame every layout line is strung from |
+| **Hats** | the Batterboard's role presets (Concrete hat, Surveyor hat) | "wearing two hats": the same person, a different job |
+| **The Sightline** | the visibility gate: each vector element's visible part + score, measured against a render (sightline.py) | a sightline is what you can actually see from where you stand |
+| **Red Tags** | the open items register: stable per-level numbers, never reused (redtags.py) | a red tag on site means "do not proceed until cleared" |
+| **The Paper Trail** | proof records: nothing prints without a check behind it (papertrail.py) | every claim traceable back to its paper |
 
 **Vendor-name policy (hard rule, from the owner):** never name third-party
 companies or products (survey-tablet vendors, CAD/BIM authoring tools, PDF
@@ -1771,6 +1776,23 @@ manual picks" ask.
   and construct blocks (viewer names ARCH D; manual set calibrates;
   the second run hints from the first; the prefs file holds only
   opaque hashes).
+
+## Round 45 (IN FLIGHT): the Batterboard, Phase 0 + beta delivery
+- Owner brief: `LAYOUT_PACKAGE_BRIEF.md`; plan: `BATTERBOARD_PLAN.md`.
+  Five names signed off by the owner and registered above.
+- Delivery shipped ahead of the phases (brief section 13):
+  `run_planloom.bat` (first run builds .venv, then just launches),
+  `.github/workflows/windows-release.yml` (owner-approved: v* tag ->
+  Windows runner builds both exes, smoke-tests source AND built exes,
+  attaches exes + zip + SHA256 sums to a release; dash tags are
+  pre-releases), `tests/exe_smoke.py` (not in run_all: needs built exes),
+  `BETA_TESTERS.md` (shipped inside the zip as READ_ME_FIRST.md).
+- Gotcha: PyInstaller 6.11 freezes a broken numpy 2.5 (CLI dies with
+  "No module named numpy._core._exceptions"). Pinned 6.21.0, proven by
+  exe_smoke on a Linux build (CLI stamp + verify PASS, GUI stays up).
+- Test env note: in the cloud container only python3.12 has tkinter;
+  python3.13 runs everything except the 6 GUI scripts.
+- Next: Phase 1 (the Sightline) after the owner answers Q1-Q5 in the plan.
 
 ## Roadmap (still open)
 - **Owner smoke on real Windows**: the Ropes punch renderer (alpha +

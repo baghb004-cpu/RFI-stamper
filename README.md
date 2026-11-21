@@ -417,7 +417,16 @@ command palette (Ctrl+K) that searches every feature.
 
 ## Install & run
 
-Python 3.10+ with Tk, then:
+**Just want to use it?** Download `Planloom.exe` from the latest release
+and double-click it: one file, no install, fully offline. See
+`BETA_TESTERS.md`. Each `v*` tag builds and tests both exes on a Windows
+runner before attaching them (`.github/workflows/windows-release.yml`).
+
+**Running from the source folder on Windows:** double-click
+`run_planloom.bat`. The first run builds a private `.venv` from
+`requirements.txt`; after that it just launches.
+
+Developers: Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
