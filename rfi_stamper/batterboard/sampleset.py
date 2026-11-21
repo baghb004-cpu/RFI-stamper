@@ -156,27 +156,59 @@ class Sheet:
         return self.text(x - w / 2.0, y, s, size, color, 0, bold)
 
     # -- output -------------------------------------------------------------- #
-    def add_to(self, doc, rot: int = 0):
-        """Append this sheet to an open fitz document; returns the page."""
-        page = doc.new_page(width=self.w, height=self.h)
-        page.insert_text((2, 2), " ", fontsize=1)        # creates the stream + font
-        xref = page.get_contents()[0]
-        doc.update_stream(xref, ("\n".join(self.ops) + "\n").encode("ascii"))
+    def add_to(self, doc, rot: int = 0, upright: bool = False):
+        """Append this sheet to an open fitz document; returns the page.
+
+        ``rot`` sets /Rotate.  By default the VIEW is rotated (the sheet
+        is seen sideways: a pure coordinate test).  ``upright=True``
+        authors the page the way real rotated sets are made: the media is
+        turned and the content pre-rotated, so the sheet still reads
+        upright in a viewer while every raw coordinate in the file is
+        rotated."""
+        rot = int(rot) % 360
+        if not (upright and rot):
+            page = doc.new_page(width=self.w, height=self.h)
+            page.insert_text((2, 2), " ", fontsize=1)        # creates the stream + font
+            xref = page.get_contents()[0]
+            doc.update_stream(xref, ("\n".join(self.ops) + "\n").encode("ascii"))
+            for x, y, s, size, color, rotate, bold in self.texts:
+                page.insert_text((x, y), s, fontsize=size, color=color, rotate=rotate,
+                                 fontname="hebo" if bold else "helv")
+            if rot:
+                page.set_rotation(rot)
+            return page
+        if rot == 90:
+            mw, mh, cm = self.h, self.w, f"0 1 -1 0 {_n(self.h)} 0 cm"
+        elif rot == 270:
+            mw, mh, cm = self.h, self.w, f"0 -1 1 0 0 {_n(self.w)} cm"
+        else:
+            mw, mh, cm = self.w, self.h, f"-1 0 0 -1 {_n(self.w)} {_n(self.h)} cm"
+        page = doc.new_page(width=mw, height=mh)
+        page.insert_text((2, 2), " ", fontsize=1, fontname="helv")
+        page.insert_text((2, 2), " ", fontsize=1, fontname="hebo")
+        ops = ["q", cm] + list(self.ops)
         for x, y, s, size, color, rotate, bold in self.texts:
-            page.insert_text((x, y), s, fontsize=size, color=color, rotate=rotate,
-                             fontname="hebo" if bold else "helv")
-        if rot:
-            page.set_rotation(rot)
+            esc = s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            tm = (f"0 1 -1 0 {_n(x)} {_n(self.h - y)} Tm" if rotate == 90
+                  else f"1 0 0 1 {_n(x)} {_n(self.h - y)} Tm")
+            ops.append(f"BT {self._rg(color)} /{'hebo' if bold else 'helv'} {_n(size)} Tf "
+                       f"{tm} ({esc}) Tj ET")
+        ops.append("Q")
+        xrefs = page.get_contents()
+        doc.update_stream(xrefs[0], ("\n".join(ops) + "\n").encode("latin-1"))
+        for x in xrefs[1:]:
+            doc.update_stream(x, b"\n")
+        page.set_rotation(rot)
         return page
 
-    def build(self, rot: int = 0):
+    def build(self, rot: int = 0, upright: bool = False):
         """-> ``(doc, page)`` in memory."""
         doc = fitz.open()
-        page = self.add_to(doc, rot)
+        page = self.add_to(doc, rot, upright)
         return doc, page
 
-    def save(self, path: str, rot: int = 0) -> str:
-        doc, _page = self.build(rot)
+    def save(self, path: str, rot: int = 0, upright: bool = False) -> str:
+        doc, _page = self.build(rot, upright)
         _save(doc, path)
         return path
 
@@ -671,19 +703,19 @@ def build_sample_set(out_dir: str, *, cad: bool = True, arch: bool = True,
     os.makedirs(out_dir, exist_ok=True)
     files = {}
     doc = fitz.open()
-    sheet_notes().add_to(doc, rot)
-    sheet_struct(1).add_to(doc, rot)
-    sheet_struct(2).add_to(doc, rot)
-    sheet_schedule().add_to(doc, rot)
+    sheet_notes().add_to(doc, rot, True)
+    sheet_struct(1).add_to(doc, rot, True)
+    sheet_struct(2).add_to(doc, rot, True)
+    sheet_schedule().add_to(doc, rot, True)
     if arch:
-        sheet_arch().add_to(doc, rot)
+        sheet_arch().add_to(doc, rot, True)
     if shop:
-        sheet_shop().add_to(doc, rot)
+        sheet_shop().add_to(doc, rot, True)
     files["plans"] = os.path.join(out_dir, "sample_plan_set.pdf")
     _save(doc, files["plans"])
     if old_issue:
         files["old"] = sheet_struct(2, old_issue=True).save(
-            os.path.join(out_dir, "S-201_rev1.pdf"), rot)
+            os.path.join(out_dir, "S-201_rev1.pdf"), rot, True)
     if cad:
         from .. import dxfread
         files["cad"] = os.path.join(out_dir, "background_L2.dxf")
