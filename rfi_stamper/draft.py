@@ -1723,6 +1723,118 @@ def render_ops(model: DraftModel, include=("all",), _ratio=None,
 
 # --------------------------------------------------------------- plate PDF --
 
+def draw_title_strip(c, page_w: float, page_h: float, rows, *,
+                     margin: float = 36.0, tb_w: float = 108.0,
+                     mark: str = "PLANLOOM",
+                     sub: str = "THE LOFT \u2014 DRAFTING PLATE",
+                     fit: bool = False) -> list:
+    """The Plates title block: the heavy sheet border and the vertical
+    title strip on the right edge, drawn on a canvas ``c``.
+
+    ``rows`` is ``[(caption, value, height), ...]`` top to bottom; the
+    ``"__MARK__"`` row draws the plate mark (``mark`` over ``sub``), every
+    other row a small caption with its value centered under it (the
+    ``PLATE`` value in bold 14).  With ``fit=False`` (the Loft's plates)
+    a value is cut at 26 characters, exactly as it always was.  With
+    ``fit=True`` a value too wide for the strip is wrapped onto two lines
+    where the row is tall enough, then set smaller, and only then cut
+    with an ellipsis.
+
+    Returns what it drew, one dict per string: ``{"row": caption, "s":
+    text, "x": left, "y": baseline, "w": width, "font", "size", "cut":
+    bool}`` in page points, so a caller that must account for every
+    printed string (the Batterboard's plate manifest) can."""
+    drawn: list = []
+    cx1 = page_w - margin - tb_w
+    c.setDash([])
+    c.setLineWidth(weight_pt("heavy"))
+    c.rect(margin, margin, page_w - 2 * margin, page_h - 2 * margin)
+    c.setLineWidth(weight_pt("medium"))
+    c.line(cx1, margin, cx1, page_h - margin)
+    row_y = page_h - margin
+    mid_x = (cx1 + page_w - margin) / 2.0
+    c.setLineWidth(weight_pt("light"))
+
+    def centred(row, y, text, font, size, cut=False):
+        c.setFont(font, size)
+        c.drawCentredString(mid_x, y, text)
+        w = c.stringWidth(text, font, size)
+        drawn.append({"row": row, "s": text, "x": mid_x - w / 2.0, "y": y,
+                      "w": w, "font": font, "size": size, "cut": cut})
+
+    for caption, value, height in rows:
+        row_y -= height
+        c.line(cx1, row_y, page_w - margin, row_y)
+        if caption == "__MARK__":
+            centred(caption, row_y + height / 2 + 2, mark, "Helvetica-Bold", 13)
+            centred(caption, row_y + 8, sub, "Helvetica", 5.5)
+        else:
+            c.setFont("Helvetica", 4.5)
+            c.drawString(cx1 + 4, row_y + height - 9, caption)
+            drawn.append({"row": caption, "s": caption, "x": cx1 + 4,
+                          "y": row_y + height - 9,
+                          "w": c.stringWidth(caption, "Helvetica", 4.5),
+                          "font": "Helvetica", "size": 4.5, "cut": False})
+            font = "Helvetica-Bold" if caption == "PLATE" else "Helvetica"
+            size = 14 if caption == "PLATE" else 8
+            if not fit:
+                centred(caption, row_y + height / 2 - 4, str(value)[:26],
+                        font, size)
+                continue
+            lines, size, cut = _fit_strip_value(c, str(value), font, size,
+                                                tb_w - 8.0,
+                                                2 if height >= 40.0 else 1)
+            lead = size * 1.15
+            y = row_y + height / 2 - 4 + lead * (len(lines) - 1) / 2.0
+            for ln in lines:
+                centred(caption, y, ln, font, size, cut)
+                y -= lead
+    return drawn
+
+
+def _fit_strip_value(c, text: str, font: str, size: float, max_w: float,
+                     max_lines: int) -> tuple:
+    """Fit a title-strip value: wrap to ``max_lines``, then shrink the
+    type down to 5 pt, then cut with an ellipsis.  ``(lines, size, cut)``."""
+    def wrap(sz):
+        out, cur = [], ""
+        for word in text.split():
+            trial = (cur + " " + word).strip()
+            if cur and c.stringWidth(trial, font, sz) > max_w:
+                out.append(cur)
+                cur = word
+            else:
+                cur = trial
+        out.append(cur)
+        return out
+
+    sz = float(size)
+    while True:
+        lines = wrap(sz)
+        if (len(lines) <= max_lines
+                and all(c.stringWidth(ln, font, sz) <= max_w for ln in lines)):
+            return lines, sz, False
+        if sz <= 5.0:
+            break
+        sz = max(5.0, sz - 0.5)
+    lines = wrap(sz)
+    cut = False
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] += "..."
+        cut = True
+    out = []
+    for ln in lines:
+        if c.stringWidth(ln, font, sz) > max_w:
+            base = ln[:-3] if ln.endswith("...") else ln
+            while base and c.stringWidth(base + "...", font, sz) > max_w:
+                base = base[:-1]
+            ln = base.rstrip() + "..."
+            cut = True
+        out.append(ln)
+    return out, sz, cut
+
+
 def plate_pdf(model: DraftModel, out_path: str, sheet: str = "ARCH D",
               meta: dict | None = None) -> dict:
     """Export the drawing as a titled plate (PDF, landscape).
@@ -1784,11 +1896,6 @@ def plate_pdf(model: DraftModel, out_path: str, sheet: str = "ARCH D",
     c.setFillColor(black)
 
     # border + title strip
-    c.setDash([])
-    c.setLineWidth(weight_pt("heavy"))
-    c.rect(margin, margin, page_w - 2 * margin, page_h - 2 * margin)
-    c.setLineWidth(weight_pt("medium"))
-    c.line(cx1, margin, cx1, page_h - margin)
     scale_label = _scale_label(used_ratio)
     rows = [
         ("__MARK__", "", 52.0),
@@ -1800,24 +1907,7 @@ def plate_pdf(model: DraftModel, out_path: str, sheet: str = "ARCH D",
         ("DRAWN BY", str(meta.get("drawn_by", "")), 30.0),
         ("SHEET SIZE", sheet, 30.0),
     ]
-    row_y = page_h - margin
-    mid_x = (cx1 + page_w - margin) / 2.0
-    c.setLineWidth(weight_pt("light"))
-    for caption, value, height in rows:
-        row_y -= height
-        c.line(cx1, row_y, page_w - margin, row_y)
-        if caption == "__MARK__":
-            c.setFont("Helvetica-Bold", 13)
-            c.drawCentredString(mid_x, row_y + height / 2 + 2, "PLANLOOM")
-            c.setFont("Helvetica", 5.5)
-            c.drawCentredString(mid_x, row_y + 8, "THE LOFT — DRAFTING PLATE")
-        else:
-            c.setFont("Helvetica", 4.5)
-            c.drawString(cx1 + 4, row_y + height - 9, caption)
-            c.setFont("Helvetica-Bold" if caption == "PLATE" else "Helvetica",
-                      14 if caption == "PLATE" else 8)
-            c.drawCentredString(mid_x, row_y + height / 2 - 4,
-                                str(value)[:26])
+    draw_title_strip(c, page_w, page_h, rows, margin=margin, tb_w=tb_w)
 
     # content, clipped to its area so a non-fit can never bleed into the
     # title strip

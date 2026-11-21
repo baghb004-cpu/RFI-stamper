@@ -29,6 +29,10 @@ class Page:
         self.width = width
         self.height = height
         self.content = Content(doc)
+        #: raw extra page-dictionary entries, e.g. ``b"/VP [ ... ]"`` (the
+        #: stored page scale viewers' measuring tools read).  Empty = none,
+        #: and the page object's bytes are exactly what they always were.
+        self.extras: bytes = b""
 
 
 class Document:
@@ -106,10 +110,12 @@ class Document:
         for i, page in enumerate(self.pages):
             mbox = b"[0 0 %s %s]" % (fmt_num(page.width).encode("ascii"),
                                      fmt_num(page.height).encode("ascii"))
+            extras = bytes(page.extras or b"").strip()
             objs[page_nos[i]] = (
                 b"<< /Type /Page /Parent %d 0 R /MediaBox %s "
-                b"/Resources %s /Contents %d 0 R >>"
-                % (pages_no, mbox, resources, content_nos[i]))
+                b"/Resources %s /Contents %d 0 R%s >>"
+                % (pages_no, mbox, resources, content_nos[i],
+                   (b" " + extras) if extras else b""))
             stream = bytes(page.content)
             objs[content_nos[i]] = (b"<< /Length %d >>\nstream\n%s\nendstream"
                                     % (len(stream), stream))

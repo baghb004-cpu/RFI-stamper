@@ -225,7 +225,7 @@ WALLS_L2 = [
     {"name": "W1", "mark": "SW1", "poly": [(23.5, 4.0), (24.5, 4.0), (24.5, 16.0), (23.5, 16.0)]},
     {"name": "W2a", "mark": "SW2", "poly": [(28.0, 19.5), (34.0, 19.5), (34.0, 20.5), (28.0, 20.5)]},
     {"name": "W2b", "mark": "SW2", "poly": [(37.0, 19.5), (44.0, 19.5), (44.0, 20.5), (37.0, 20.5)]},
-    {"name": "W3", "mark": "SW3", "poly": [(50.0, 26.0), (60.0, 26.0), (60.0, 36.0),
+    {"name": "W3", "mark": "SW3", "mark_at": (51.0, 27.4), "poly": [(50.0, 26.0), (60.0, 26.0), (60.0, 36.0),
                                            (60.0 - _T8, 36.0), (60.0 - _T8, 26.0 + _T8),
                                            (50.0, 26.0 + _T8)]},
     {"name": "W4", "mark": "", "clipped": True,
@@ -420,6 +420,11 @@ def _concrete(s: Sheet, pl: Plan, walls, rect_cols=COLUMNS, round_cols=ROUND_COL
         else:
             s.fill_poly(p, GRAY)
         s.polyline(p, width=0.5, closed=True)
+    names = {w["name"]: w for w in walls}
+    if "W2a" in names and "W2b" in names:
+        # the opening in SW2: header lines dashed across it along both faces
+        for n_face in (19.5, 20.5):
+            s.line(pl.P(34.0, n_face), pl.P(37.0, n_face), width=0.4, dash=[3, 2])
     for _name, (e, n) in rect_cols:
         p = pl.poly([(e - 1, n - 1), (e + 1, n - 1), (e + 1, n + 1), (e - 1, n + 1)])
         s.fill_poly(p, GRAY)
@@ -439,7 +444,9 @@ def _concrete(s: Sheet, pl: Plan, walls, rect_cols=COLUMNS, round_cols=ROUND_COL
             seen.add(mk)
             xs = [q[0] for q in w["poly"]]
             ys = [q[1] for q in w["poly"]]
-            if max(ys) - min(ys) > max(xs) - min(xs):
+            if w.get("mark_at"):
+                x, y = pl.P(*w["mark_at"])
+            elif max(ys) - min(ys) > max(xs) - min(xs):
                 x, y = pl.P(max(xs) + 0.6, (min(ys) + max(ys)) / 2.0)
             else:
                 x, y = pl.P(min(xs) + 0.6, max(ys) + 0.5)

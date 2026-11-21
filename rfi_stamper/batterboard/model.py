@@ -254,21 +254,40 @@ class Element:
 @dataclass
 class GridLine:
     """One named gridline.  ``axis`` is ``"x"`` for a line of constant
-    Easting (it runs north-south; letters or numbers, as drawn) and ``"y"``
-    for constant Northing.  ``offset_ft`` is its coordinate along the
-    perpendicular axis in the world frame."""
+    Easting in the grid's own axes (it runs along grid north; letters or
+    numbers, as drawn) and ``"y"`` for constant Northing.  ``offset_ft``
+    is its position along the family's normal, measured from the first
+    line of the family.  ``world_a`` / ``world_b`` are its ends in the
+    run's world frame (ties are perpendicular distances to this line, so a
+    grid that is rotated in the world frame still ties correctly)."""
     name: str = ""
     axis: str = "x"
     offset_ft: float = 0.0
     page_a: tuple = (0.0, 0.0)        # the line's two ends in page points
     page_b: tuple = (0.0, 0.0)
     bubble: tuple | None = None       # page center of its bubble
+    world_a: tuple = (0.0, 0.0)
+    world_b: tuple = (0.0, 0.0)
+
+    def dist(self, e: float, n: float) -> float:
+        """SIGNED perpendicular distance, feet, from this line to the point
+        (positive toward increasing offset of its family)."""
+        (x0, y0), (x1, y1) = self.world_a, self.world_b
+        dx, dy = x1 - x0, y1 - y0
+        ln = math.hypot(dx, dy)
+        if ln < 1e-9:
+            return math.hypot(e - x0, n - y0)
+        d = (dx * (n - y0) - dy * (e - x0)) / ln
+        # orient: x-lines positive toward +E of the grid, y-lines toward +N
+        if self.axis == "x":
+            return -d if dy > 0 else d
+        return d if dx > 0 else -d
 
 
 @dataclass
 class Grid:
     lines: list = field(default_factory=list)       # [GridLine]
-    #: printed spacing checks: [{"a", "b", "printed_ft", "measured_ft", "delta_ft"}]
+    #: printed spacing checks: [{"axis", "a", "b", "printed_ft", "measured_ft", "delta_ft", "text"}]
     spacing_checks: list = field(default_factory=list)
 
     def family(self, axis: str) -> list:
@@ -282,20 +301,58 @@ class Grid:
         return None
 
     def intersections(self) -> list:
-        """[(name, e, n)] for every x-line / y-line crossing."""
+        """[(name, e, n)] in the world frame for every x-line / y-line
+        crossing (name is ``"A/1"``: x-line first)."""
         out = []
         for gx in self.family("x"):
             for gy in self.family("y"):
-                out.append((f"{gx.name}/{gy.name}", gx.offset_ft, gy.offset_ft))
+                p = _line_x(gx.world_a, gx.world_b, gy.world_a, gy.world_b)
+                if p is not None:
+                    out.append((f"{gx.name}/{gy.name}", p[0], p[1]))
+        return out
+
+    def page_intersections(self) -> dict:
+        """{name: (x, y)} page points for every crossing."""
+        out = {}
+        for gx in self.family("x"):
+            for gy in self.family("y"):
+                p = _line_x(gx.page_a, gx.page_b, gy.page_a, gy.page_b)
+                if p is not None:
+                    out[f"{gx.name}/{gy.name}"] = p
         return out
 
     def nearest(self, e: float, n: float) -> tuple:
-        """Ties to the two nearest gridlines: ``((x_line, de), (y_line, dn))``
-        with signed offsets (point minus line), or ``None`` entries."""
-        bx = min(self.family("x"), key=lambda g: abs(e - g.offset_ft), default=None)
-        by = min(self.family("y"), key=lambda g: abs(n - g.offset_ft), default=None)
-        return ((bx, e - bx.offset_ft) if bx else None,
-                (by, n - by.offset_ft) if by else None)
+        """Ties to the two nearest gridlines: ``((x_line, d), (y_line, d))``
+        with signed perpendicular distances in feet (point minus line), or
+        ``None`` entries when a family is empty."""
+        bx = min(self.family("x"), key=lambda g: abs(g.dist(e, n)), default=None)
+        by = min(self.family("y"), key=lambda g: abs(g.dist(e, n)), default=None)
+        return ((bx, bx.dist(e, n)) if bx else None,
+                (by, by.dist(e, n)) if by else None)
+
+    def tie_text(self, e: float, n: float) -> str:
+        """``"2'-0" E of A, 4'-6" N of 1"`` (the two nearest gridlines)."""
+        tx, ty = self.nearest(e, n)
+        parts = []
+        if tx:
+            g, d = tx
+            parts.append(f"on {g.name}" if abs(d) < 0.5 / 192.0
+                         else f"{fmt_ftin(abs(d))} {'E' if d > 0 else 'W'} of {g.name}")
+        if ty:
+            g, d = ty
+            parts.append(f"on {g.name}" if abs(d) < 0.5 / 192.0
+                         else f"{fmt_ftin(abs(d))} {'N' if d > 0 else 'S'} of {g.name}")
+        return ", ".join(parts)
+
+
+def _line_x(a1, a2, b1, b2):
+    rx, ry = a2[0] - a1[0], a2[1] - a1[1]
+    sx, sy = b2[0] - b1[0], b2[1] - b1[1]
+    den = rx * sy - ry * sx
+    if abs(den) < 1e-12:
+        return None
+    t = ((b1[0] - a1[0]) * sy - (b1[1] - a1[1]) * sx) / den
+    return (a1[0] + rx * t, a1[1] + ry * t)
 
 
 @dataclass
@@ -309,6 +366,9 @@ class SheetRef:
     level: str = ""                   # level label ("" when none read)
     revision: str = ""                # revision text from the title block
     why: str = ""                     # the rule that classified it / why unknown
+    prior: bool = False               # an earlier issue of a sheet that is also in the drop
+    rfi: str = ""                     # RFI number, for an RFI response
+    answer: str = ""                  # the answer text of an RFI response, as read
 
     @property
     def name(self) -> str:
@@ -337,6 +397,15 @@ class Level:
     arch_strings: list = field(default_factory=list)   # [dict] (see archdims)
     blocked: list = field(default_factory=list)        # reasons; non-empty = no layout
     notes: list = field(default_factory=list)          # reader remarks
+    prior: SheetRef | None = None                      # an earlier issue of the structural sheet
+    shops: list = field(default_factory=list)          # [SheetRef] shop drawings overlaid
+    fill_rgb: tuple | None = None                      # the learned concrete fill class
+    edge_pen: tuple | None = None                      # the learned slab edge class (rgb, width)
+    hidden: list = field(default_factory=list)         # clusters of geometry the Sightline dropped
+    unread: list = field(default_factory=list)         # fill-class regions seen but not read
+    region: tuple | None = None                        # the plan region on the page (viewer points)
+    arch_note: str = ""                                # why the architect strings were not compared ("" = they were)
+    arch_off: int = 0                                  # architect strings with no end on the structure
 
     def of(self, *kinds) -> list:
         return [e for e in self.elements if e.kind in kinds]
@@ -389,6 +458,7 @@ class Options:
     level_of: dict = field(default_factory=dict)       # file name or sheet -> level label
     class_of: dict = field(default_factory=dict)       # file name or sheet -> PG_* class
     control: list = field(default_factory=list)        # [{"at": "A/1", "n":, "e":}]
+    cad_units: str = ""                                # used ONLY when a CAD file declares no units
     #: user-set register fields (a status prints ONLY from these)
     statuses: dict = field(default_factory=dict)       # item ref -> status text
     answered: list = field(default_factory=list)       # [{"item", "rfi", "quote"}]

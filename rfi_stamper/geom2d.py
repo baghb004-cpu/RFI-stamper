@@ -371,6 +371,33 @@ def fit_circle(pts) -> tuple:
     return (float(cu + mx), float(cv + my), r, rms)
 
 
+def arc_from_bezier(p0, c1, c2, p1, tol: float = 0.004):
+    """Center and radius of the circular arc a cubic Bezier draws, or
+    None when it is not circular.
+
+    The end tangents are along ``c1 - p0`` and ``p1 - c2``; the center is
+    where the two end normals cross.  (A least-squares fit through
+    flattened points is biased on a short arc; this is exact.)  Accepted
+    when both ends and the curve's midpoint sit at one radius within
+    ``tol`` (relative)."""
+    t0 = (c1[0] - p0[0], c1[1] - p0[1])
+    t1 = (p1[0] - c2[0], p1[1] - c2[1])
+    if math.hypot(*t0) < 1e-9 or math.hypot(*t1) < 1e-9:
+        return None
+    n0 = (p0[0] - t0[1], p0[1] + t0[0])
+    n1 = (p1[0] - t1[1], p1[1] + t1[0])
+    c = line_intersection(p0, n0, p1, n1)
+    if c is None:
+        return None
+    r0 = math.hypot(p0[0] - c[0], p0[1] - c[1])
+    r1 = math.hypot(p1[0] - c[0], p1[1] - c[1])
+    mid = bezier(p0, c1, c2, p1, 2)[1]
+    rm = math.hypot(mid[0] - c[0], mid[1] - c[1])
+    if r0 <= 0 or abs(r1 - r0) > tol * r0 or abs(rm - r0) > tol * r0:
+        return None
+    return (c, (r0 + r1) / 2.0)
+
+
 def arc_span_deg(pts, cx: float, cy: float) -> float:
     """Angular sweep covered by ordered points about a center, degrees."""
     if len(pts) < 2:

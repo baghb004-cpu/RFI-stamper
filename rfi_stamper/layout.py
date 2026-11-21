@@ -1,6 +1,7 @@
 """Note text, box layout math, and the measured-empty rectangle finder."""
 from __future__ import annotations
 
+import math
 import re
 
 import numpy as np
@@ -174,3 +175,68 @@ def find_spot(ii, img_w, img_h, w_pt, h_pt, scale, occupied):
                     ytop_pt = (img_h - (y + SEARCH_PAD)) / scale
                     return round(x_pt, 1), round(ytop_pt, 1), (x, y, x + w_px, y + h_px)
     return None
+
+
+def find_spot_near(ii, img_w, img_h, w_pt, h_pt, scale, occupied, anchor_px,
+                   reach_px, pad_px=3, step=4, inside=None):
+    """Find a fully-empty padded window NEAR an anchor; None if impossible.
+
+    The same measured-empty rule as :func:`find_spot` -- the padded window
+    must contain ZERO content pixels in the integral image ``ii`` and miss
+    every ``occupied`` rect, no exceptions -- but searched outward from
+    ``anchor_px`` = (x, y) in image pixels instead of across the fixed
+    zones: candidate windows on a ``step`` px lattice are tried
+    nearest-first, by the distance from the anchor to the window's nearest
+    edge point, out to ``reach_px``.  ``inside`` = (x0, y0, x1, y1) px
+    keeps the whole padded window within that rect.  Ties break top-down,
+    then left to right, so the answer is deterministic.
+
+    Returns ``(x_pt, ytop_pt, (x0, y0, x1, y1) px)`` in :func:`find_spot`'s
+    convention: the box's left and TOP edge in page points (origin
+    bottom-left) and the padded pixel window it claimed."""
+    pad_px = int(pad_px)
+    step = max(1, int(step))
+    w_px = int(math.ceil(w_pt * scale)) + 2 * pad_px
+    h_px = int(math.ceil(h_pt * scale)) + 2 * pad_px
+    ax, ay = float(anchor_px[0]), float(anchor_px[1])
+    lo_x, lo_y, hi_x, hi_y = 0, 0, int(img_w) - w_px, int(img_h) - h_px
+    if inside is not None:
+        lo_x = max(lo_x, int(math.ceil(inside[0])))
+        lo_y = max(lo_y, int(math.ceil(inside[1])))
+        hi_x = min(hi_x, int(math.floor(inside[2])) - w_px)
+        hi_y = min(hi_y, int(math.floor(inside[3])) - h_px)
+    # only windows that can come within reach of the anchor
+    lo_x = max(lo_x, int(math.floor(ax - reach_px)) - w_px)
+    lo_y = max(lo_y, int(math.floor(ay - reach_px)) - h_px)
+    hi_x = min(hi_x, int(math.ceil(ax + reach_px)))
+    hi_y = min(hi_y, int(math.ceil(ay + reach_px)))
+    if hi_x < lo_x or hi_y < lo_y:
+        return None
+    xs = np.arange(lo_x, hi_x + 1, step, dtype=np.int64)
+    ys = np.arange(lo_y, hi_y + 1, step, dtype=np.int64)
+    if xs[-1] != hi_x:
+        xs = np.append(xs, hi_x)        # the far edges only ADD candidates
+    if ys[-1] != hi_y:
+        ys = np.append(ys, hi_y)
+    gx, gy = np.meshgrid(xs, ys)
+    gx, gy = gx.ravel(), gy.ravel()
+    dx = np.maximum(np.maximum(gx - ax, ax - (gx + w_px)), 0.0)
+    dy = np.maximum(np.maximum(gy - ay, ay - (gy + h_px)), 0.0)
+    dist = np.hypot(dx, dy)
+    keep = dist <= float(reach_px)
+    if not keep.any():
+        return None
+    gx, gy, dist = gx[keep], gy[keep], dist[keep]
+    ink = (ii[gy + h_px, gx + w_px] - ii[gy, gx + w_px]
+           - ii[gy + h_px, gx] + ii[gy, gx])
+    ok = ink == 0
+    for (ox0, oy0, ox1, oy1) in occupied:
+        ok &= ~((gx < ox1) & (gx + w_px > ox0) & (gy < oy1) & (gy + h_px > oy0))
+    if not ok.any():
+        return None
+    gx, gy, dist = gx[ok], gy[ok], dist[ok]
+    k = np.lexsort((gx, gy, np.round(dist, 6)))[0]
+    x, y = int(gx[k]), int(gy[k])
+    x_pt = (x + pad_px) / scale
+    ytop_pt = (img_h - (y + pad_px)) / scale
+    return round(x_pt, 1), round(ytop_pt, 1), (x, y, x + w_px, y + h_px)
