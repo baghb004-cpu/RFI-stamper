@@ -19,7 +19,7 @@ import os
 import sys
 
 SUBCOMMANDS = {"stamp", "merge", "split", "compare", "doctor", "ocr",
-               "hyperlink", "log", "batch", "submittal", "gui"}
+               "hyperlink", "log", "batch", "submittal", "batterboard", "gui"}
 
 
 def build_stamp(sub):
@@ -147,8 +147,66 @@ def build_parser():
     build_log(sub)
     build_batch(sub)
     build_submittal(sub)
+    build_batterboard(sub)
     sub.add_parser("gui", help="launch the desktop app (default with no args)")
     return ap
+
+
+def build_batterboard(sub):
+    ap = sub.add_parser(
+        "batterboard",
+        help="the one-click layout package: plates, point files, open items "
+             "and a run report from a dropped plan set")
+    ap.add_argument("files", nargs="*",
+                    help="the drop: plan set PDFs, an ASCII DXF background, RFI "
+                         "responses (folders are walked one level)")
+    ap.add_argument("-o", "--out", help="output folder (deliverables + run_log land in it)")
+    ap.add_argument("--options", metavar="JSON",
+                    help="options file: the switches as JSON; may also carry "
+                         '"files" and "out"')
+    ap.add_argument("--sample", metavar="DIR",
+                    help="write the synthetic sample plan set into DIR and run on it")
+    ap.add_argument("--quiet", action="store_true", help="print the result line only")
+
+
+def cmd_batterboard(args) -> int:
+    """Exit code 0 on PASS / PASS WITH FLAGS, 1 when the run is BLOCKED,
+    2 on a usage error."""
+    import json
+    from .batterboard import model as bb_model
+    from .batterboard import run as bb_run
+    data = {}
+    if args.options:
+        try:
+            with open(args.options, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as e:
+            print(f"cannot read the options file: {e}")
+            return 2
+        if not isinstance(data, dict):
+            print("the options file must hold one JSON object")
+            return 2
+    files = list(args.files) or list(data.pop("files", []) or [])
+    out = args.out or data.pop("out", None)
+    data.pop("files", None)
+    data.pop("out", None)
+    if args.sample:
+        from .batterboard import sampleset
+        files = sampleset.build_sample_set(args.sample)["files"]
+        out = out or os.path.join(args.sample, "batterboard_out")
+        print(f"sample plan set written to {args.sample}")
+    if not files or not out:
+        print("batterboard needs the dropped files and an output folder "
+              "(-o), or --sample DIR")
+        return 2
+    opts = bb_model.Options.from_dict(data)
+    log = (lambda *_a: None) if args.quiet else print
+    res = bb_run.run(files, out, opts, log=log)
+    print(f"RESULT: {res.status}")
+    if res.deliverables:
+        print(f"deliverables: {res.deliverables}")
+    print(f"run report: {os.path.join(res.log_dir, 'run_report.txt')}")
+    return 1 if res.blocked else 0
 
 
 def cmd_stamp(args) -> int:
@@ -311,7 +369,8 @@ def main(argv=None) -> int:
     return {"stamp": cmd_stamp, "merge": cmd_merge, "split": cmd_split,
             "compare": cmd_compare, "doctor": cmd_doctor, "ocr": cmd_ocr,
             "hyperlink": cmd_hyperlink, "log": cmd_log, "batch": cmd_batch,
-            "submittal": cmd_submittal}[args.cmd](args)
+            "submittal": cmd_submittal,
+            "batterboard": cmd_batterboard}[args.cmd](args)
 
 
 if __name__ == "__main__":
