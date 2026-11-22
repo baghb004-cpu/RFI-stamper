@@ -201,11 +201,15 @@ def cmd_batterboard(args) -> int:
         return 2
     opts = bb_model.Options.from_dict(data)
     log = (lambda *_a: None) if args.quiet else print
-    res = bb_run.run(files, out, opts, log=log)
+    try:
+        res = bb_run.run(files, out, opts, log=log)
+    except OSError as e:
+        print(f"the output folder could not be written: {e}")
+        return 2
     print(f"RESULT: {res.status}")
     if res.deliverables:
         print(f"deliverables: {res.deliverables}")
-    print(f"run report: {os.path.join(res.log_dir, 'run_report.txt')}")
+    print("run report: " + (res.report_txt or res.report_pdf or "could not be written"))
     return 1 if res.blocked else 0
 
 

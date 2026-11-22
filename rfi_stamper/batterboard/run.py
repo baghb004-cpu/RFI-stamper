@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -51,6 +52,11 @@ class RunResult:
     surveyor: list = field(default_factory=list)
     note_statements: list = field(default_factory=list)
     report_lines: list = field(default_factory=list)
+    #: where THIS run's report went ("" when it could not be written).
+    #: Usually run_log/run_report.txt and .pdf; a numbered name when that
+    #: file was held open by another program.
+    report_txt: str = ""
+    report_pdf: str = ""
 
     @property
     def blocked(self) -> bool:
@@ -74,6 +80,34 @@ def _sidecars(out_root: str, opts: M.Options) -> tuple:
             os.path.join(out_root, "batterboard.names.json"))
 
 
+_REPORT_NAME = re.compile(r"run_report(_\d+)?\.(txt|pdf)(\.part)?$")
+
+
+def _write_report(write, lines, folder: str, ext: str, log) -> str:
+    """Write the run report; return the path it went to ("" when it could
+    not be written at all).  The usual name is ``run_report<ext>``.  When
+    that file is held open by another program the report goes beside it
+    under a numbered name, so an earlier run's report is never passed off
+    as this run's."""
+    err = None
+    for n in range(1, 10):
+        path = os.path.join(folder, "run_report" + ("" if n == 1 else f"_{n}") + ext)
+        try:
+            write(lines, path)
+            return path
+        except OSError as e:           # in use by another program, or not writable
+            err = e
+            try:
+                os.remove(path + ".part")
+            except OSError:
+                pass
+        except Exception as e:   # noqa: BLE001 -- a report that could not be drawn
+            log(f"  the {ext[1:]} report could not be written: {e}")
+            return ""
+    log(f"  the {ext[1:]} report could not be written: {err}")
+    return ""
+
+
 def run(paths, out_root: str, opts: M.Options | None = None, log=print,
         progress=lambda name, status: None) -> RunResult:
     """Run the whole package over a drop."""
@@ -94,13 +128,21 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
         res.status = status
         for n in M.STAGES:
             if n not in seen:
-                stages[n].say("not reached")
+                stages[n].status = M.NOT_REACHED
+                progress(n, M.NOT_REACHED)
         res.report_lines = report.build_lines(res)
-        report.write_text(res.report_lines, os.path.join(res.log_dir, "run_report.txt"))
-        try:
-            report.write_pdf(res.report_lines, os.path.join(res.log_dir, "run_report.pdf"))
-        except Exception as e:   # noqa: BLE001 -- the text report always lands
-            log(f"  the PDF report could not be written: {e}")
+        # earlier runs' reports go first; one that is open in another
+        # program stays, and this run's report then takes a numbered name
+        for name in os.listdir(res.log_dir):
+            if _REPORT_NAME.match(name):
+                try:
+                    os.remove(os.path.join(res.log_dir, name))
+                except OSError:
+                    pass
+        res.report_txt = _write_report(report.write_text, res.report_lines, res.log_dir,
+                                       ".txt", log)
+        res.report_pdf = _write_report(report.write_pdf, res.report_lines, res.log_dir,
+                                       ".pdf", log)
         shutil.rmtree(staging, ignore_errors=True)
         log(f"RESULT: {status}")
         return res
@@ -127,6 +169,15 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
                  + ", ".join(unknown_opts))
         done("Intake")
         return finish(RESULT_BLOCKED)
+    hats = list(opts.hats or [])
+    bad_hats = [h for h in hats if h not in M.HATS]
+    if not hats or bad_hats:
+        st.block("pick a hat: the Concrete hat, the Surveyor hat or both"
+                 + (" (not a hat: " + ", ".join(str(h) for h in bad_hats) + ")"
+                    if bad_hats else ""))
+        done("Intake")
+        return finish(RESULT_BLOCKED)
+    concrete_hat = "concrete" in hats
     refs = intake.classify_drop(paths, opts)
     kinds = {}
     for r in refs:
@@ -241,25 +292,42 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
     os.makedirs(os.path.join(staging, "plates"), exist_ok=True)
     proof_only = bool(opts.proof_only)
     plate_name = "Batterboard_one_sheet_proof.pdf" if proof_only else "Batterboard_plates.pdf"
-    plate_pdf = os.path.join(staging, "plates", plate_name)
+    # With the plates output switched off the set is still built, in the
+    # check folder: the picture check is the gate for the points too, so
+    # it runs either way.  Only the delivery is skipped.
+    deliver_plates = bool(opts.out_plates) or proof_only
+    plate_dir = os.path.join(staging, "plates") if deliver_plates \
+        else os.path.join(staging, "_check", "plates")
+    os.makedirs(plate_dir, exist_ok=True)
+    plate_pdf = os.path.join(plate_dir, plate_name)
     man = res.plate_manifest = plates.build(plate_pdf, rr, reg, trail, ctx, allp, opts,
                                             proof_only=proof_only, extra=extra)
     man["file"] = plate_pdf
+    man["delivered"] = deliver_plates
     res.manifests = [man]
     staged.append(plate_pdf)
     n_list = sum(p["notes"]["list_only"] + p["tags"]["list_only"] for p in man["pages"])
     st.say(f"{len(man['pages'])} plate(s); {n_list} row(s) in the list only (no free spot "
            "within reach)")
+    if not deliver_plates:
+        st.say("the plates output is switched off: the plates were built for the "
+               "self-check and are not delivered")
+    if not opts.out_legend and not proof_only:
+        st.say("the legend output is switched off: the LEGEND plate was not built")
+    if not concrete_hat and not proof_only:
+        st.say("the Concrete hat is off: " + M.CONCRETE_HAT_ONLY)
     extra_texts = []
     if not proof_only:
-        if opts.out_booklet:
+        # the phone booklet and the RFI drafts are open-item outputs of the
+        # Concrete hat
+        if opts.out_booklet and concrete_hat:
             bpath = os.path.join(staging, "plates", "Batterboard_phone_booklet.pdf")
             bman = plates.build_booklet(bpath, rr, reg, opts)
             if bman is not None:
                 bman["file"] = bpath
                 res.manifests.append(bman)
                 staged.append(bpath)
-        if opts.out_rfi_drafts:
+        if opts.out_rfi_drafts and concrete_hat:
             ddir = os.path.join(staging, "open_items", "rfi_drafts")
             for t in reg.items():
                 if not t.key.startswith("XC-ARCH-ENDS"):
@@ -319,8 +387,7 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
     quotes = [q.text for p in trail.proofs() for q in p.quotes]
     res.checks = selfcheck.run_all(
         rr, reg, trail, allp, res.manifests, lint_files, opts,
-        plate_pdf=None if proof_only else plate_pdf,
-        plate_manifest=None if proof_only else man, extra_texts=extra_texts, quotes=quotes)
+        plate_pdf=plate_pdf, plate_manifest=man, extra_texts=extra_texts, quotes=quotes)
     # the report itself is an output: lint it before anything is delivered
     res.status = RESULT_FLAGS
     draft = report.to_text(report.build_lines(res))
@@ -330,14 +397,19 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
                        "detail": "", "counts": {}})
     failed = [c for c in res.checks if not c["ok"]]
     for c in res.checks:
-        st.say(f"{'held' if c['ok'] else 'FAILED'}: {c['check']}")
+        if c.get("skipped"):
+            st.say(f"not run: {c['check']} ({c['skipped']})")
+        else:
+            st.say(f"{'held' if c['ok'] else 'FAILED'}: {c['check']}")
     if failed:
         for c in failed:
             for p in c["problems"][:6]:
                 st.block(f"{c['check']}: {p}")
         done("Self-check")
+        stages["Deliver"].status = M.NOT_REACHED
         stages["Deliver"].say("nothing was written to the deliverables folder")
         seen.add("Deliver")
+        progress("Deliver", M.NOT_REACHED)
         return finish(RESULT_BLOCKED)
     done("Self-check")
 
@@ -345,26 +417,52 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
     st = stages["Deliver"]
     seen.add("Deliver")
     deliver = os.path.join(out_root, "deliverables")
-    if os.path.isdir(deliver):
-        prev = os.path.join(res.log_dir, "previous_deliverables")
-        shutil.rmtree(prev, ignore_errors=True)
-        shutil.move(deliver, prev)
-    os.makedirs(deliver, exist_ok=True)
+    prev = os.path.join(res.log_dir, "previous_deliverables")
+    had_earlier = os.path.isdir(deliver)
+    moved_aside = False
     delivered = []
-    for f in staged:
-        rel = os.path.relpath(f, staging)
-        if rel.startswith("_check"):
-            continue
-        dst = os.path.join(deliver, rel)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.move(f, dst)
-        delivered.append(dst)
+    try:
+        if had_earlier:
+            # ONE rename: the earlier deliverables move aside whole, or not at
+            # all.  (A copy-then-delete fallback empties half the folder and
+            # then stops when one file in it is open in another program.)
+            shutil.rmtree(prev, ignore_errors=True)
+            os.rename(deliver, prev)
+            moved_aside = True
+        os.makedirs(deliver, exist_ok=True)
+        for f in staged:
+            rel = os.path.relpath(f, staging)
+            if rel.startswith("_check"):
+                continue
+            dst = os.path.join(deliver, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.move(f, dst)
+            delivered.append(dst)
+    except OSError as e:
+        # a run that could not deliver leaves the folder as it found it
+        if moved_aside or not had_earlier:
+            shutil.rmtree(deliver, ignore_errors=True)
+        if moved_aside:
+            try:
+                os.rename(prev, deliver)
+            except OSError:
+                pass
+        kept = ("the earlier deliverables are as they were" if os.path.isdir(deliver)
+                else "the earlier deliverables are in run_log/previous_deliverables"
+                if had_earlier else "the deliverables folder was not made")
+        st.block("the deliverables folder could not be written: a file in it is in use by "
+                 f"another program, or the folder cannot be changed ({e}). Nothing was "
+                 f"delivered; {kept}")
+        done("Deliver")
+        return finish(RESULT_BLOCKED)
     for lp in allp.values():
         lp.files = [os.path.join(deliver, os.path.relpath(f, staging)) for f in lp.files
                     if not os.path.relpath(f, staging).startswith("_check")]
     for m in res.manifests:
         if m.get("file"):
-            m["file"] = os.path.join(deliver, os.path.relpath(m["file"], staging))
+            rel = os.path.relpath(m["file"], staging)
+            # a set built for the self-check only was not delivered: it has no file
+            m["file"] = "" if rel.startswith("_check") else os.path.join(deliver, rel)
     res.files = delivered
     res.deliverables = deliver
     reg.save()
@@ -374,15 +472,15 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
     flags = any(s.status == M.FLAG for s in res.stages)
     status = RESULT_FLAGS if flags else RESULT_PASS
     res.status = status
-    st.say(f"{len(delivered)} file(s) in {deliver}")
+    st.say(f"{len(delivered)} file(s) in {deliver}"
+           + ("; the run report is added beside them" if opts.out_report else ""))
     done("Deliver")
     out = finish(status)
     if opts.out_report:
         rdir = os.path.join(deliver, "report")
         os.makedirs(rdir, exist_ok=True)
-        for name in ("run_report.txt", "run_report.pdf"):
-            src = os.path.join(res.log_dir, name)
-            if os.path.exists(src):
+        for name, src in (("run_report.txt", out.report_txt), ("run_report.pdf", out.report_pdf)):
+            if src and os.path.exists(src):
                 shutil.copyfile(src, os.path.join(rdir, name))
                 res.files.append(os.path.join(rdir, name))
     return out

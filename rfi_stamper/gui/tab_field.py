@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from ..project import Inspection, PunchItem, ScheduleItem, Task
 from . import fx
 from .crud import CrudPanel, Field
+from .tab_batterboard import BatterboardTab
 from .theme import mix, section_color
 from .widgets import Tooltip, make_tree, open_path, run_bg, toast
 
@@ -404,8 +405,8 @@ class FieldSection(ttk.Frame):
             stops=[(0.0, section_color("field")),
                    (1.0, mix(section_color("field"), theme.colors["bg"], 0.75))],
             title="Field Management",
-            subtitle="Tasks · schedule · punch list · inspections — all local, "
-                     "all offline")
+            subtitle="Tasks · schedule · punch list · inspections · the "
+                     "Batterboard layout package — all local, all offline")
         self.header.pack(fill="x")
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=4, pady=4)
@@ -486,11 +487,29 @@ class FieldSection(ttk.Frame):
                                     get_project, author=author)
         nb.add(self.daybook, text="  Daybook  ")
 
+        # the one-click layout package (brief section 10).  Added after the
+        # existing tabs so none of them moves.
+        self.batterboard = BatterboardTab(nb, theme, status, root or self,
+                                          get_project)
+        nb.add(self.batterboard, text="  The Batterboard  ")
+
     def refresh(self):
         for p in (self.tasks, self.schedule, self.punch, self.inspections):
             p.refresh()
         self.gantt.refresh(animate=False)
         self.daybook.refresh()
+        self.batterboard.refresh()
+
+    def batterboard_showing(self) -> bool:
+        """True while the Batterboard tab is the one in view (a drop on the
+        window then belongs to it)."""
+        try:
+            return self.nb.select() == str(self.batterboard)
+        except Exception:   # noqa: BLE001 -- a torn-down notebook shows nothing
+            return False
+
+    def show_batterboard(self):
+        self.nb.select(self.batterboard)
 
     def commands(self):
         return [

@@ -190,6 +190,13 @@ def build_lines(run) -> list:
                 L.append(f"  Not laid out: {eid}: {why}.")
     if run.plate_manifest:
         _h(L, "PLATES")
+        if run.plate_manifest.get("delivered") is False:
+            L.append("  The plates output is switched off. The plates below were built for "
+                     "the self-check and were not delivered.")
+        if not run.opts.out_legend and not run.opts.proof_only:
+            L.append("  The legend output is switched off. The LEGEND plate was not built.")
+        if "concrete" not in (run.opts.hats or []) and not run.opts.proof_only:
+            L.append("  The Concrete hat is off: " + M.CONCRETE_HAT_ONLY + ".")
         for pg in run.plate_manifest["pages"]:
             n = pg["notes"]
             t = pg["tags"]
@@ -210,6 +217,9 @@ def build_lines(run) -> list:
 
     _h(L, "SELF-CHECK")
     for c in run.checks:
+        if c.get("skipped"):
+            L.append(f"  not run: {c['check']} ({c['skipped']})")
+            continue
         counts = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in c["counts"].items())
         L.append(f"  {'held' if c['ok'] else 'FAILED'}: {c['check']}" + (f" ({counts})" if counts else ""))
         for p in c["problems"]:

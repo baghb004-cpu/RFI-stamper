@@ -243,6 +243,7 @@ def t_gates(f, res0):
     assert res.status == bbrun.RESULT_BLOCKED and res.deliverables is None
     assert not os.path.exists(os.path.join(out, "deliverables")), "a blocked run writes nothing there"
     assert res.stage("Self-check").status == M.BLOCK
+    assert res.stage("Deliver").status == M.NOT_REACHED, "a blocked run never reads as delivered"
     why = " ".join(res.stage("Self-check").lines)
     assert "S-900" in why and "not in this run" in why, why
     rep = open(os.path.join(out, "run_log", "run_report.txt"), encoding="utf-8").read()
@@ -328,6 +329,11 @@ def t_gates(f, res0):
     res = bbrun.run([f["rfi"]], os.path.join(TMP, "out_none"), M.Options(project=PROJECT), **QUIET)
     assert res.blocked and res.stage("Intake").status == M.BLOCK
     assert "nothing to lay out" in " ".join(res.stage("Intake").lines)
+    # a stage the run never got to is neither a pass nor a failure
+    assert all(res.stage(n).status == M.NOT_REACHED for n in M.STAGES[1:]), \
+        [(s.name, s.status) for s in res.stages]
+    rep = open(os.path.join(TMP, "out_none", "run_log", "run_report.txt"), encoding="utf-8").read()
+    assert "Points: not reached" in rep and "Points: pass" not in rep
     print("PASS gates: a failed self-check or an empty drop is BLOCKED and writes nothing "
           "to the deliverables folder")
 
@@ -354,6 +360,56 @@ def t_switches(f):
     assert doc.page_count == 1 and "WALL PLAN" in doc[0].get_text()
     doc.close()
     assert "plates/Batterboard_plates.pdf" not in tree(res.deliverables)
+    assert any(c["check"].startswith("picture check") and c["ok"] for c in res.checks), \
+        "the proof plate is picture-checked like any other plate"
+    # plates off: the set is still built and picture-checked (the gate guards the
+    # points too) but is not delivered; legend off: the LEGEND plate is not built
+    # and its check says it did not run instead of reading as held
+    out = os.path.join(TMP, "out_noplates")
+    res = bbrun.run(f["files"], out, M.Options(out_plates=False, out_legend=False,
+                                               project=PROJECT), **QUIET)
+    assert not res.blocked
+    got = tree(res.deliverables)
+    assert not any(g.startswith("plates/") for g in got), got
+    assert any(g.startswith("points/") for g in got), got
+    assert any(c["check"].startswith("picture check") and c["ok"] for c in res.checks)
+    nums = [p["number"] for p in res.plate_manifest["pages"]]
+    assert "BB-002" not in nums and "BB-001" in nums, nums
+    lg = next(c for c in res.checks if c["check"] == "legend against the data")
+    assert lg.get("skipped") and lg["ok"]
+    txt = open(os.path.join(res.deliverables, "report", "run_report.txt"), encoding="utf-8").read()
+    assert "The plates output is switched off" in txt and "were not delivered" in txt
+    assert "not run: legend against the data" in txt
+    assert not os.path.isdir(os.path.join(out, "deliverables", "_check"))
+    # the Surveyor hat alone: its plates and forms, the wall plan (the picture
+    # check's plate) and the point list, without the Concrete hat's own plates
+    out = os.path.join(TMP, "out_surveyor")
+    res = bbrun.run(f["files"], out, M.Options(hats=["surveyor"], out_booklet=True,
+                                               project=PROJECT), **QUIET)
+    assert not res.blocked, [c for c in res.checks if not c["ok"]]
+    titles = " | ".join(p["title"] for p in res.plate_manifest["pages"])
+    for want in ("WALL PLAN", "CONTROL REQUEST", "SETUP PLAN", "POINT LIST", "LEGEND", "INDEX"):
+        assert want in titles, (want, titles)
+    for gone in ("OPEN ITEMS", "SLAB EDGES", "SHEAR WALL ENDS", "ARCHITECT DIMENSIONS", "MASONRY"):
+        assert gone not in titles, (gone, titles)
+    got = tree(res.deliverables)
+    assert "forms/requested_control.csv" in got and "open_items/open_items.csv" in got, got
+    assert not any(g.startswith("open_items/rfi_drafts/") or "phone_booklet" in g for g in got), got
+    assert any(c["check"].startswith("picture check") and c["ok"] for c in res.checks)
+    txt = open(os.path.join(res.deliverables, "report", "run_report.txt"), encoding="utf-8").read()
+    assert "The Concrete hat is off" in txt and "Hats: surveyor" in txt
+    # every slab point is on the point list plate when its own plate is not built
+    listed = {t["s"] for p in res.plate_manifest["pages"] if "POINT LIST" in p["title"]
+              for t in p["texts"]}
+    slab_pts = [r.name for r in res.points["L2"].rows if r.family == "slab_edge_corner"]
+    assert slab_pts and all(n in listed for n in slab_pts), "slab points fell off the plates"
+    # a run with no hat, or with a hat this build does not know, is blocked at Intake
+    for hats in ([], ["concrete", "plumber"]):
+        res = bbrun.run(f["files"], os.path.join(TMP, "out_nohat"),
+                        M.Options(hats=hats, project=PROJECT), **QUIET)
+        assert res.blocked and res.stage("Intake").status == M.BLOCK
+        assert "pick a hat" in " ".join(res.stage("Intake").lines)
+        assert not os.path.isdir(os.path.join(TMP, "out_nohat", "deliverables"))
     # levels switch; a survey form only when a note calls for one
     out = os.path.join(TMP, "out_l2")
     res = bbrun.run(f["files"], out, M.Options(levels=["L2"], project=PROJECT), **QUIET)
@@ -370,8 +426,98 @@ def t_switches(f):
     assert any("working range was not set" in t["s"].lower()
                for p in res.plate_manifest["pages"] for t in p["texts"]), \
         "an unset working range is said, never assumed"
-    print("PASS switches: hats, kits, drafts, issue, levels, the one-sheet proof; a survey "
-          "form only when a general note calls for one")
+    print("PASS switches: each hat alone and both, kits, plates, legend, drafts, issue, "
+          "levels, the one-sheet proof; a survey form only when a general note calls for one")
+
+
+def t_locked(f):
+    """Files held open by another program (the everyday case on a desktop:
+    the plates are open in a viewer when Run is pressed again).  The run
+    must never half-replace the deliverables, and never pass an earlier
+    report off as this run's."""
+    out = os.path.join(TMP, "out_locked")
+    opts = M.Options(out_kits=False, out_rfi_drafts=False, project=PROJECT)
+    # 1. the report name is in use: this run's report takes a numbered name
+    real_text, real_pdf = bbrun.report.write_text, bbrun.report.write_pdf
+
+    def held(real):
+        def write(lines, path):
+            if os.path.basename(path) in ("run_report.txt", "run_report.pdf"):
+                raise PermissionError(13, "in use by another program", path)
+            return real(lines, path)
+        return write
+
+    bbrun.report.write_text, bbrun.report.write_pdf = held(real_text), held(real_pdf)
+    try:
+        res = bbrun.run(f["files"], out, opts, **QUIET)
+    finally:
+        bbrun.report.write_text, bbrun.report.write_pdf = real_text, real_pdf
+    assert not res.blocked
+    assert os.path.basename(res.report_txt) == "run_report_2.txt" and os.path.exists(res.report_txt)
+    assert os.path.basename(res.report_pdf) == "run_report_2.pdf" and os.path.exists(res.report_pdf)
+    assert not os.path.exists(os.path.join(out, "run_log", "run_report.txt"))
+    got = tree(res.deliverables)
+    assert "report/run_report.txt" in got and "report/run_report.pdf" in got, got
+    with open(os.path.join(res.deliverables, "report", "run_report.txt"), encoding="utf-8") as fh:
+        assert fh.read() == open(res.report_txt, encoding="utf-8").read()
+    before = {g: os.path.getsize(os.path.join(res.deliverables, g)) for g in got}
+
+    # 2. a file in the deliverables folder is in use: the folder cannot move
+    #    aside.  Blocked, in plain words, and the folder is exactly as it was.
+    real_rename = os.rename
+
+    def no_rename(src, dst, *a, **k):
+        if os.path.basename(str(src)) == "deliverables":
+            raise PermissionError(13, "in use by another program", str(src))
+        return real_rename(src, dst, *a, **k)
+
+    os.rename = no_rename
+    try:
+        res2 = bbrun.run(f["files"], out, opts, **QUIET)
+    finally:
+        os.rename = real_rename
+    assert res2.blocked and res2.deliverables is None and res2.files == []
+    assert res2.stage("Self-check").status == M.PASS, "everything was checked first"
+    dl = res2.stage("Deliver")
+    assert dl.status == M.BLOCK and "in use by another program" in " ".join(dl.lines)
+    assert "the earlier deliverables are as they were" in " ".join(dl.lines)
+    after = {g: os.path.getsize(os.path.join(out, "deliverables", g))
+             for g in tree(os.path.join(out, "deliverables"))}
+    assert after == before, "a run that could not deliver leaves the folder as it found it"
+    assert not os.path.isdir(os.path.join(out, "run_log", "previous_deliverables"))
+    assert not [d for d in os.listdir(os.path.join(out, "run_log")) if d.startswith("staging_")]
+    # this run's report is the current one, under the usual name again
+    assert os.path.basename(res2.report_txt) == "run_report.txt"
+    assert "Result: BLOCKED" in open(res2.report_txt, encoding="utf-8").read()
+    assert not os.path.exists(os.path.join(out, "run_log", "run_report_2.txt")), \
+        "an earlier run's report does not linger beside the current one"
+
+    # 3. the new files cannot be put in place after the old folder moved
+    #    aside: the old folder comes back
+    real_move = bbrun.shutil.move
+
+    def no_move(src, dst, *a, **k):
+        if os.sep + "deliverables" + os.sep in str(dst):
+            raise PermissionError(13, "the folder cannot be changed", str(dst))
+        return real_move(src, dst, *a, **k)
+
+    bbrun.shutil.move = no_move
+    try:
+        res3 = bbrun.run(f["files"], out, opts, **QUIET)
+    finally:
+        bbrun.shutil.move = real_move
+    assert res3.blocked and res3.stage("Deliver").status == M.BLOCK
+    after = {g: os.path.getsize(os.path.join(out, "deliverables", g))
+             for g in tree(os.path.join(out, "deliverables"))}
+    assert after == before, "the earlier deliverables are put back whole"
+    assert not os.path.isdir(os.path.join(out, "run_log", "previous_deliverables"))
+    # and the next ordinary run delivers again
+    res4 = bbrun.run(f["files"], out, opts, **QUIET)
+    assert not res4.blocked and tree(res4.deliverables) == got
+    assert os.path.isdir(os.path.join(out, "run_log", "previous_deliverables"))
+    print("PASS files in use: a held report gets a numbered name and is never shown as "
+          "this run's; a deliverables folder that cannot move blocks the run and is left "
+          "exactly as it was")
 
 
 def t_cli(f):
@@ -401,6 +547,7 @@ def main():
     t_picture(f)
     t_gates(f, res)
     t_switches(f)
+    t_locked(f)
     t_cli(f)
     print("BATTERBOARD RUN TEST PASSED")
     print("outputs in", TMP)

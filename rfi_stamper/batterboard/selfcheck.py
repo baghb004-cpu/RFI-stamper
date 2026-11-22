@@ -195,7 +195,11 @@ def check_points(rr, points) -> dict:
         names.extend(r.name for r in lp.rows)
         problems.extend(f"{code}: {p}" for p in points_mod.round_trip(lp, lp.files))
         frame_file = next((f for f in lp.files if f.endswith("_FRAME.txt")), None)
-        if frame_file is None or lv.frame.label not in open(frame_file, encoding="utf-8").read():
+        frame_text = ""
+        if frame_file is not None:
+            with open(frame_file, encoding="utf-8") as fh:   # closed before the file moves
+                frame_text = fh.read()
+        if frame_file is None or lv.frame.label not in frame_text:
             problems.append(f"{code}: the frame is not declared beside the point files")
     if len(set(names)) != len(names):
         problems.append("a point name is used twice in the run")
@@ -305,7 +309,11 @@ def check_legend(manifest, points, reg, rr) -> dict:
     problems = []
     pg = next((p for p in manifest.get("pages", []) if p["number"] == "BB-002"), None)
     if pg is None:
-        return _result("legend against the data", [], rows=0)
+        # the legend is switched off, or this is the one-sheet proof: say
+        # that the check did not run instead of reporting it as held
+        out = _result("legend against the data", [])
+        out["skipped"] = "the LEGEND plate was not built in this run"
+        return out
     rows_all = [r for lp in points.values() for r in lp.rows]
     exported = set()
     for lp in points.values():

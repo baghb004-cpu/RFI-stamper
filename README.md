@@ -40,7 +40,7 @@ the **resolution lifecycle**:
 | Section | What lives there |
 |---|---|
 | **⌂ Home** | Animated blueprint hero, project bar, section cards, recents, smart drop zone |
-| **⛑ Field Management** | Task management, scheduling (animated Gantt with **critical-path analysis** — real CPM: forward/backward pass, total & free float, the critical chain painted red with float tails, dependency loops named instead of hung), punch list, inspections |
+| **⛑ Field Management** | Task management, scheduling (animated Gantt with **critical-path analysis** — real CPM: forward/backward pass, total & free float, the critical chain painted red with float tails, dependency loops named instead of hung), punch list, inspections, the Daybook, and **the Batterboard** — drop a plan set, pick a hat, press one button: layout plates, point files, an open items list and a plain report of what was checked |
 | **▤ Project Management** | RFIs (stamping), Resolution Board, submittals, change orders, budget, document management (register + combine + PDF tools), specifications (CSI-parsed spec book) |
 | **⬒ Plans & BIM** | Plan viewing & markup (measure, multiply, tool chest…), **The Loft** (draft a real plan from a blank sheet — walls, doors, fixtures, grids, dims), as-built drawings (auto-align compare + red-line flow + **the Slipsheet** — a vector revision diff that clusters what actually changed into numbered regions and writes a redline PDF: removed linework dashed red, added solid blue, changed text caught too), 3D BIM viewer with your 2D sheets placed at floor elevations — click a sheet in the model to open it |
 | **◫ Reporting** | Project snapshot, RFI log, pickup sheet, submittal log; printable field forms (daily report, safety inspection, QC punch walk, RFI follow-up) — blank or filled |
@@ -170,6 +170,81 @@ whole system in 3D. Better still,
 **⌂ From plan** extrudes the plan's own vector linework into the 3D model —
 walls rise from your actual floor plan, in the same coordinate frame as the
 layout points, so every pin lands inside the real building.
+
+## The Batterboard — the one-click layout package
+
+Batter boards are the first thing set on a site: the frame every layout
+line is strung from. **The Batterboard** (Field Management) is that frame
+for the paperwork. Drag a plan set in — structural and architectural
+plans, the wall schedule and general notes (PDF), CAD backgrounds (ASCII
+DXF), shop drawings, RFI responses — pick a **hat**, flip a few switches,
+press **Run**, and get field-ready plates, point files, an open items
+list and a run report in plain words. Fully offline. Not sure it will
+read your set? Press **Try the sample set**: it writes a small made-up
+building to your Documents folder and loads it, so a first run needs no
+files of your own.
+
+* **Two hats, both can be on.** The **Concrete hat** lays out walls,
+  columns, slab edges, slab openings and shear wall ends. The **Surveyor
+  hat** adds control request sheets, setup plans and check forms. A hat
+  that is off greys out the switches that belong to it.
+* **The Sightline** — a visibility gate under every reader. A PDF page
+  holds shapes that are not on the plotted sheet: fills cut by a clip
+  path, lines buried under a later fill, superseded geometry left in the
+  file. The Sightline compares every vector shape with the rendered sheet
+  and passes on only what a person looking at the paper would see; what it
+  drops is listed in the report, never silently lost. The scale reader,
+  the extruder, the Slipsheet, the Reed Count and the Backcheck now read
+  through it too.
+* **Cross-checks, with counts.** Wall and column corners against the CAD
+  background; the wall schedule against its own details; the architect's
+  dimension strings against the structure; each level against the level
+  below; shop-drawing overlays against the structure; the current issue
+  against the earlier one. The report says what lines up as well as what
+  does not, and what was not compared and why.
+* **Red Tags** — the open items register. Every disagreement gets a
+  stable number that never moves between runs, a category (answer needed
+  before layout, confirm before forming, answered), what is wrong, what
+  is needed, and a ready RFI draft. A **hold policy** decides what the
+  points of an open item do: held, laid out marked CHECK, or laid out.
+  An item is closed only by a real RFI in the drop and its exact quote.
+* **The Paper Trail** — nothing prints without evidence. Every sentence
+  on a plate or in the report is generated from a proof record that holds
+  the counts and the sources behind it; a statement that claims more than
+  its record is refused before it reaches paper, and the outputs are
+  linted for wording and metadata.
+* **Points you can stake.** Corners at the face of concrete, round column
+  centers, shear wall zone ends, slab edge corners, radius points and
+  opening corners go into a Fieldstitch job with stable, unique names, on
+  layers for grid, before the pour, after the pour, needs a dimension and
+  hold. Exported through the existing kits plus one DXF background per
+  level; every file states its frame (the CAD background's own origin, a
+  grid-based local frame, or your control).
+* **A gate before anything is delivered.** The self-check compares every
+  plan plate with a render of its source sheet (concrete drawn against
+  fill on the sheet, slab edges against strokes), round-trips the point
+  files, resolves every reference, recomputes key numbers by a second
+  path and checks the legend against the data. The result is **PASS**,
+  **PASS WITH FLAGS** (open items exist) or **BLOCKED** — and a blocked
+  run writes nothing to the deliverables folder.
+
+Switches are saved per project, beside the project file. The command line
+twin reads the same switches from a JSON file and exits nonzero when the
+run is blocked:
+
+    planloom-cli batterboard plans.pdf background_L2.dxf rfi.pdf -o out
+    planloom-cli batterboard --options run.json
+    planloom-cli batterboard --sample sample_folder
+
+Honest limits: this package is new. It was built and tested on a
+synthetic sample building, and it has **not yet been run on a real plan
+set**; expect it to refuse or flag things on real drawings, and treat
+every plate as a draft until you have checked it — plates are stamped FOR
+REVIEW until you switch Issue on. It reads vector plan sheets; a scanned
+sheet is refused with the reason, not guessed at. CAD backgrounds must be
+ASCII DXF. Elevations, slab steps and depressions, curbs and pads, and
+embeds and hold-downs are not laid out; the tab shows those four switches
+disabled and labeled "not built yet", and the report says so.
 
 ## The Loft — draft a plan from a blank sheet
 
@@ -430,7 +505,7 @@ Developers: Python 3.10+ with Tk, then:
 
     pip install -r requirements.txt
     python -m rfi_stamper            # the Planloom GUI
-    python tests/run_all.py          # full test suite (66 scripts)
+    python tests/run_all.py          # full test suite (76 scripts)
 
 On Windows, double-click `build_windows.bat` once to produce
 `dist\Planloom.exe` and `dist\planloom-cli.exe` — self-contained, offline,
@@ -445,6 +520,7 @@ CLI (also answers to the legacy flag style):
     planloom-cli merge a.pdf b.pdf -o combined.pdf
     planloom-cli compare old.pdf new.pdf -o overlay.pdf
     planloom-cli doctor plans.pdf --action auto
+    planloom-cli batterboard --sample sample_folder    # the layout package
     planloom-cli ocr scanned.pdf | hyperlink plans.pdf | log | batch | submittal
 
 ## Honest limits

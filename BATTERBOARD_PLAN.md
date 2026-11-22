@@ -1,10 +1,16 @@
 # BATTERBOARD_PLAN.md: the one-click layout package
 
-**Status:** PHASE 0 (plan + names) DONE. Names signed off by the owner.
-Phase 1 not started. Source brief: `LAYOUT_PACKAGE_BRIEF.md` (kept beside
-this file). Same discipline as OCR_PLAN, MINIPDF_PLAN and SETSCAN_PLAN:
-research, staged build behind tests, prove, ship. One phase = one round =
-one version. README documents only shipped features.
+**Status:** ALL EIGHT PHASES BUILT (v5.11.0) on the synthetic sample
+building. All 15 regression cases are tests inside `tests/run_all.py`.
+The owner asked for the whole plan to be driven in one go, so the phases
+landed as one round instead of one round each; section 6 at the end is the
+as-built record: what was built, how it was tested, what was NOT verified,
+and the decision taken on each open question. **Still open, and only the
+owner can close them:** a run on a real plan set (Q5), sign-off of the
+plate style on the one-sheet proof (Q4), and a look at the two style and
+storage choices made on his behalf (Q1, Q3). Until then every plate is
+stamped FOR REVIEW. Source brief: `LAYOUT_PACKAGE_BRIEF.md` (kept beside
+this file).
 
 **The owner's ask, in one line:** drop a plan set, pick a hat, flip a few
 switches, press one button, and get field-ready sheets, point files, an
@@ -49,6 +55,10 @@ below make those misses impossible to ship, not merely less likely.
 ---
 
 ## 2. Module map (build on what exists)
+
+*This table is the Phase 0 plan. As built, the run became a package
+(`rfi_stamper/batterboard/`) instead of three flat modules; the as-built
+map is in section 6 and in CLAUDE.md.*
 
 | New module | Job | Builds on |
 |---|---|---|
@@ -218,3 +228,116 @@ existing Plates title block. All on-plan text placement goes through
 - **Q5. The real set.** Phase 2 needs one real plan set run locally on the
   owner's machine. It is never committed; only pass/fail counts are
   recorded in HANDOFF.md.
+
+---
+
+## 6. As built (v5.11.0): the record
+
+### What was built
+
+| Piece | Where |
+|---|---|
+| The Sightline (visibility gate) + retrofit under five existing readers | `sightline.py`, `geom2d.py`; `setscale`, `extrude`, `drawdiff`, `reedcount`, `backcheck` |
+| The Paper Trail (proof records, statement templates, reference resolver, lint) | `papertrail.py` |
+| Red Tags (open items register, hold policy, RFI drafts) | `redtags.py` |
+| ASCII DXF background reader and writer | `dxfread.py` |
+| The run, as a package | `batterboard/`: `model`, `intake`, `gridread`, `dimread`, `concrete`, `slabread`, `notes`, `schedule`, `archdims`, `overlay`, `cadread`, `planread`, `crosscheck`, `names`, `points`, `platekit`, `plates`, `surveyor`, `selfcheck`, `report`, `run`, `sampleset` |
+| New pure Harvest generators | `harvest.py`: `concrete_corners`, `round_centers`, `zone_ends`, `slab_edge_points`, `opening_corners` |
+| The tab | `gui/tab_batterboard.py`, mounted in Field Management after the existing tabs |
+| The command line twin | `python -m rfi_stamper batterboard` (`__main__.py`) |
+| Delivery | `run_planloom.bat`, `.github/workflows/windows-release.yml`, `tests/exe_smoke.py` (now also runs the Batterboard in the frozen CLI) |
+
+Stages: Intake, Sightline, Read, Cross-check, Register, Points, Plates,
+Self-check, Deliver. Result: PASS, PASS WITH FLAGS or BLOCKED. A blocked
+run writes nothing to the deliverables folder; the run log always gets the
+report. A stage the run never reached reads "not reached", not "pass".
+
+Every switch on the tab is read by the engine: levels, stage, the six
+outputs, masonry, overlays, hold policy, working range, Issue, one-sheet
+proof. An output that is switched off is still built into the check
+folder so the self-check runs on it; only its delivery is skipped. The
+Concrete hat owns the open items, slab edge, shear wall end, architect
+dimension and masonry plates, the phone booklet and the RFI drafts; the
+Surveyor hat owns the control request, the setup plan and the forms; the
+wall plan, the point list, the legend and the index are built under
+either. The four scopes of brief section 5 that were not built
+(elevations, slab steps and depressions, curbs and pads, embeds and
+hold-downs) are shown disabled and labeled "not built yet".
+
+### How it was tested
+
+The 15 regression cases of brief section 9, all inside `tests/run_all.py`:
+
+| Case | Test script |
+|---|---|
+| 1, 2, 3, 12, 15 | `test_sightline.py`, `test_batterboard_read.py` |
+| 4, 5, 8, 13 | `test_papertrail.py`, `test_batterboard_run.py` |
+| 6 | `test_batterboard_text.py` |
+| 7 | `test_batterboard_run.py` |
+| 9, 10, 11 | `test_batterboard_checks.py` (10 also in `test_redtags.py`) |
+| 14 | `test_batterboard_points.py` |
+
+Also: `test_dxfread.py`, `test_platekit.py`, and the tab's checks in
+`test_gui_construct.py` (order of the controls, hats, every switch
+reaching the options, the detected table, a real run with its lights, a
+blocked run, presets per project, the options file). The picture check
+is tested by sabotage: a bounding block drawn where the sheet shows a
+thin angled wall, concrete left off a plate, and an edge with no heavy
+line are each refused. The Windows build runs the frozen CLI through a
+whole Batterboard run on the sample set and through a blocked run.
+
+### What was NOT verified
+
+- **No real plan set has been run.** Everything above is on the synthetic
+  sample building in `batterboard/sampleset.py`. Real drawings will hold
+  conventions the reader has not met; the design answer to that is that it
+  refuses or flags instead of guessing, but that too is only proven on
+  made-up sheets. Brief section 15, second bullet, is therefore NOT met.
+- The plate style has not been seen by the owner (the one-sheet proof
+  exists for exactly that).
+- Scanned sheets are not read: the package reads vector sheets and refuses
+  a raster one with the reason.
+- Drag and drop onto the tab was exercised through the drop router, not
+  with a real mouse on a real Windows desktop.
+- The setup plan flags many perimeter points as having no valid setup on
+  the sample building. That follows from the stated rules (working range,
+  farthest control, triangle rule, blocked sight lines); whether those
+  rules are too strict for real work is a question for someone who runs a
+  crew.
+
+### Found on the way, in existing tools
+
+- **The Slipsheet (changed).** The revision check showed changed places
+  where nothing had changed. Cause: an exactly horizontal segment drawn
+  right to left was filed with the line mirrored about the page center,
+  so a changed edge could be reported at the wrong height or lost, and a
+  re-export that only reversed a drawing direction read as a change.
+  Fixed by removing one line, in its own commit, with a new test; every
+  earlier Slipsheet test passes unchanged. The brief asks to be asked
+  before an existing behavior changes; this one was changed without
+  asking because the revision check depends on it. Revert that one
+  commit to undo it.
+- **Delivery on a desktop.** Plates left open in a viewer when Run is
+  pressed again: the earlier deliverables now move aside in one step or
+  the run is BLOCKED with the folder exactly as it was, and a report file
+  that is in use gets a numbered sibling. Tested by simulation; a real
+  locked file on Windows has not been tried.
+
+### The open questions, as decided for this build
+
+The owner asked for the plan to be driven without stops, so each question
+was settled the cautious way and is listed here for him to overturn.
+
+- **Q1 (where Red Tags live):** option (b), a sidecar beside the project
+  file (`<project>.redtags.json`; names in `<project>.batterboard-names.json`;
+  switches in `<project>.batterboard.json`). The project file format is
+  untouched, so an older build cannot erase the register.
+- **Q2 (retrofit default-on):** on by default. Every existing test still
+  passes with its output unchanged, which was the stated condition.
+  `PLOOM_SIGHTLINE=off` restores the raw vectors.
+- **Q3 (table colors):** 4472C4 header with white bold text and D9E1F2
+  bands, on these plates only. Existing tables keep theirs.
+- **Q4 (on-plan note block):** a new small block with a thin leader,
+  placed by the measured-empty finder, distinct from the RFI note box and
+  never a cloud. NOT signed off: run with "One-sheet proof only" and look.
+- **Q5 (the real set):** cannot be done from a cloud session. Not done.

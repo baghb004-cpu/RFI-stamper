@@ -368,6 +368,9 @@ class App:
             self.root.after(80, refresh)
 
     def _drop_hint(self):
+        if self._current == "field" and self.field.batterboard_showing():
+            return "The Batterboard — drop the plan set, CAD backgrounds " \
+                   "and RFIs"
         return getattr(self.sections[self._current], "drop_hint",
                        "Drop files")
 
@@ -377,6 +380,8 @@ class App:
             self.projsec.stamp.handle_drop(paths)
         elif self._current == "plans":
             self.plans.markup.on_drop(paths)
+        elif self._current == "field" and self.field.batterboard_showing():
+            self.field.batterboard.add_paths(paths)
         elif hasattr(sec, "handle_drop"):
             sec.handle_drop(paths)
         else:
@@ -544,6 +549,11 @@ class App:
             cmds = getattr(sec, "commands", None)
             if cmds:
                 p.register_many(cmds())
+
+        def show_batterboard():
+            self.goto("field")
+            self.field.show_batterboard()
+        p.register_many(self.field.batterboard.commands(show_batterboard))
 
     # ------------------------------------------------------------- actions
     def set_effects(self, q):

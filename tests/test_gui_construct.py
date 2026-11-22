@@ -128,6 +128,351 @@ def check_dnd(root):
     print("  dnd: router routing/hover/filter/fallback/lifecycle + honest no-backend, ok")
 
 
+
+def check_batterboard(app, root, tmp):
+    """The Batterboard tab (brief section 10): the order of its controls,
+    the hats, the switches, the detected table, a real run with its
+    lights, a blocked run, the per-project presets and the options file."""
+    import json
+    import time
+
+    from rfi_stamper.batterboard import model as M
+    from rfi_stamper.gui import prefs as _prefs
+    from rfi_stamper.gui import tab_batterboard as tb
+
+    def wait(cond, secs=240, what=""):
+        t0 = time.time()
+        while time.time() - t0 < secs:
+            root.update()
+            if cond():
+                return
+            time.sleep(0.03)
+        raise AssertionError("timed out waiting for " + what)
+
+    # a tab in Field Management, added after the existing ones (none moved)
+    fld = app.field
+    tab = fld.batterboard
+    names = [fld.nb.tab(t, "text").strip() for t in fld.nb.tabs()]
+    assert names == ["Task Management", "Scheduling", "Punch List", "Inspection",
+                     "Daybook", "The Batterboard"], names
+    p1 = os.path.join(tmp, "bb_one.ploom.json")
+    app._load_project(p1, create=True)
+    app.goto("field")
+    fld.show_batterboard()
+    root.update()
+    assert fld.batterboard_showing()
+    assert "Batterboard" in app._drop_hint(), app._drop_hint()
+
+    # top to bottom, in the brief's order
+    order = [tab.drop, tab.tree, tab.hat_btn["concrete"], tab.sw_widget["out_plates"],
+             tab.run_btn, tab.lights, tab.open_btn]
+    ys = [w.winfo_rooty() for w in order]
+    assert ys == sorted(ys) and len(set(ys)) == len(ys), ("controls out of order", ys)
+    assert tab.hat_btn["surveyor"].winfo_rooty() == tab.hat_btn["concrete"].winfo_rooty()
+    heads = [str(tab.tree.heading(c, "text")) for c in tab.tree["columns"]]
+    assert heads[:1] == ["FILE"] and {"WHAT IT IS", "LEVEL", "REVISION"} <= set(heads), heads
+
+    # nothing unbuilt looks finished; nothing shown is a dead switch
+    assert len(tab.unbuilt) == len(M.NOT_LAID_OUT) > 0
+    for cb in tab.unbuilt:
+        assert "not built yet" in str(cb.cget("text")), cb.cget("text")
+        assert "disabled" in cb.state(), "an unbuilt switch must be disabled"
+    fields = M.Options.__dataclass_fields__
+    for key in list(tab.var) + ["hats", "levels", "stage", "hold_policy",
+                                "working_range_ft"]:
+        assert key in fields, f"the tab shows a switch the engine does not have: {key}"
+    base = tab.options().to_dict()
+    for key, v in tab.var.items():
+        v.set(not v.get())
+        assert tab.options().to_dict()[key] != base[key], f"{key} does not reach the options"
+        v.set(not v.get())
+    tab.stage_var.set("pre")
+    assert tab.options().stage == "pre"
+    tab.stage_var.set("both")
+    tab.hold_var["confirm"].set(tb.HOLD_LABEL["hold"])
+    assert tab.options().hold_policy["confirm"] == "hold"
+    tab.hold_var["confirm"].set(tb.HOLD_LABEL["check"])
+    assert tab.options().hold_policy == M.DEFAULT_HOLD_POLICY
+
+    # hats: two buttons, both can be on, one must be; a hat that is off
+    # greys out its own switches and says why
+    assert tab.hat_on == {"concrete": True, "surveyor": False}
+    assert "disabled" in tab.range_entry.state(), "working range belongs to the Surveyor hat"
+    tab.toggle_hat("surveyor")
+    assert tab.options().hats == ["concrete", "surveyor"]
+    assert "disabled" not in tab.range_entry.state()
+    assert "ON" in str(tab.hat_btn["surveyor"].cget("text"))
+    tab.toggle_hat("concrete")
+    for key in ("out_booklet", "out_rfi_drafts", "masonry"):
+        assert "disabled" in tab.sw_widget[key].state(), key
+    assert "Concrete hat off" in str(tab.hat_note.cget("text"))
+    tab.toggle_hat("surveyor")
+    assert not any(tab.hat_on.values())
+    assert "disabled" in tab.run_btn.state() and "Pick a hat." in tab.problems()
+    tab.toggle_hat("concrete")
+    tab.toggle_hat("surveyor")
+    assert "disabled" not in tab.run_btn.state()
+    tab.range_var.set("abc")
+    assert any("working range" in p for p in tab.problems())
+    tab.range_var.set("")
+
+    # nothing dropped: Run says so and starts nothing
+    assert "Drop a plan set first." in tab.problems()
+    tab.run()
+    assert not tab._running and tab.result is None
+    assert "Drop a plan set" in str(tab.result_line.cget("text"))
+
+    # the sample set, then a drop on the window while the tab is showing
+    sdir = os.path.join(tmp, "bb_sample")
+    tab.load_sample(sdir)
+    wait(lambda: tab.refs and not tab._classifying, what="the sample set to be read")
+    assert len(tab.tree.get_children()) == len(tab.refs) >= 8
+    assert sorted(tab.level_vars) == ["L1", "L2"], sorted(tab.level_vars)
+    assert tab.out_var.get() == os.path.join(sdir, tb.OUT_FOLDER)
+    rows = [tab.tree.item(i, "values") for i in tab.tree.get_children()]
+    whats = [r[3] for r in rows]
+    assert M.PG_STRUCT in whats and M.PG_CAD in whats and M.PG_ARCH in whats, whats
+    assert any(w.startswith(M.PG_RFI) for w in whats), whats
+    assert any("earlier issue" in w for w in whats), "the earlier issue is shown as one"
+    s201 = next(r for r in rows if r[2] == "S-201" and "earlier" not in r[3])
+    assert s201[4] == "LEVEL 2" and str(s201[5]) == "2", s201
+    stray = os.path.join(tmp, "stray_notes.txt")
+    with open(stray, "w", encoding="utf-8") as fh:
+        fh.write("not a drawing\n")
+    n0 = len(tab.paths)
+    app._drop_route([stray])
+    wait(lambda: not tab._classifying and len(tab.refs) > len(rows), what="the dropped file")
+    assert len(tab.paths) == n0 + 1
+    stray_iid = next(i for i in tab.tree.get_children()
+                     if tab.tree.item(i, "values")[0] == "stray_notes.txt")
+    assert tab.tree.item(stray_iid, "values")[3] == "not classified, not used"
+    assert "not classified and not used" in str(tab.summary.cget("text"))
+    tab.tree.selection_set(stray_iid)
+    root.update()
+    tab.remove_selected()
+    wait(lambda: not tab._classifying and len(tab.refs) == len(rows), what="the removal")
+    assert stray not in tab.paths
+
+    # a row the user sets: stored by sheet, shown as set by the user, undone
+    shop = next(i for i in tab.tree.get_children()
+                if tab.tree.item(i, "values")[3] == M.PG_SHOP)
+    shop_sheet = tab.tree.item(shop, "values")[2]
+    tab.tree.selection_set(shop)
+    root.update()
+    tab.cls_var.set(tb.NOT_USED)
+    tab.apply_fix()
+    wait(lambda: not tab._classifying, what="the reread after a fix")
+    assert tab.class_of == {shop_sheet: M.PG_UNKNOWN}
+    fixed = next(tab.tree.item(i, "values") for i in tab.tree.get_children()
+                 if tab.tree.item(i, "values")[2] == shop_sheet)
+    assert fixed[3] == "not classified, not used" and "set by the user" in fixed[6], fixed
+    assert tab.options().class_of == {shop_sheet: M.PG_UNKNOWN}
+    tab.tree.selection_set(next(i for i in tab.tree.get_children()
+                                if tab.tree.item(i, "values")[2] == shop_sheet))
+    root.update()
+    tab.cls_var.set(tb.AS_READ)
+    tab.apply_fix()
+    wait(lambda: not tab._classifying, what="the reread after undoing a fix")
+    assert tab.class_of == {} and M.PG_SHOP in [
+        tab.tree.item(i, "values")[3] for i in tab.tree.get_children()]
+    # a level box the user set survives a reread of the drop
+    tab.level_vars["L1"].set(False)
+    tab.classify()
+    wait(lambda: not tab._classifying, what="a plain reread")
+    assert tab.level_vars["L1"].get() is False and tab.options().levels == ["L2"]
+    tab.level_vars["L1"].set(True)
+    assert tab.options().levels is None, "every level on means every level read"
+    tab.level_vars["L1"].set(False)
+    tab.level_vars["L2"].set(False)
+    assert "Switch on at least one level." in tab.problems()
+    tab.level_vars["L1"].set(True)
+    tab.level_vars["L2"].set(True)
+
+    # the options file is exactly what the command line twin reads
+    opath = os.path.join(tmp, "bb_run.json")
+    tab.save_options(opath)
+    with open(opath, encoding="utf-8") as fh:
+        data = json.load(fh)
+    assert data.pop("files") == tab.paths and data.pop("out") == tab.out_var.get()
+    twin = M.Options.from_dict(data)
+    assert twin._unknown == [] and twin.hats == ["concrete", "surveyor"]
+    assert twin.project.get("path") == p1, "the registers live beside the open project"
+
+    # one button: the run, with a light per stage
+    tab.var["out_booklet"].set(True)
+    tab.run()
+    assert tab._running and "disabled" in tab.run_btn.state()
+    assert tab.light["Intake"] == tb.WORKING
+    wait(lambda: not tab._running, what="the Batterboard run")
+    res = tab.result
+    assert res is not None and tab.error is None, tab.error
+    assert res.status == "PASS WITH FLAGS", (res.status, [c for c in res.checks if not c["ok"]])
+    assert str(tab.result_head.cget("text")) == "PASS WITH FLAGS"
+    assert set(tab.light) == set(M.STAGES)
+    assert all(v in (M.PASS, M.FLAG) for v in tab.light.values()), tab.light
+    assert tab.light["Register"] == M.FLAG and tab.light["Self-check"] == M.PASS
+    root.update()
+    cv = tab.lights
+    assert len(cv.find_withtag("light")) == len(M.STAGES)
+    n_flag = sum(1 for v in tab.light.values() if v == M.FLAG)
+    assert len(cv.find_withtag("light-flag")) == n_flag > 0
+    assert len(cv.find_withtag("light-pass")) == len(M.STAGES) - n_flag
+    ok_col, warn_col = app.theme.colors["ok"], app.theme.colors["warn"]
+    assert {cv.itemcget(i, "fill") for i in cv.find_withtag("light-pass")} == {ok_col}
+    assert {cv.itemcget(i, "fill") for i in cv.find_withtag("light-flag")} == {warn_col}
+    assert "disabled" not in tab.open_btn.state()
+    out_dir = tab.output_folder()
+    assert out_dir == res.deliverables and os.path.isdir(out_dir)
+    assert tab._plates_path() and os.path.exists(tab._plates_path())
+    assert tab._items_path() and tab._report_path()
+    assert os.path.exists(os.path.join(out_dir, "plates", "Batterboard_phone_booklet.pdf"))
+    assert os.path.isdir(os.path.join(out_dir, "forms")), "the Surveyor hat's forms"
+    assert os.path.isdir(os.path.join(out_dir, "points", "L2"))
+    assert "disabled" not in tab.run_btn.state(), "Run is ready again"
+    tab.show_stage("Register")
+    root.update()
+
+    # the plates are open in a viewer and Run is pressed again: the folder
+    # cannot move aside.  The run is blocked at Deliver, the folder is as it
+    # was, and the tab says what to do in plain words.
+    kept = sorted(os.listdir(os.path.join(out_dir, "plates")))
+    real_rename = os.rename
+
+    def no_rename(src, dst, *a, **k):
+        if os.path.basename(str(src)) == "deliverables":
+            raise PermissionError(13, "in use by another program", str(src))
+        return real_rename(src, dst, *a, **k)
+
+    os.rename = no_rename
+    try:
+        tab.run()
+        wait(lambda: not tab._running, what="the run with a held folder")
+    finally:
+        os.rename = real_rename
+    held = tab.result
+    assert held.status == "BLOCKED" and tab.light["Deliver"] == M.BLOCK, tab.light
+    assert tab.light["Self-check"] == M.PASS, "everything was checked before the block"
+    assert "Close any file you have open" in str(tab.result_line.cget("text"))
+    assert sorted(os.listdir(os.path.join(out_dir, "plates"))) == kept, "folder untouched"
+    assert tab.output_folder() == held.out_root and tab._plates_path() is None
+    assert tab._report_path() == held.report_pdf and os.path.exists(held.report_pdf)
+    tab.run()                                   # and it delivers again once the file is free
+    wait(lambda: not tab._running, what="the run after the folder is free")
+    res = tab.result
+    assert res.status == "PASS WITH FLAGS" and tab._plates_path()
+    out_dir = tab.output_folder()
+
+    # the switches are saved per project, beside the project file
+    side = tb.preset_path(p1)
+    assert side == os.path.join(tmp, "bb_one.ploom" + tb.PRESET_SUFFIX) and os.path.exists(side)
+    assert os.path.exists(os.path.join(tmp, "bb_one.ploom.redtags.json"))
+    tab.stage_var.set("pre")
+    tab.var["issue"].set(True)
+    tab.level_vars["L1"].set(False)
+    tab.class_of["X-9"] = M.PG_NOTES
+    tab.save_preset()
+    with open(side, encoding="utf-8") as fh:
+        saved = json.load(fh)
+    assert saved["switches"]["stage"] == "pre" and saved["switches"]["levels"] == ["L2"]
+    assert saved["decisions"]["class_of"] == {"X-9": M.PG_NOTES}
+    p2 = os.path.join(tmp, "bb_two.ploom.json")
+    app._load_project(p2, create=True)
+    root.update()
+    wait(lambda: not tab._classifying, what="the reread for the other project")
+    assert tab.class_of == {}, "per-sheet decisions never follow into another project"
+    # a project with nothing saved starts from the engine's defaults
+    assert tab.switches() == {**tb.default_switches(),
+                              "project": {"project": "bb_two", "drawn_by": "", "date": ""}}, \
+        tab.switches()
+    assert tb.default_switches()["hats"] == M.Options().hats == ["concrete"]
+    tab.stage_var.set("post")
+    tab.var["issue"].set(False)
+    tab.level_vars["L1"].set(True)
+    tab.save_preset()
+    app._load_project(p1)
+    root.update()
+    wait(lambda: not tab._classifying, what="the reread for the first project")
+    assert tab.stage_var.get() == "pre" and tab.var["issue"].get() is True
+    assert tab.level_vars["L1"].get() is False and tab.level_vars["L2"].get() is True
+    assert tab.class_of == {"X-9": M.PG_NOTES}
+    assert tab.options().levels == ["L2"]
+    assert "bb_one.ploom" in str(tab.preset_note.cget("text"))
+    # with no project open only the switches are remembered, on this computer
+    pp0 = (_prefs.PREFS_DIR, _prefs.PREFS_PATH)
+    _prefs.PREFS_DIR = os.path.join(tmp, "bb_prefs")
+    _prefs.PREFS_PATH = os.path.join(_prefs.PREFS_DIR, "prefs.json")
+    try:
+        assert tb.write_preset(None, tab.preset()) == ""
+        kept = tb.read_preset(None)
+        assert kept["switches"]["stage"] == "pre" and "decisions" not in kept, kept
+    finally:
+        _prefs.PREFS_DIR, _prefs.PREFS_PATH = pp0
+
+    # a gate that cannot decide asks once, with pictures; the answer is kept
+    import fitz
+    pix = fitz.Pixmap(fitz.csRGB, 40, 30, bytes([200, 200, 200]) * 1200, False)
+    ask = {"kind": "fill_class", "sheet": "S-201", "level": "L2", "candidates": [
+        {"rgb": [191, 191, 191], "shapes": 12, "area_ft2": 310.5,
+         "crops": [pix.tobytes("png")]},
+        {"rgb": [120, 120, 120], "shapes": 7, "area_ft2": 280.0, "crops": []}]}
+    ran = []
+    real_run = tab.run
+    tab.run = lambda: ran.append(1)
+    try:
+        tab.show_asks([ask])
+        root.update()
+        assert tab.ask_win.winfo_exists() and len(tab.ask_buttons) == 2
+        assert len(tab._ask_images) == 1, "the picture crop is shown and kept referenced"
+        tab.ask_buttons[1].invoke()
+        root.update()
+        assert tab.fill_class == {"S-201": [120, 120, 120]} and ran == [1]
+        assert not tab.ask_win.winfo_exists()
+        assert tab.options().fill_class == {"S-201": [120, 120, 120]}
+    finally:
+        tab.run = real_run
+    tab.fill_class.clear()
+    tab.class_of.clear()
+
+    # a blocked run: a red light, hollow lights after it, nothing delivered
+    tab.clear()
+    assert not tab.paths and not tab.tree.get_children() and not tab.level_vars
+    rfi_only = [p for p in res.rr.refs if p.cls == M.PG_RFI][0].file
+    tab.add_paths([rfi_only])
+    wait(lambda: tab.refs and not tab._classifying, what="the lone RFI to be read")
+    tab.out_var.set(os.path.join(tmp, "bb_blocked_out"))
+    tab.run()
+    wait(lambda: not tab._running, what="the blocked run")
+    res2 = tab.result
+    assert res2 is not None and res2.status == "BLOCKED" and res2.deliverables is None
+    assert str(tab.result_head.cget("text")) == "BLOCKED"
+    assert tab.light["Intake"] == M.BLOCK
+    assert all(tab.light[n] == M.NOT_REACHED for n in M.STAGES[1:]), tab.light
+    root.update()
+    assert len(cv.find_withtag("light-block")) == 1
+    assert {cv.itemcget(i, "fill") for i in cv.find_withtag("light-block")} == \
+        {app.theme.colors["err"]}
+    assert len(cv.find_withtag("light-hollow")) == len(M.STAGES) - 1
+    assert not cv.find_withtag("light-pass"), "a stage that never ran is not drawn as a pass"
+    assert "nothing to lay out" in tab.light_first["Intake"]
+    assert not os.path.isdir(os.path.join(tmp, "bb_blocked_out", "deliverables"))
+    assert tab.output_folder() == os.path.join(tmp, "bb_blocked_out")
+    assert tab._plates_path() is None and "disabled" in tab.plates_btn.state()
+    assert tab._report_path(), "a blocked run still leaves its report"
+
+    # reachable from the command palette
+    cmds = {c.name for c in app.palette.commands}
+    assert {"Batterboard: run", "Batterboard: try the sample set"} <= cmds
+    tab.clear()
+    # light theme redraw keeps the lights (theme callbacks must not blank them)
+    app.toggle_dark()
+    root.update()
+    assert len(cv.find_withtag("light")) == len(M.STAGES)
+    app.toggle_dark()
+    root.update()
+    print("  batterboard tab: order of controls, hats, switches, detected table, a run "
+          "with its lights, a blocked run, presets per project, options file, ok")
+
+
 def main():
     from rfi_stamper.gui import dnd, fx
     from rfi_stamper.gui.app import SECTION_ORDER, App
@@ -1809,6 +2154,11 @@ def main():
         root.update()
     finally:
         _prefs_mod.PREFS_DIR, _prefs_mod.PREFS_PATH = _pp0
+    app.goto("home")
+    root.update()
+
+    # the Batterboard tab: the one-click layout package
+    check_batterboard(app, root, tmp)
     app.goto("home")
     root.update()
 

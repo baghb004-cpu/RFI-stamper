@@ -178,6 +178,11 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
     ps = pk.PlateSet(sheet=opts.sheet, project=opts.project, issue=opts.issue)
     listing = []
     levels = [lv for lv in rr.levels if not lv.blocked and lv.frame is not None]
+    # The Concrete hat's own plates: open items, slab edges, shear wall
+    # ends, architect dimensions and masonry.  The wall plan is built
+    # under either hat: it is the plate the picture check compares with
+    # the source sheet, and the plan every other plate refers to.
+    concrete_hat = "concrete" in (opts.hats or [])
     frame_st = None
     if getattr(ctx, "trail_frame", None) is not None:
         frame_st = pk.statement(trail.say(ctx.trail_frame.id))
@@ -234,48 +239,51 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
             break
 
         # ---- open items ---------------------------------------------------------- #
-        tags = reg.items(lv.code)
-        pl, cont = start("2", "OPEN ITEMS")
-        _base(pl, lv, light=True, table_w=500.0)
-        for t in tags:
-            for b in t.boxes:
-                if b.get("world"):
-                    pl.box(tuple(b["world"]), _d(str(t.number), f"item:{t.ref}"))
-        cols = [(pk.label("ITEM"), 0.9, "l"), (pk.label("CATEGORY"), 1.8, "l"),
-                (pk.label("WHAT IS WRONG"), 4.2, "l"), (pk.label("WHAT IS NEEDED"), 3.0, "l"),
-                (pk.label("STATUS"), 1.5, "l")]
-        rows = []
-        for t in tags:
-            pid = t.proofs[0] if t.proofs else ""
-            rows.append([_d(t.ref, f"item:{t.ref}"),
-                         _d(t.category_label, f"item:{t.ref}"),
-                         pk.T(t.wrong, "statement", proof=pid, src=f"item:{t.ref}"),
-                         pk.T(t.needed, "statement", proof=pid, src=f"item:{t.ref}"),
-                         _d(t.status_text(), f"item:{t.ref}")])
-
-        def item_notes(p, tags=tags):
+        if concrete_hat:
+            tags = reg.items(lv.code)
+            pl, cont = start("2", "OPEN ITEMS")
+            _base(pl, lv, light=True, table_w=500.0)
             for t in tags:
-                if not t.at:
-                    continue
+                for b in t.boxes:
+                    if b.get("world"):
+                        pl.box(tuple(b["world"]), _d(str(t.number), f"item:{t.ref}"))
+            cols = [(pk.label("ITEM"), 0.9, "l"), (pk.label("CATEGORY"), 1.8, "l"),
+                    (pk.label("WHAT IS WRONG"), 4.2, "l"), (pk.label("WHAT IS NEEDED"), 3.0, "l"),
+                    (pk.label("STATUS"), 1.5, "l")]
+            rows = []
+            for t in tags:
                 pid = t.proofs[0] if t.proofs else ""
-                p.note(t.at[0], t.at[1],
-                       [_d(f"{t.ref}  {t.status_text()}", f"item:{t.ref}"),
-                        pk.T(t.label, "statement", proof=pid, src=f"item:{t.ref}")],
-                       accent=True)
+                rows.append([_d(t.ref, f"item:{t.ref}"),
+                             _d(t.category_label, f"item:{t.ref}"),
+                             pk.T(t.wrong, "statement", proof=pid, src=f"item:{t.ref}"),
+                             pk.T(t.needed, "statement", proof=pid, src=f"item:{t.ref}"),
+                             _d(t.status_text(), f"item:{t.ref}")])
 
-        _table(ps, pl, cont, cols, rows, item_notes, band(say("SL-HIDDEN", lv), scope_st))
+            def item_notes(p, tags=tags):
+                for t in tags:
+                    if not t.at:
+                        continue
+                    pid = t.proofs[0] if t.proofs else ""
+                    p.note(t.at[0], t.at[1],
+                           [_d(f"{t.ref}  {t.status_text()}", f"item:{t.ref}"),
+                            pk.T(t.label, "statement", proof=pid, src=f"item:{t.ref}")],
+                           accent=True)
+
+            _table(ps, pl, cont, cols, rows, item_notes, band(say("SL-HIDDEN", lv), scope_st))
 
         # ---- slab edges ------------------------------------------------------------ #
         slab_rows = [r for r in rows_pts if r.family in ("slab_edge_corner", "radius_point",
                                                          "slab_opening_corner")]
-        if lv.of(M.SLAB_EDGE) or slab_rows:
+        if not concrete_hat:
+            slab_rows = []            # every point stays on the point list plate
+        elif lv.of(M.SLAB_EDGE) or slab_rows:
             pl, cont = start("3", "SLAB EDGES")
             _base(pl, lv, light=True)
             _points_plate(ps, pl, cont, slab_rows, band(*_tol_lines(lp), scope_st))
 
         # ---- shear wall ends --------------------------------------------------------- #
         ends = lv.of(M.SW_END)
-        if ends:
+        if concrete_hat and ends:
             pl, cont = start("4", "SHEAR WALL ENDS")
             _base(pl, lv, light=True)
             cols = [(pk.label("END"), 1.5, "l"), (pk.label("MARK"), 0.8, "c"),
@@ -313,7 +321,7 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
 
         # ---- architect dimensions to check ---------------------------------------------- #
         check = [r for r in lv.arch_strings if r["cls"] in ("different", "one")]
-        if lv.arch is not None and not lv.arch_note:
+        if concrete_hat and lv.arch is not None and not lv.arch_note:
             pl, cont = start("5", "ARCHITECT DIMENSIONS TO CHECK")
             _base(pl, lv, light=True)
             cols = [(pk.label("STRING"), 1.4, "l"), (pk.label("READS AS"), 2.2, "l"),
@@ -345,7 +353,7 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
 
         # ---- masonry ----------------------------------------------------------------------- #
         mas = lv.of(M.MASONRY)
-        if mas and opts.masonry:
+        if concrete_hat and mas and opts.masonry:
             pl, cont = start("6", "MASONRY")
             _base(pl, lv, masonry=True, light=True)
             cols = [(pk.label("ID"), 1.4, "l"), (pk.label("AS DRAWN"), 2.2, "l"),
@@ -375,7 +383,8 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
                           tags_for=[r for r in conc_rows if r.family != "grid"])
 
     if not proof_only:
-        _legend(ps, rr, reg, points, listing, frame_st)
+        if opts.out_legend:
+            _legend(ps, rr, reg, points, listing, frame_st)
         _index(ps, listing, rr)
     man = ps.save(path)
     man["plates"] = listing

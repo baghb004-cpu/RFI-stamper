@@ -6,7 +6,7 @@
 |---|---|---|
 | What | Offline plan-set workspace: RFI stamping with pixel-checked verification, revision compare, OCR, layout points + field export kits, drafting, peer checker, trade knowledge base | Offline trade "operating system": project database, registers, spec/submittal writer, plumbing sizing from DXF, apprentice tutor |
 | Language | Python (PyMuPDF + numpy only) | JavaScript, desktop shell + SQLite |
-| Size / maturity | ~56,000 lines, 68 test scripts all green, 45 shipped rounds, v5.10.0 | ~33,000 lines, B1 to B10 milestones mostly done |
+| Size / maturity | ~73,000 lines, 76 test scripts all green, 45 shipped rounds, v5.11.0 | ~33,000 lines, B1 to B10 milestones mostly done |
 | AI | None needed; every engine is deterministic | Generative parts need a local language model installed separately |
 | Ships as | Single `Planloom.exe`, double-click | Linux portable image; a Windows build was never produced |
 
@@ -27,8 +27,15 @@
 
 - `LAYOUT_PACKAGE_BRIEF.md`: the owner's brief for the one-click layout
   package (the Batterboard).
-- `BATTERBOARD_PLAN.md`: the phased plan. Phase 0 done; Phase 1 waits on
-  the five owner questions in its section 5.
+- `BATTERBOARD_PLAN.md`: the phased plan. **All eight phases are built**
+  (v5.11.0). Its section 6 is the plain record: what was built, how it was
+  tested, what was NOT verified, and the choice made on each of the five
+  owner questions.
+- The Batterboard is in the app: **Field Management, last tab, "The
+  Batterboard"**. The fastest first look is its **Try the sample set**
+  button, then **RUN THE BATTERBOARD**.
+- The one thing nobody but the owner can do: run it on a real plan set.
+  It has only ever seen the made-up sample building.
 - `HANDOFF.md`: session continuity, naming registry, round notes.
 - `CLAUDE.md`: the invariants. They win over every brief.
 
@@ -37,7 +44,7 @@
 0. Every push to the working branch already builds and tests both exes;
    grab them from that run's Artifacts on the repository's Actions page.
 1. To cut a release: on the repository website, Releases, Draft a new
-   release, type a new tag such as `v5.10.0-beta.1`, target the branch
+   release, type a new tag such as `v5.11.0-beta.1`, target the branch
    `claude/planloom-session-resume-p10twg`, tick "Set as a pre-release",
    Publish. (This session's network policy blocks creating tags or
    releases from the cloud, so this one click is the owner's.)
@@ -50,12 +57,23 @@
 
 ## Owner checklist (things only the owner can do)
 
+- [ ] Publish the release (step 1 above). It is one form on the website.
 - [ ] Download `Planloom.exe` from the release on your own Windows PC and
       double-click it. Confirm it opens and a stamp run ends in PASS.
+- [ ] In Field Management, open **The Batterboard**, press **Try the
+      sample set**, then **RUN THE BATTERBOARD**. It should end in PASS
+      WITH FLAGS in well under a minute. Open the plates and the run
+      report and see whether they read the way you want.
 - [ ] Try a real drag-and-drop from the desktop (the one thing a server
       build cannot test).
-- [ ] Answer Q1 to Q5 in `BATTERBOARD_PLAN.md` section 5.
-- [ ] Keep one real plan set on your own machine for Phase 2. Never
-      commit it.
+- [ ] Run the Batterboard on one real plan set, on your own machine. Never
+      commit that set. Whatever it refuses, flags wrongly or misreads is
+      the list for the next round; a blocked run is the tool doing its
+      job, not a crash.
+- [ ] Look at the plate style: switch on "One-sheet proof only", run, and
+      say yes or no. Plates stay stamped FOR REVIEW until you switch on
+      Issue.
+- [ ] Read the five decisions in `BATTERBOARD_PLAN.md` section 6 and say
+      if any should go the other way.
 - [ ] Later, optional: a code-signing certificate removes the "Windows
       protected your PC" warning testers see today.

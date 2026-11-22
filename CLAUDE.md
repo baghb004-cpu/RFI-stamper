@@ -6,8 +6,10 @@ note stamping with pixel-diff verification and a resolution lifecycle
 (open→answered→in_work→fixed→verified) stamped into note headers, wrapped in
 a seven-section workspace (Home, Field Management, Project Management,
 Plans & BIM, Reporting, App Integrations, Ground Truth). Generalized to any
-trade and any firm's RFI format. **Fully offline by policy** — see the
-invariants.
+trade and any firm's RFI format. Since v5.11.0 Field Management also holds
+**the Batterboard**, the one-click layout package (plates, point files,
+open items, a plain run report) — see `BATTERBOARD_PLAN.md`. **Fully
+offline by policy** — see the invariants.
 
 ## First task (if none given)
 
@@ -156,6 +158,62 @@ run; the `*_report.txt` must end in PASS).
                               surfaced (mop vs single sink), text-labeled
                               symbols (WH) need their label, unknown tray +
                               human-gated custom symbols
+    rfi_stamper/sightline.py  the Sightline: the visibility gate under every
+                              vector reader — a shape counts only if the
+                              RENDERED sheet shows it.  Fills: clip path
+                              applied exactly (Sutherland-Hodgman when
+                              convex, traced otherwise), kept at >= 95%
+                              visible; strokes: sampled every 2 px in
+                              their OWN class (color AND weight), >= 80%
+                              visible / < 50% hidden / split between;
+                              paper-colored fills are masks; registration
+                              guard; reverse check (fill pixels no accepted
+                              shape covers); honest unreadables.  Drop-in
+                              get_drawings() under setscale / extrude /
+                              drawdiff / reedcount / backcheck;
+                              PLOOM_SIGHTLINE=off restores raw vectors
+    rfi_stamper/geom2d.py     in-house 2D geometry (no new deps): polygon
+                              clip, scanline raster, integral-image
+                              morphology, boundary trace + sub-pixel refit,
+                              circle fit, exact arc from Bezier, min-area
+                              rect, corners of a union of polygons
+    rfi_stamper/papertrail.py the Paper Trail: proof records + the template
+                              language every printed statement is generated
+                              from (literal text may hold no digit and none
+                              of all/none/every/no — counts and absences
+                              come ONLY from slots filled by the record),
+                              reference resolution, wording + metadata lint
+    rfi_stamper/redtags.py    Red Tags: the open items register — sidecar
+                              JSON, stable per-level numbers never reused,
+                              categories (answer / confirm / answered),
+                              hold policy -> point action, RFI drafts; an
+                              item closes only on an RFI number + its
+                              exact quote; nothing autosaves
+    rfi_stamper/dxfread.py    ASCII DXF subset reader/writer for CAD
+                              backgrounds: declared units, layer roles,
+                              bulge arcs, labeled points; binary DXF and
+                              native CAD files are refused by name
+    rfi_stamper/batterboard/  the Batterboard: the one-click layout
+                              package.  model (Options = the switches,
+                              Element/Level/Frame, stage results), intake
+                              (classify the drop), gridread / dimread /
+                              concrete / slabread / notes / schedule /
+                              archdims / overlay / cadread (readers, all
+                              through the Sightline), planread (the read
+                              stage), crosscheck (check registry -> Red
+                              Tags + proof records), names (stable-name
+                              register), points (Fieldstitch job, kits,
+                              DXF background, round trip), platekit +
+                              plates (the plate set; notes placed with the
+                              measured-empty finder), surveyor (control
+                              request, setup plan, forms), selfcheck (the
+                              gate: picture check, round trip, references,
+                              coverage, lint, legend, recompute), report
+                              (plain-words run report), run (stages ->
+                              staging -> deliverables; BLOCKED writes
+                              nothing), sampleset (the synthetic sample
+                              building = the fixtures AND the tab's
+                              "Try the sample set")
     rfi_stamper/resolution.py RFI resolution lifecycle: status store sidecar,
                               header suffix, Designer Pickup Sheet PDF
     rfi_stamper/project.py    shared local project store (.ploom.json): tasks,
@@ -300,8 +358,14 @@ run; the `*_report.txt` must end in PASS).
                               tab_plansbim, tab_reporting, tab_integrations,
                               tab_truth, tab_stamp, tab_merge, tab_markup,
                               tab_compare, tab_pdftools, tab_backcheck
-                              (the Backcheck peer-check panel)
-    rfi_stamper/__main__.py   CLI (stamp/merge/split/compare/gui); no args -> GUI
+                              (the Backcheck peer-check panel),
+                              tab_batterboard (the Batterboard tab in
+                              Field Management: drop zone, detected table,
+                              two hats, switches, Run, stage lights, Open
+                              Output Folder — top to bottom in that order;
+                              switches saved per project in a sidecar)
+    rfi_stamper/__main__.py   CLI (stamp/merge/split/compare/batterboard/gui);
+                              no args -> GUI
     tests/                    plain-python test scripts; tests/run_all.py runs all
     skill/rfi-overlay/        Claude skill wrapping the stamping engine
     rfi_stamper.spec          PyInstaller: Planloom (GUI) + planloom-cli
@@ -314,6 +378,8 @@ run; the `*_report.txt` must end in PASS).
     python -m rfi_stamper stamp -p plans.pdf -r rfi_dir --map map.csv -o out.pdf
     python -m rfi_stamper merge a.pdf b.pdf -o combined.pdf
     python -m rfi_stamper compare old.pdf new.pdf -o overlay.pdf
+    python -m rfi_stamper batterboard --sample DIR           # layout package, sample set
+    python -m rfi_stamper batterboard plans.pdf bg.dxf -o OUT [--options run.json]
     python tests/run_all.py                                  # full regression
     pip install -r requirements.txt                          # deps
 
@@ -416,7 +482,16 @@ were proven on real export files. GUI constructs under xvfb.
   rho NEGATES — the wrap probe unions `(nbins-1, -rb-1)` neighborhoods or
   near-horizontal lines randomly fail to group.  Members of a seam group
   project correctly because projection uses ENDPOINTS with the leader's
-  direction, never the member's own u.  minipdf text is WinAnsi: there is
+  direction, never the member's own u.  theta == pi EXACTLY (a horizontal
+  segment drawn right to left — every rectangle has one) must STAY at the
+  end of the range so the clamp files it in the LAST bin, where that
+  probe pairs it with its own line.  Wrapping it to bin 0 without
+  flipping u left rho with the far sign and filed it with the line
+  MIRRORED about the page center: a changed edge was reported at the
+  wrong height or lost under that other line's coverage, and a re-export
+  that only reversed the drawing direction read as a change (found by the
+  Batterboard's revision check; `test_right_to_left_horizontal` pins it).
+  minipdf text is WinAnsi: there is
   NO Greek delta glyph — the redline's revision-delta tags are DRAWN
   triangles + a plain number.  Redline region markers are rectangles, not
   clouds (invariant #6 — clouded compare output needs owner sign-off).
@@ -597,6 +672,70 @@ were proven on real export files. GUI constructs under xvfb.
   owner dies instantly and silently.  Grand-tour nav steps must never
   target the section the user is already in (done_when would be true at
   draw time and the step self-skips).
+- Sightline laws (the visibility gate), each bought with a wrong drawing:
+  `page.get_drawings(extended=True)` yields `type: "clip"` entries with a
+  `level`; a path at level L is clipped by the PRECEDING clips of lower
+  level (walk the stack — the clip is not on the path itself).
+  `get_drawings()` and `get_text("words")` are UNROTATED on /Rotate pages;
+  map with `page.rotation_matrix` before comparing with a render.  Fill
+  grays come back with channel noise (0.7499...), so colors are snapped
+  (`rgb8`) or two halves of one wall land in two classes.  A stroke's
+  class is color AND weight — a thin annotation crossing a heavy edge is
+  a different class and must not "confirm" it.  A paper-colored fill is a
+  MASK: it is omitted from `drawings()` or every line reader reads its
+  outline as four lines.  The drop-in `get_drawings()` strips its extra
+  keys and recomputes `rect`; existing readers must see the dict shape
+  they always saw.  The gate caches per page (render, ink image per
+  color, similarity): without it the Reed Count test went 0.8 s -> 32 s.
+- Paper Trail laws: a template's LITERAL text may hold no digit and none
+  of all/none/every/no — reword ("without", "is not in the drop"), never
+  loosen the rule; a count or an absence prints only through a slot the
+  proof record fills.  Value names starting sheet / item / rfi / detail
+  REGISTER A REFERENCE that the self-check must resolve (a value named
+  `detail_len` blocked a run as a dangling detail) — name plain numbers
+  something else.  `not_compared` entries and values are linted too.
+- Red Tags: an EMPTY `Register` is falsy (`len() == 0`) — test `is not
+  None`, never `reg or Register()`.  Numbers are per level and never
+  reused; nothing autosaves; a blocked run does not save the register.
+- Batterboard point laws: one point per PLACE AND STAGE (a slab corner on
+  a column corner is two roles, before and after the pour) with ONE
+  shared number counter (`Names.number(..., counter="pt")`); a grid name
+  rides on a coincident element point instead of hiding it.  In the DXF a
+  label is TEXT offset (h/2, h/2) from its POINT — pair by that offset,
+  not by nearest.  A disputed zone length lays out NOTHING for that end.
+- Batterboard gate laws: the picture check's source mask is
+  `closing(opening(mask, 1), 2)` — without the opening the anti-aliased
+  rim of gray TEXT reads as concrete.  An output switch that is off still
+  BUILDS its file under staging `_check/` (kits, plates) so the self-check
+  runs on it; only delivery is skipped — never skip the check with the
+  output.  A stage the run never reached is `NOT_REACHED`, not pass, in
+  the result, the report and the tab's lights.  A check that had nothing
+  to compare returns `skipped` and prints "not run", never "held".
+  Deliver moves the earlier deliverables aside with ONE `os.rename` (all
+  of it or none) — never `shutil.move` on the folder: its copy-then-
+  delete fallback half-empties the folder when one file in it is open in
+  a viewer, which is the everyday case on a desktop.  A failed delivery
+  blocks the run and puts the folder back as it was.  The report paths of
+  a run are `RunResult.report_txt` / `.report_pdf`: a report file held
+  open by another program cannot be replaced, so this run's report takes
+  a numbered name — read the fields, never assume `run_report.pdf`, or an
+  earlier run's report is shown as the current one.
+- Batterboard fixture laws: fitz DROPS the em dash from inserted text —
+  the lint fixtures are written with the minipdf Canvas.  A rotated
+  fixture needs turned media + pre-rotated content
+  (`Sheet.add_to(doc, rot, upright=True)`); rotating only the view leaves
+  sheet numbers unreadable.  XC-REVISION counts Slipsheet differences
+  under `MIN_CHANGE_PT` (dashes, ticks) as "too small to place": counted
+  in the proof record, never drawn as a changed place.
+- Batterboard tab laws: a project with no saved switches starts from
+  `default_switches()` (the engine's `Options` defaults) — applying a
+  preset on top of whatever was on screen leaked one job's switches into
+  the next, and showed up as a test that failed every OTHER run.  Per-
+  sheet decisions (class, level, fill color) are saved per project only,
+  never in the computer-level prefs.  Every switch shown is read by the
+  engine (the GUI test flips each and diffs `Options`); the four scopes
+  not built are disabled and labeled "not built yet".  The variable of a
+  disabled tk Checkbutton must stay referenced or the box draws "mixed".
 - Drag-drop (gui/dnd.py) routes by REGISTRY + GEOMETRY, not widget stacking:
   the smallest viewable registered widget containing the drop point wins, the
   toplevel's own registration is the overlay's window-level enter/leave hook +

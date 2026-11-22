@@ -5,8 +5,8 @@
 # unless every test step below passed.
 #
 #   Release a beta:   on the website, Releases -> Draft a new release ->
-#                     new tag v5.10.0-beta.1 on this branch -> Publish.
-#                     (or: git tag v5.10.0-beta.1 && git push origin v5.10.0-beta.1)
+#                     new tag v5.11.0-beta.1 on this branch -> Publish.
+#                     (or: git tag v5.11.0-beta.1 && git push origin v5.11.0-beta.1)
 #   Build only:       every push to the working branch, or Actions tab ->
 #                     "Windows build" -> Run workflow (exes under Artifacts)
 
@@ -93,6 +93,6 @@ jobs:
           } else {
             $a = @($tag) + $files + @("--title", "Planloom $tag",
                                       "--notes-file", "BETA_TESTERS.md")
-            if ($tag -match "-") { $a += "--prerelease" }   # v5.10.0-beta.1 -> beta
+            if ($tag -match "-") { $a += "--prerelease" }   # v5.11.0-beta.1 -> beta
             gh release create @a
           }

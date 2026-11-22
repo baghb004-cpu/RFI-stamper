@@ -84,6 +84,16 @@ NOT_LAID_OUT = ("elevations", "slab steps and depressions", "curbs and pads",
 
 #: stage results
 PASS, FLAG, BLOCK = "pass", "flag", "block"
+#: a stage the run never got to (an earlier stage blocked): it is neither
+#: a pass nor a failure, and nothing shows it as either
+NOT_REACHED = "not reached"
+#: the two hats (brief section 1); both can be on, one must be
+HATS = ("concrete", "surveyor")
+#: what a run without the Concrete hat leaves out (one sentence, shared by
+#: the run log, the report and the tab so they cannot drift apart)
+CONCRETE_HAT_ONLY = ("the open items, slab edge, shear wall end, architect dimension "
+                     "and masonry plates, the phone booklet and the RFI drafts were "
+                     "not built")
 STAGES = ("Intake", "Sightline", "Read", "Cross-check", "Register",
           "Points", "Plates", "Self-check", "Deliver")
 
@@ -482,13 +492,15 @@ class Options:
 @dataclass
 class StageResult:
     name: str = ""
-    status: str = PASS                # PASS | FLAG | BLOCK
+    status: str = PASS                # PASS | FLAG | BLOCK | NOT_REACHED
     lines: list = field(default_factory=list)   # plain-words log lines
+    flagged: list = field(default_factory=list)  # the lines that raised the flag
 
     def flag(self, msg: str) -> None:
         if self.status == PASS:
             self.status = FLAG
         self.lines.append(msg)
+        self.flagged.append(msg)
 
     def block(self, msg: str) -> None:
         self.status = BLOCK

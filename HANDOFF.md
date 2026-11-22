@@ -6,7 +6,7 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
 
 ## Current state (rolling — see the newest Round note below for detail)
 
-- Product: **Planloom** v5.1.0, offline construction workspace; Python package
+- Product: **Planloom** v5.11.0, offline construction workspace; Python package
   keeps the historical name `rfi_stamper`. Seven sections behind an animated
   nav: Home, Field Management, Project Management, Plans & BIM, Reporting,
   App Integrations, Ground Truth. Runtime deps: **pymupdf + numpy + stdlib**
@@ -14,7 +14,10 @@ owner's feature briefs, so work can resume mid-stream without re-asking.
   a touching-glyph lattice), PDF writer AND reader/merger (minipdf + the
   Shuttle), drag-drop, voice, KB, 3D raster, clash, vector-diff, CPM,
   IFC-import and cut-sheet-submittal engines are all Planloom's own.
-- 61 green test scripts via `python3.12 tests/run_all.py` (GUI needs xvfb).
+  Newest: **the Batterboard** (Field Management), the one-click layout
+  package, built end to end on a synthetic sample building and NOT yet
+  run on a real plan set (see Round 45 and BATTERBOARD_PLAN.md section 6).
+- 76 green test scripts via `xvfb-run -a python3.12 tests/run_all.py`.
 - Branch `claude/planloom-session-resume-p10twg`; never push elsewhere.
 - All invariants in CLAUDE.md hold — offline-always is #1.
 
@@ -1777,7 +1780,8 @@ manual picks" ask.
   the second run hints from the first; the prefs file holds only
   opaque hashes).
 
-## Round 45 (IN FLIGHT): the Batterboard, Phase 0 + beta delivery
+## Round 45 (SHIPPED, v5.11.0): the Batterboard — the one-click layout
+## package, all eight phases, + beta delivery
 - Owner brief: `LAYOUT_PACKAGE_BRIEF.md`; plan: `BATTERBOARD_PLAN.md`.
   Five names signed off by the owner and registered above.
 - Delivery shipped ahead of the phases (brief section 13):
@@ -1797,7 +1801,69 @@ manual picks" ask.
   every push to this branch (artifacts only) and attaches on a release
   published from the website (`release: published`, serialized with the
   matching tag push by a concurrency group).
-- Next: Phase 1 (the Sightline) after the owner answers Q1-Q5 in the plan.
+- The owner then asked for the whole plan to be driven in one go ("full
+  drive ... a complete package to my friends"), so Phases 1 to 8 landed in
+  this round instead of one round each, with Q1-Q5 settled the cautious
+  way (BATTERBOARD_PLAN.md section 6 lists each decision for him to
+  overturn).
+- **What was built:** the Sightline (`sightline.py` + `geom2d.py`) with
+  the default-on retrofit under setscale / extrude / drawdiff / reedcount
+  / backcheck; the Paper Trail (`papertrail.py`); Red Tags (`redtags.py`);
+  the ASCII DXF background reader (`dxfread.py`); the run as a package
+  (`batterboard/`: intake, readers, crosscheck, names, points, platekit +
+  plates, surveyor, selfcheck, report, run, sampleset); five pure Harvest
+  generators; the tab (`gui/tab_batterboard.py`, Field Management, added
+  after the existing tabs) and the CLI twin (`batterboard` subcommand,
+  exit 1 when blocked). Stages Intake -> Sightline -> Read -> Cross-check
+  -> Register -> Points -> Plates -> Self-check -> Deliver; result PASS /
+  PASS WITH FLAGS / BLOCKED; a blocked run writes nothing to the
+  deliverables folder.
+- **How it was tested:** all 15 regression cases of the brief are tests
+  inside run_all (`test_sightline`, `test_papertrail`, `test_redtags`,
+  `test_dxfread`, `test_platekit`, `test_batterboard_text / _read /
+  _checks / _points / _run`), plus the tab's checks in
+  `test_gui_construct` (a real run with its lights, a blocked run, presets
+  per project). The picture check is tested by sabotage (a bounding block
+  for a thin angled wall, concrete left off a plate, an edge with no heavy
+  line: each refused). `tests/exe_smoke.py` now drives the frozen CLI
+  through a whole Batterboard run and a blocked run on the Windows runner.
+- **What was NOT verified:** no real plan set has been run (brief section
+  15, second bullet, is NOT met; only the owner can run his set, locally);
+  the plate style is not signed off (one-sheet proof exists; plates stay
+  FOR REVIEW until Issue is switched on); scanned sheets are refused, not
+  read; real-mouse drag and drop on Windows; whether the setup plan's
+  rules are too strict (it flags many perimeter points on the sample).
+- Tab placement: the brief says "in Field Management, beside Fieldstitch",
+  but Fieldstitch lives in Plans & BIM. The tab went into Field Management
+  as written. Moving it beside Fieldstitch is a one-line change in
+  `tab_plansbim.py` if the owner prefers.
+- Honesty fixes made on the way: every switch on the tab is read by the
+  engine (plates and legend were dead switches until this round's end;
+  the Concrete hat was always on); a stage never reached reads "not
+  reached", not "pass"; a check with nothing to compare prints "not run".
+- **An existing tool was changed, on purpose: the Slipsheet (`drawdiff`).**
+  The Batterboard's revision check showed changed places where nothing
+  had changed. Root cause, in the line-bucket code: an exactly horizontal
+  segment drawn right to left (direction angle pi) was wrapped into bin 0
+  without flipping its direction, so it was filed with the line mirrored
+  about the page center. Effects before the fix, each now a test: a
+  re-export that only reversed a line's drawing direction read as one
+  removed + one added; a changed edge was reported at the mirrored height;
+  or it was lost entirely under the mirrored line's coverage. Fix: one
+  line removed (the angle now stays at the end of its range and the seam
+  probe pairs it with its own line). Every earlier Slipsheet test passes
+  unchanged; `test_right_to_left_horizontal` is new. It is its own commit
+  so the owner can revert it alone; the brief asks to be asked before an
+  existing behavior changes, and he was not reachable mid-drive.
+- Desktop hardening (cannot be exercised on the Linux box, so it is
+  tested by simulation in `test_batterboard_run.t_locked`): plates left
+  open in a viewer when Run is pressed again. The earlier deliverables
+  move aside in one rename or the run is BLOCKED with the folder exactly
+  as it was; a report file that is in use gets a numbered sibling and the
+  tab opens the path this run wrote.
+- Next: the owner runs the sample set from the exe, then his real set;
+  whatever the reader refuses or misreads on real sheets becomes the next
+  round's fixture list (synthetic re-creations only, never the sheets).
 
 ## Roadmap (still open)
 - **Owner smoke on real Windows**: the Ropes punch renderer (alpha +
