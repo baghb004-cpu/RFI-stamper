@@ -386,6 +386,12 @@ class BatterboardTab(ttk.Frame):
             ttk.Label(f, text=text + ":").pack(side="left")
             ttk.Combobox(f, width=22, state="readonly", textvariable=self.hold_var[cat],
                          values=list(HOLD_LABEL.values())).pack(side="left", padx=(4, 16))
+            self.hold_var[cat].trace_add("write", lambda *_a: self._sync_policy())
+        # a row of its own, there only while the policy is not the default one
+        self.hold_note = ttk.Label(box, style="Muted.TLabel", text="", wraplength=980,
+                                   justify="left")
+        self._hold_note_row = r[0]
+        r[0] += 1
 
         f = line("Working range")
         self.range_entry = ttk.Entry(f, width=8, textvariable=self.range_var)
@@ -722,6 +728,20 @@ class BatterboardTab(ttk.Frame):
         self.hat_note.configure(text=" ".join(notes))
         if not self._running:
             self.run_btn.configure(state="normal" if any(self.hat_on.values()) else "disabled")
+
+    def _sync_policy(self) -> None:
+        """Say it on the tab when the hold policy is not the default one."""
+        note = getattr(self, "hold_note", None)
+        if note is None:
+            return
+        policy = self.switches()["hold_policy"]
+        if M.hold_policy_is_default(policy):
+            note.grid_remove()
+            return
+        note.configure(text="Not the default policy. The run report and the point list "
+                            "plates state it: "
+                            + M.hold_policy_text(policy).split(": ", 1)[1])
+        note.grid(row=self._hold_note_row, column=1, sticky="w", pady=(0, 2))
 
     # ------------------------------------------------------------ switches --
     def switches(self) -> dict:

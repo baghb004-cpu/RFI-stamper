@@ -489,6 +489,28 @@ class Options:
         return o
 
 
+STAGE_CHOICES = ("pre", "post", "both")
+#: what each hold-policy action does to the points of an open item
+HOLD_ACTION_WORDS = {"hold": "points held",
+                     "check": "points laid out and marked CHECK",
+                     "release": "points laid out without a mark"}
+
+
+def hold_policy_text(policy) -> str:
+    """The hold policy in plain words.  It is a USER SETTING, and it is
+    said wherever points are listed: a reader of a plate must be able to
+    tell whether the points of an open item were held or laid out."""
+    p = {**DEFAULT_HOLD_POLICY, **(policy or {})}
+    return ("Hold policy (a user setting): items that need an answer before layout: "
+            f"{HOLD_ACTION_WORDS.get(p['answer'], p['answer'])}; items to confirm before "
+            f"forming: {HOLD_ACTION_WORDS.get(p['confirm'], p['confirm'])}; answered items: "
+            f"{HOLD_ACTION_WORDS.get(p['answered'], p['answered'])}.")
+
+
+def hold_policy_is_default(policy) -> bool:
+    return {**DEFAULT_HOLD_POLICY, **(policy or {})} == DEFAULT_HOLD_POLICY
+
+
 @dataclass
 class StageResult:
     name: str = ""

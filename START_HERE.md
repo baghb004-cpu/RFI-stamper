@@ -62,8 +62,8 @@
       double-click it. Confirm it opens and a stamp run ends in PASS.
 - [ ] In Field Management, open **The Batterboard**, press **Try the
       sample set**, then **RUN THE BATTERBOARD**. It should end in PASS
-      WITH FLAGS in well under a minute. Open the plates and the run
-      report and see whether they read the way you want.
+      WITH FLAGS in about a minute. Open the plates and the run report
+      and see whether they read the way you want.
 - [ ] Try a real drag-and-drop from the desktop (the one thing a server
       build cannot test).
 - [ ] Run the Batterboard on one real plan set, on your own machine. Never

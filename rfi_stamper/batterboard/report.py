@@ -47,6 +47,7 @@ def build_lines(run) -> list:
     if rr is not None and rr.frame_label:
         L.append(f"Frame: {rr.frame_label}")
     L.append("Hats: " + ", ".join(run.opts.hats))
+    L.append(M.hold_policy_text(run.opts.hold_policy))
     if not run.opts.issue:
         L.append("Every plate is stamped FOR REVIEW.")
 

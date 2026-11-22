@@ -719,7 +719,13 @@ were proven on real export files. GUI constructs under xvfb.
   a run are `RunResult.report_txt` / `.report_pdf`: a report file held
   open by another program cannot be replaced, so this run's report takes
   a numbered name — read the fields, never assume `run_report.pdf`, or an
-  earlier run's report is shown as the current one.
+  earlier run's report is shown as the current one.  The hold policy is a
+  USER SETTING that changes what an open item's points do: the report
+  states it always and the point list plates and the legend state it
+  whenever it is not the default (`model.hold_policy_text` is the one
+  wording).  A mistyped stage, hold policy, level list or working range
+  in an options file BLOCKS at Intake in plain words; it is never read
+  as the default and never left to crash a later stage.
 - Batterboard fixture laws: fitz DROPS the em dash from inserted text —
   the lint fixtures are written with the minipdf Canvas.  A rotated
   fixture needs turned media + pre-rotated content

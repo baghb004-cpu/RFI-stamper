@@ -39,7 +39,7 @@ of what was checked.
    needed.
 3. Look at the table: it shows what each sheet was read as.
 4. Click **RUN THE BATTERBOARD**. Nine lights fill in, green for pass,
-   amber for flag. It should finish in under a minute with **PASS WITH
+   amber for flag. It should finish in about a minute with **PASS WITH
    FLAGS** (the sample building has disagreements planted in it on
    purpose, and the tool is meant to find them).
 5. Click **Open the plates**, **Open the run report** and **Open Output

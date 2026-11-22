@@ -156,6 +156,13 @@ def _box(b) -> dict:
     return out
 
 
+def hold_policy(policy) -> dict:
+    """The default hold policy overlaid with ``policy``.  Raises
+    ``ValueError`` in plain words for an unknown category or action: the
+    caller's way to refuse a mistyped policy before anything is laid out."""
+    return _policy(policy)
+
+
 def _policy(policy) -> dict:
     """The default hold policy overlaid with ``policy``; validated."""
     out = dict(DEFAULT_HOLD_POLICY)

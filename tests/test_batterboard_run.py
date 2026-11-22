@@ -136,6 +136,13 @@ def t_report(res):
         assert "== " + head in text, head
     assert "Result: PASS WITH FLAGS" in text
     assert "verified" not in text.lower(), "never the bare word; the second source is named instead"
+    # the hold policy is a user setting and the report always states it
+    assert ("Hold policy (a user setting): items that need an answer before layout: points "
+            "held; items to confirm before forming: points laid out and marked CHECK; "
+            "answered items: points laid out without a mark.") in text
+    assert not any(t["s"].startswith("Hold policy") for p in res.plate_manifest["pages"]
+                   for t in p["texts"]), "the default policy adds nothing to the plates"
+    assert any(r.note_kind == "hold" for lp in res.points.values() for r in lp.rows)
     assert "match within 1/4 in." in text and "the CAD background background_L2.dxf" in text
     assert "Not laid out in this run: elevations, slab steps and depressions, curbs and pads, " \
            "embeds and hold-downs." in text
@@ -325,6 +332,20 @@ def t_gates(f, res0):
     assert res.status == bbrun.RESULT_BLOCKED and res.deliverables is None and not res.files
     assert tree(os.path.join(out, "deliverables")) == before, "the earlier deliverables are untouched"
     assert "Result: BLOCKED" in open(os.path.join(out, "run_log", "run_report.txt")).read()
+    # a mistyped switch (an options file is typed by hand) is refused at
+    # Intake in plain words: never read as the default, never a crash later
+    for kw, word in (({"stage": "banana"}, "the stage switch reads 'banana'"),
+                     ({"hold_policy": {"answer": "ignore"}}, "unknown action 'ignore'"),
+                     ({"hold_policy": {"sometimes": "hold"}}, "unknown category 'sometimes'"),
+                     ({"working_range_ft": -5}, "the working range reads -5"),
+                     ({"working_range_ft": "far"}, "the working range reads 'far'"),
+                     ({"levels": "L2"}, "the levels switch reads 'L2'")):
+        res = bbrun.run(f["files"], os.path.join(TMP, "out_typo"),
+                        M.Options.from_dict({"project": PROJECT, **kw}), **QUIET)
+        assert res.blocked and res.stage("Intake").status == M.BLOCK, kw
+        assert word in " ".join(res.stage("Intake").lines), (kw, res.stage("Intake").lines)
+        assert res.stage("Read").status == M.NOT_REACHED
+        assert not os.path.isdir(os.path.join(TMP, "out_typo", "deliverables"))
     # nothing to lay out
     res = bbrun.run([f["rfi"]], os.path.join(TMP, "out_none"), M.Options(project=PROJECT), **QUIET)
     assert res.blocked and res.stage("Intake").status == M.BLOCK
@@ -342,10 +363,22 @@ def t_switches(f):
     # concrete hat only, no kits, issued: no forms, no points folder, no stamp
     out = os.path.join(TMP, "out_concrete")
     opts = M.Options(hats=["concrete"], out_kits=False, out_rfi_drafts=False, issue=True,
-                     project=PROJECT)
+                     hold_policy={"answer": "release"}, project=PROJECT)
     res = bbrun.run(f["files"], out, opts, **QUIET)
     got = tree(res.deliverables)
     assert not any(g.startswith(("forms/", "points/", "open_items/rfi_drafts/")) for g in got), got
+    # a loosened hold policy: nothing is held, and every place that lists
+    # points says so (the report always, the plates because it is not the default)
+    assert not any(r.note_kind in ("hold", "dim") for lp in res.points.values() for r in lp.rows)
+    want = "items that need an answer before layout: points laid out without a mark"
+    rep = open(os.path.join(res.deliverables, "report", "run_report.txt"), encoding="utf-8").read()
+    assert want in rep
+    said = {p["title"] for p in res.plate_manifest["pages"]
+            if any(t["kind"] == "setting" and want in " ".join([t["s"], str(t.get("full") or "")]
+                                                               + list(t.get("lines") or []))
+                   for t in p["texts"])}
+    assert any("POINT LIST" in t for t in said) and "LEGEND" in said, said
+    assert all(c["ok"] for c in res.checks), [c for c in res.checks if not c["ok"]]
     doc = fitz.open(os.path.join(res.deliverables, "plates", "Batterboard_plates.pdf"))
     assert "FOR REVIEW" not in doc[0].get_text() and "ISSUED" in doc[0].get_text()
     doc.close()

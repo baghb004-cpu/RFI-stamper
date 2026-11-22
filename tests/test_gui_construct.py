@@ -193,6 +193,16 @@ def check_batterboard(app, root, tmp):
     assert tab.options().hold_policy["confirm"] == "hold"
     tab.hold_var["confirm"].set(tb.HOLD_LABEL["check"])
     assert tab.options().hold_policy == M.DEFAULT_HOLD_POLICY
+    # a hold policy that is not the default is said on the tab
+    root.update()
+    assert not tab.hold_note.winfo_ismapped()
+    tab.hold_var["answer"].set(tb.HOLD_LABEL["release"])
+    root.update()
+    assert tab.hold_note.winfo_ismapped()
+    assert "points laid out without a mark" in str(tab.hold_note.cget("text"))
+    tab.hold_var["answer"].set(tb.HOLD_LABEL["hold"])
+    root.update()
+    assert not tab.hold_note.winfo_ismapped()
 
     # hats: two buttons, both can be on, one must be; a hat that is off
     # greys out its own switches and says why

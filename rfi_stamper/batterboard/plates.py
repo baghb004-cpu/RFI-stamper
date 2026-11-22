@@ -187,6 +187,11 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
     if getattr(ctx, "trail_frame", None) is not None:
         frame_st = pk.statement(trail.say(ctx.trail_frame.id))
     scope_st = pk.statement(trail.say(ctx.trail_scope.id))
+    # A hold policy other than the default is printed wherever points are
+    # listed: without it a plate could not tell whether an open item's
+    # points were held or laid out.  (The run report states it always.)
+    policy_st = None if M.hold_policy_is_default(opts.hold_policy) \
+        else pk.setting(M.hold_policy_text(opts.hold_policy))
 
     def say(check, lv, key="summary"):
         pid = ctx.proofs.get((check, lv.code))
@@ -279,7 +284,8 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
         elif lv.of(M.SLAB_EDGE) or slab_rows:
             pl, cont = start("3", "SLAB EDGES")
             _base(pl, lv, light=True)
-            _points_plate(ps, pl, cont, slab_rows, band(*_tol_lines(lp), scope_st))
+            _points_plate(ps, pl, cont, slab_rows,
+                          band(policy_st, *_tol_lines(lp), scope_st))
 
         # ---- shear wall ends --------------------------------------------------------- #
         ends = lv.of(M.SW_END)
@@ -379,12 +385,13 @@ def build(path: str, rr, reg, trail, ctx, points, opts: M.Options, *, proof_only
             pl, cont = start("9", "POINT LIST")
             _base(pl, lv, light=True)
             conc_rows = [r for r in rows_pts if r not in slab_rows]
-            _points_plate(ps, pl, cont, conc_rows, band(*_tol_lines(lp), scope_st),
+            _points_plate(ps, pl, cont, conc_rows,
+                          band(policy_st, *_tol_lines(lp), scope_st),
                           tags_for=[r for r in conc_rows if r.family != "grid"])
 
     if not proof_only:
         if opts.out_legend:
-            _legend(ps, rr, reg, points, listing, frame_st)
+            _legend(ps, rr, reg, points, listing, frame_st, policy_st)
         _index(ps, listing, rr)
     man = ps.save(path)
     man["plates"] = listing
@@ -422,7 +429,7 @@ def legend_examples(points) -> list:
     return out
 
 
-def _legend(ps, rr, reg, points, listing, frame_st) -> None:
+def _legend(ps, rr, reg, points, listing, frame_st, policy_st=None) -> None:
     pl = ps.plate("BB-002", "LEGEND")
     listing.append({"number": "BB-002", "title": "LEGEND", "level": "", "kind": "LEGEND"})
     rows = []
@@ -448,7 +455,7 @@ def _legend(ps, rr, reg, points, listing, frame_st) -> None:
             cats.append(_d(f"{lv.name}: {c['total']} open item(s): {c.get('answer', 0)} answer "
                            f"needed before layout, {c.get('confirm', 0)} confirm before forming, "
                            f"{c.get('answered', 0)} answered.", f"register:{lv.code}"))
-    pl.statements([x for x in ([frame_st] + cats) if x is not None])
+    pl.statements([x for x in ([frame_st, policy_st] + cats) if x is not None])
 
 
 def _index(ps, listing, rr) -> None:

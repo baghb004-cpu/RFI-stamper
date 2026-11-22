@@ -206,7 +206,9 @@ files of your own.
   stable number that never moves between runs, a category (answer needed
   before layout, confirm before forming, answered), what is wrong, what
   is needed, and a ready RFI draft. A **hold policy** decides what the
-  points of an open item do: held, laid out marked CHECK, or laid out.
+  points of an open item do: held, laid out marked CHECK, or laid out;
+  the run report always states the policy in force, and so do the point
+  plates whenever it is not the default.
   An item is closed only by a real RFI in the drop and its exact quote.
 * **The Paper Trail** — nothing prints without evidence. Every sentence
   on a plate or in the report is generated from a proof record that holds

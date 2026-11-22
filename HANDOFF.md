@@ -1861,6 +1861,10 @@ manual picks" ask.
   move aside in one rename or the run is BLOCKED with the folder exactly
   as it was; a report file that is in use gets a numbered sibling and the
   tab opens the path this run wrote.
+- The hold policy is said wherever points are listed (report always;
+  point list plates and legend when it is not the default; a note on the
+  tab), and a mistyped stage / policy / level list / working range in an
+  options file blocks at Intake instead of being read as the default.
 - Next: the owner runs the sample set from the exe, then his real set;
   whatever the reader refuses or misreads on real sheets becomes the next
   round's fixture list (synthetic re-creations only, never the sheets).

@@ -178,6 +178,29 @@ def run(paths, out_root: str, opts: M.Options | None = None, log=print,
         done("Intake")
         return finish(RESULT_BLOCKED)
     concrete_hat = "concrete" in hats
+    # a mistyped switch in an options file is refused here, in plain words:
+    # it is never read as "the default" and never crashes a later stage
+    bad = []
+    if opts.stage not in M.STAGE_CHOICES:
+        bad.append(f"the stage switch reads {opts.stage!r}; it is one of "
+                   + ", ".join(M.STAGE_CHOICES))
+    try:
+        redtags.hold_policy(opts.hold_policy)
+    except ValueError as e:
+        bad.append(str(e))
+    if opts.levels is not None and not isinstance(opts.levels, (list, tuple)):
+        bad.append(f"the levels switch reads {opts.levels!r}; it is a list of level codes, "
+                   "or left out")
+    rng = opts.working_range_ft
+    if rng is not None and (isinstance(rng, bool) or not isinstance(rng, (int, float))
+                            or rng <= 0):
+        bad.append(f"the working range reads {rng!r}; it is a number of feet above zero, "
+                   "or left out")
+    if bad:
+        for b in bad:
+            st.block(b)
+        done("Intake")
+        return finish(RESULT_BLOCKED)
     refs = intake.classify_drop(paths, opts)
     kinds = {}
     for r in refs:
