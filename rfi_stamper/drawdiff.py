@@ -236,7 +236,13 @@ def diff_pages(base_pdf, rev_pdf, base_page: int = 1, rev_page: int = 1,
     theta = np.arctan2(u[:, 1], u[:, 0])
     flip = theta < 0
     theta = np.where(flip, theta + math.pi, theta)
-    theta = np.where(theta >= math.pi - 1e-12, theta - math.pi, theta)
+    # theta == pi (an exactly horizontal segment drawn right to left) stays
+    # at the END of the range: the clamp below files it in the last bin,
+    # where the seam probe pairs it with its own line.  Wrapping it to 0
+    # here WITHOUT flipping u (so rho kept the far sign) filed it with the
+    # line mirrored about the page center: a changed edge was reported at
+    # the wrong height or lost under that other line's coverage, and a
+    # re-export that only reversed the drawing direction read as a change.
     u = np.where(flip[:, None], -u, u)
     nrm = np.column_stack([-u[:, 1], u[:, 0]])
     ctr_a = np.array([wa / 2.0, ha / 2.0])

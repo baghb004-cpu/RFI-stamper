@@ -230,6 +230,56 @@ def test_honest_failures():
     assert any("size" in w for w in rep["warnings"]), rep["warnings"]
 
 
+def test_right_to_left_horizontal():
+    """An exactly horizontal segment drawn right to left has direction
+    angle pi.  It must be filed with its own line: with the same line
+    drawn left to right (a re-export that only flips the drawing
+    direction is not a change), and never with the line mirrored about
+    the page center, where a changed edge was reported at the wrong
+    height or lost under that other line's coverage."""
+    side = _GRID[6:]
+    # 1. the same line, drawn the other way round: not a change
+    a = _make("h_a.pdf", [(100.0, 100.0, 300.0, 100.0)] + side)
+    b = _make("h_b.pdf", [(300.0, 100.0, 100.0, 100.0)] + side)
+    rep = drawdiff.diff_pages(a, b, align=None, log=_quiet)
+    assert rep["totals"]["added"] == 0 and rep["totals"]["removed"] == 0, rep["totals"]
+    # 2. a right-to-left segment added at y; an unchanged left-to-right line
+    #    sits at the mirrored height H - y and spans the same stretch
+    y, ym = 222.0, H - 222.0
+    keep = [(100.0, ym, 500.0, ym)]
+    a = _make("h2_a.pdf", keep + side)
+    b = _make("h2_b.pdf", keep + [(300.0, y, 200.0, y)] + side)
+    rep = drawdiff.diff_pages(a, b, align=None, log=_quiet)
+    assert rep["totals"]["added"] == 1 and rep["totals"]["removed"] == 0, rep["totals"]
+    x0, y0, x1, y1 = rep["added"][0]
+    assert abs(y0 - y) < 0.01 and abs(y1 - y) < 0.01, ("reported at the wrong height", rep["added"])
+    assert abs(min(x0, x1) - 200.0) < 0.01 and abs(max(x0, x1) - 300.0) < 0.01, rep["added"]
+    assert abs(rep["totals"]["added_len_pt"] - 100.0) < 0.01
+    # 3. the mirrored line covers only part of that stretch: the added piece
+    #    is still whole and still at its own height
+    keep = [(100.0, ym, 250.0, ym)]
+    a = _make("h3_a.pdf", keep + side)
+    b = _make("h3_b.pdf", keep + [(300.0, y, 200.0, y)] + side)
+    rep = drawdiff.diff_pages(a, b, align=None, log=_quiet)
+    assert rep["totals"]["added"] == 1 and rep["totals"]["removed"] == 0, rep["totals"]
+    x0, y0, x1, y1 = rep["added"][0]
+    assert abs(y0 - y) < 0.01 and abs(rep["totals"]["added_len_pt"] - 100.0) < 0.01, rep["added"]
+    # 4. removal of a right-to-left segment is found the same way
+    rep = drawdiff.diff_pages(b, a, align=None, log=_quiet)
+    assert rep["totals"]["removed"] == 1 and rep["totals"]["added"] == 0, rep["totals"]
+    assert abs(rep["removed"][0][1] - y) < 0.01, rep["removed"]
+    # 5. a rectangle's edges run both ways: it still echoes clean and still
+    #    reports whole when added (its bottom edge runs right to left)
+    def box(x0, y0, x1, y1):
+        return [(x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)]
+    a = _make("h5_a.pdf", box(100.0, 120.0, 300.0, 180.0))
+    b = _make("h5_b.pdf", box(100.0, 120.0, 300.0, 180.0) + box(350.0, 400.0, 450.0, 460.0))
+    rep = drawdiff.diff_pages(a, b, align=None, log=_quiet)
+    assert rep["totals"]["added"] == 4 and rep["totals"]["removed"] == 0, rep["totals"]
+    assert abs(rep["totals"]["added_len_pt"] - 320.0) < 0.01, rep["totals"]
+    assert len(rep["regions"]) == 1
+
+
 def test_determinism():
     a = _make("d_a.pdf", _GRID)
     b = _make("d_b.pdf", _GRID[1:])
@@ -260,6 +310,9 @@ def main():
         print("PASS redline renderer (deterministic bytes, size, legend)")
         test_honest_failures()
         print("PASS honest failures (raster ValueError, size warning)")
+        test_right_to_left_horizontal()
+        print("PASS right-to-left horizontals: filed with their own line, never "
+              "with the line mirrored about the page center")
         test_determinism()
         print("PASS determinism")
         print("DRAWDIFF TESTS PASSED")
